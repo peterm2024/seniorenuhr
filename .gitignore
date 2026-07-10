@@ -16,3 +16,6 @@ Thumbs.db
 # Geheimnisse (WLAN-Zugang, Kalender-URL) niemals einchecken
 secrets.h
 *.secret
+
+# lokal heruntergeladener Kalender (enthaelt private Termine)
+kalender.ics

@@ -20,5 +20,13 @@ $quelle = Join-Path $hier "..\components\kalender"
     -o "$hier\test_ics.exe"
 if ($LASTEXITCODE -ne 0) { throw "Kompilierung fehlgeschlagen" }
 
+# Anzeige-Werkzeug gleich mitbauen (zeige_tag <datei.ics> [JJJJ-MM-TT])
+& $gcc -std=c99 -Wall -Wextra -Werror `
+    "-I$quelle\include" `
+    "$quelle\ics_parser.c" `
+    "$hier\zeige_tag.c" `
+    -o "$hier\zeige_tag.exe"
+if ($LASTEXITCODE -ne 0) { throw "Kompilierung von zeige_tag fehlgeschlagen" }
+
 & "$hier\test_ics.exe"
 exit $LASTEXITCODE
