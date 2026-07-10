@@ -1,0 +1,14 @@
+# ESP-IDF
+build/
+managed_components/
+sdkconfig.old
+dependencies.lock
+
+# IDE / OS
+.vscode/settings.json
+Thumbs.db
+*.tmp
+
+# Geheimnisse (WLAN-Zugang, Kalender-URL) niemals einchecken
+secrets.h
+*.secret
