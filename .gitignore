@@ -4,6 +4,10 @@ managed_components/
 sdkconfig.old
 dependencies.lock
 
+# Heruntergeladene Schriftdatei und kompilierte Tests
+tools/fonts/*.ttf
+test_host/*.exe
+
 # IDE / OS
 .vscode/settings.json
 Thumbs.db
