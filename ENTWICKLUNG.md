@@ -71,6 +71,11 @@ tools\fonts\erzeuge_fonts.ps1
 Bei falscher Flash-Größe bootet es in einer Assert-Schleife
 (`init_flash ... flash_ret == ESP_OK`).
 
+## Bekannte Fallstricke
+
+Gelöste Probleme mit Ursache und Lösung stehen in **[FALLSTRICKE_UND_WORKAROUNDS.md](FALLSTRICKE_UND_WORKAROUNDS.md)** —
+dort nachschauen, bevor ein schon einmal gelöstes Problem erneut untersucht wird.
+
 ## Wenn die Hardware da ist (Phase 0)
 
 1. Board per USB-C anschließen, im Geräte-Manager den COM-Port merken
