@@ -15,7 +15,7 @@ die Eltern müssen nichts bedienen.
 | 7"-LCD, 800×480, 65K Farben | RGB-Parallel-Interface | Groß genug für sehr große Schrift |
 | Kapazitiver Touch (GT911) | 5-Punkt, per I2C | Optional: „Tablette genommen"-Bestätigung |
 | WLAN 2,4 GHz + Bluetooth 5 LE | Onboard-Antenne | Uhrzeit (NTP) + Kalender-Abruf + Fernwartung |
-| microSD-Slot | | Offline-Cache für Termine, Konfiguration |
+| microSD-Slot | *(bisher ungenutzt)* | Cache liegt stattdessen auf einer eigenen Flash-Partition (FAT + Wear-Levelling, siehe unten) |
 | I2C-/UART-Header | | Später erweiterbar (z. B. DS3231-RTC, Helligkeitssensor) |
 | USB-C | Programmierung + Strom | Dauerbetrieb am USB-Netzteil |
 
@@ -66,31 +66,42 @@ Solange kein WLAN da ist, zeigt die Uhr „Uhrzeit wird geholt…" statt einer f
 
 | Schicht | Wahl | Begründung |
 |---|---|---|
-| Framework | **ESP-IDF 5.x** (VS Code-Extension) | Waveshare-Beispiele nutzen es; RGB-Display + PSRAM sauber konfigurierbar; OTA eingebaut |
-| Grafik | **LVGL 8/9** | Standard für dieses Board, fertige Waveshare-Demo als Startpunkt |
-| UI-Schriften | Eigene LVGL-Fonts (lv_font_conv) | Die eingebauten Fonts haben **keine deutschen Umlaute** (Mittwoch geht, „März" nicht) — wir generieren große Fonts (72–140 pt) mit ä/ö/ü/ß |
+| Framework | **ESP-IDF 5.5** (VS Code-Extension) | Waveshare-Beispiele nutzen es; RGB-Display + PSRAM sauber konfigurierbar |
+| Grafik | **LVGL 9** (via esp_lvgl_port) | Standard für dieses Board |
+| UI-Schriften | Eigene LVGL-Fonts (lv_font_conv, Montserrat-Bold) | Die eingebauten Fonts haben **keine deutschen Umlaute** — eigene Fonts (28/40/72/128 px) mit ä/ö/ü/ß, siehe `assets/fonts/` |
 | Uhrzeit | SNTP + Zeitzone `Europe/Berlin` | Sommer-/Winterzeit automatisch (`CET-1CEST,M3.5.0,M10.5.0/3`) |
-| Termine | ICS-Abruf per HTTPS + Mini-Parser | Nur Ausschnitt „heute + morgen" nötig → Parser bleibt klein |
-| Speicher | NVS (WLAN-Zugang, Einstellungen), SD/LittleFS (Termin-Cache) | Übersteht Neustarts und Internetausfälle |
-| Wartung | OTA-Update übers Netz | Neue Firmware ohne Besuch bei den Eltern |
+| Termine | ICS-Abruf per HTTPS (esp_http_client) + eigener Mini-Parser | Nur „heute" nötig → Parser bleibt klein, läuft identisch auf PC und ESP32 (`components/kalender`) |
+| Speicher | NVS (WLAN-Zugang), FAT+Wear-Levelling auf eigener Flash-Partition „speicher" (Termin-Cache) | Übersteht Neustarts und Internetausfälle, schont die Flash-Zellen bei häufigem Schreiben |
+| Wartung | WLAN-Watchdog (Neustart nach 30s ohne Verbindung) fertig; OTA-Update **noch offen** (Phase 5) | Erste Robustheits-Stufe steht, Fernwartung folgt |
 
-### 2.3 Module der Firmware
+### 2.3 Module der Firmware (tatsächlicher Stand)
 
 ```
 seniorenuhr/
 ├── main/
-│   ├── app_main.c          – Start, Task-Aufteilung
-│   ├── display/            – LCD-Init (RGB), LVGL-Anbindung, Helligkeit
-│   ├── ui/                 – Bildschirm-Layout, Fonts, Tag/Nacht-Modus
-│   ├── zeit/               – SNTP, Zeitzone, Wochentag/Tageszeit-Logik
-│   ├── kalender/           – ICS-Download, Parser, Cache, Tabletten-Erkennung
-│   ├── netz/               – WLAN-Verbindung + automatischer Reconnect
-│   └── wartung/            – OTA, Watchdog, Status-/Fehleranzeige
+│   ├── app_main.c          – Start: Startbildschirm-Ablauf, UI-Aufbau, Sekunden-Tick
+│   ├── anzeige.c/.h         – CH422G, RGB-Panel-Init, GT911-Touch, esp_lvgl_port
+│   ├── startbildschirm.c/.h – Boot-Anzeige (3 Symbole: WLAN/Uhr/Kalender)
+│   ├── netz.c/.h            – WLAN-Verbindung, Reconnect, 30s-Watchdog
+│   ├── zeit.c/.h            – SNTP, Zeitzone, Wochentag/Tageszeit-Text
+│   ├── kalender_holen.c/.h    – HTTPS-Download des ICS-Kalenders
+│   ├── kalender_speicher.c/.h – Cache auf eigener Flash-Partition
+│   ├── kalender_anzeige.c/.h  – Hintergrund-Task: verbindet Abruf+Cache+Parser
+│   └── secrets.h (gitignored) – WLAN-Zugang + Kalender-URL
+├── components/kalender/     – ICS-Parser (portables C, auch fuer PC-Tests)
+├── assets/fonts/             – generierte LVGL-Fonts
+├── test_host/                 – PC-Tests fuer den Parser
 └── FAHRPLAN.md
 ```
 
-Zwei Kernaufgaben laufen getrennt: die **UI-Task** (LVGL, jede Sekunde Uhr aktualisieren) und
-die **Sync-Task** (WLAN, NTP, Kalender) — so ruckelt die Anzeige nie, egal was das Netz macht.
+Statt der ursprünglich geplanten Unterordner je Bereich sind die Module als flache Dateien
+in `main/` organisiert — bei der aktuellen Größe übersichtlich genug, eine Aufteilung in
+Unterordner kann bei Bedarf später erfolgen.
+
+Zwei Kernaufgaben laufen getrennt: die **LVGL-Task** (Anzeige, jede Sekunde Uhr aktualisieren)
+und die **Kalender-Task** (WLAN-Abruf alle 15 Min) — so ruckelt die Anzeige nie, egal was das
+Netz macht. Ein `esp_timer`-Watchdog startet das Gerät automatisch neu, wenn länger als 30s
+keine WLAN-Verbindung besteht.
 
 ### 2.4 Bildschirm-Entwurf (seniorengerecht)
 
@@ -119,46 +130,60 @@ Gestaltungsregeln (bewährt bei Demenz-/Seniorenuhren):
 - Anstehende Tablette zur Einnahmezeit **farblich hervorheben** (statt Alarm-Ton)
 - Maximal die 3–4 nächsten Einträge — keine überfüllten Listen
 
+**Tatsächlich umgesetzt (Stand: 13.07.2026):** Layout wie oben (ohne Emoji — die eigenen
+Fonts enthalten nur Buchstaben/Umlaute), plus drei Anzeigemodi statt einer reinen Dimmung:
+
+- **Tag:** volle Farben (dunkelblauer Hintergrund, gelber Wochentag, weiße Uhrzeit)
+- **Abend** (18–21:59 Uhr): Bildschirm gleichmäßig abgedunkelt, Tabletten/Termine bleiben sichtbar
+- **Nacht** (22–5:59 Uhr): Hintergrund komplett schwarz, alle Schrift nur noch dunkelgrau,
+  Tabletten/Termine werden ausgeblendet (nachts nicht relevant, spart zusätzlich Licht)
+- **Berührung während Abend/Nacht** schaltet für 30 Sekunden auf volle Tag-Helligkeit
+  (inklusive Tabletten/Termine), danach automatisch zurück
+- Der **Bootvorgang** zeigt einen eigenen Startbildschirm (drei Symbole: WLAN, Uhr, Kalender,
+  die nacheinander blinken und weiß werden), danach blendet die Hauptanzeige über 2 Sekunden
+  passend zur Tageszeit ein, statt hart zu erscheinen
+
 ---
 
 ## 3. Fahrplan (Phasen)
 
-Jede Phase endet mit etwas Sichtbarem, das funktioniert.
+Jede Phase endet mit etwas Sichtbarem, das funktioniert. **Tatsächliche Reihenfolge wich vom
+Plan ab:** Phase 4 (Kalender) wurde vor Phase 2/3 vorgezogen, da Peter das früh sehen wollte;
+Phase 2 (Layout/Tag-Nacht) kam danach und deckt inhaltlich auch das ab, was für Phase 3
+(Testdaten-Anzeige) geplant war — echte Kalenderdaten waren zu dem Zeitpunkt schon da, ein
+Umweg über Testdaten war nicht mehr nötig.
 
-### Phase 0 — Werkzeugkasten & Hardware-Test *(½ Tag)*
-- ESP-IDF + VS Code-Extension installieren, Treiber prüfen
-- Waveshare-Demo (LVGL) herunterladen, kompilieren, flashen
-- ✅ **Ziel:** Display zeigt Demo, Touch reagiert → Hardware ist ok, Toolchain steht
+### Phase 0 — Werkzeugkasten & Hardware-Test *(½ Tag)* ✅ ERLEDIGT (13.07.2026)
+- ESP-IDF 5.5 + VS Code-Extension installiert, hello_world erfolgreich geflasht
+- Board als N8R8-Variante identifiziert (8 MB Flash statt beworbener 16 MB, siehe
+  FALLSTRICKE_UND_WORKAROUNDS.md #2)
 
-### Phase 1 — Die nackte Uhr *(1–2 Tage)*
-- WLAN-Verbindung + SNTP, Zeitzone Europe/Berlin
+### Phase 1 — Die nackte Uhr *(1–2 Tage)* ✅ ERLEDIGT (13.07.2026)
+- WLAN-Verbindung + SNTP, Zeitzone Europe/Berlin, automatischer Reconnect
 - Anzeige: Uhrzeit, Wochentag, Datum (deutsch), Sekundentakt-Update
-- ✅ **Ziel:** Eine korrekt gehende, deutsch beschriftete Uhr
+- Getestet: zeigte korrekt „Montag 21:03 13. Juli 2026"
 
-### Phase 2 — Seniorengerechte Anzeige *(1–2 Tage)*
-- Große eigene Fonts mit Umlauten generieren und einbinden
-- Layout nach Entwurf oben, Tageszeit-Zeile, Tag/Nacht-Modus (Dimmen per Uhrzeit)
-- ✅ **Ziel:** Aus 3 m Entfernung ablesbar, nachts nicht störend
+### Phase 4 — Kalender-Anbindung ✅ ERLEDIGT (13.07.2026, vorgezogen)
+- HTTPS-Download (esp_http_client + TLS-Zertifikatsbündel) des privaten Google-Kalender-ICS
+- Eigener ICS-Parser (`components/kalender`) — läuft identisch auf PC (25 Tests) und ESP32
+- Cache auf eigener Flash-Partition (FAT + Wear-Levelling statt SD-Karte)
+- Hintergrund-Task: Abruf alle 15 Min, Retry nach 30s bei Fehlern, erkennt Mitternachtswechsel
+- Getestet gegen den echten Familienkalender: korrekte Tabletten/Termine für den jeweiligen Tag
 
-### Phase 3 — Termine & Tabletten mit Testdaten *(1–2 Tage)*
-- Datenmodell (Termin: Zeit, Titel, Typ) + Anzeige-Listen
-- Testdaten fest einprogrammiert bzw. als JSON von SD-Karte
-- Hervorhebungs-Logik: „jetzt fällige" Tablette farblich betonen
-- Tabletten per Touch abhakbar (✓), Haken bleibt bis Mitternacht gespeichert —
-  **per Einstellung ein-/ausschaltbar**
-- ✅ **Ziel:** Der Bildschirm sieht aus wie das Endprodukt — nur die Daten sind noch statisch
+### Phase 2 — Seniorengerechte Anzeige ✅ ERLEDIGT (13.07.2026)
+- Eigene Fonts mit Umlauten (28/40/72/128 px, Montserrat-Bold)
+- Tag/Abend/Nacht-Farbschema (siehe Abschnitt 2.4) statt einer reinen Dimmung
+- Berührung weckt für 30s in den Tag-Modus
+- Startbildschirm mit drei Symbolen (WLAN/Uhr/Kalender), sanftes Einblenden der Hauptanzeige
+- Tabletten-Abhaken per Touch (aus Phase 3 vorgezogen geplant) ist **noch nicht umgesetzt**
 
-### Phase 4 — Kalender-Anbindung *(2–3 Tage, kniffligste Phase)*
-- Kalender bei Google/Nextcloud einrichten, geheime ICS-URL erzeugen
-- HTTPS-Download + ICS-Parser (nur heute/morgen, inkl. Wiederholungen für Tabletten)
-- Cache auf SD/Flash, Verhalten bei Internetausfall definieren
-- ✅ **Ziel:** Termin am Handy eintragen → erscheint binnen 15 min auf der Uhr
-
-### Phase 5 — Robustheit & Fernwartung *(1–2 Tage)*
-- Watchdog, automatischer WLAN-Reconnect, sauberer Kaltstart nach Stromausfall
-- OTA-Updates (Firmware aus der Ferne aktualisieren)
-- Dezente Statusanzeige (kleines Symbol bei „kein WLAN" — keine Fehlermeldungen für die Eltern)
-- ✅ **Ziel:** Eine Woche Dauerlauf bei Peter ohne Eingriff
+### Phase 5 — Robustheit & Fernwartung *(teilweise begonnen)*
+- ✅ WLAN-Watchdog: Neustart nach 30s ununterbrochen ohne Verbindung
+- ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
+- ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
+  bestehender WLAN-Verbindung (der aktuelle Watchdog deckt nur WLAN-Verbindungsabbrüche ab)
+- ⬜ Dezente Statusanzeige bei dauerhaften Problemen
+- **Ziel:** Eine Woche Dauerlauf bei Peter ohne Eingriff
 
 ### Phase 6 — Einzug bei den Eltern *(1 Tag + Beobachtung)*
 - Gehäuse/Aufsteller, Kabelführung, Platzwahl (Augenhöhe, kein Gegenlicht, Steckdose)
@@ -179,6 +204,7 @@ Jede Phase endet mit etwas Sichtbarem, das funktioniert.
 1. **Kalender-Dienst:** Google Kalender — Pflege am Notebook und unterwegs per iPhone
    (Google-Kalender-App bzw. Kalender-Abo auf dem iPhone).
 2. **WLAN bei den Eltern:** vorhanden. ✓
-3. **Touch:** Tabletten sind per Touch **abhakbar** — die Funktion ist per Einstellung
-   ein-/ausschaltbar, falls sie die Eltern überfordert.
+3. **Touch:** Tabletten sollen per Touch **abhakbar** sein — die Funktion soll per Einstellung
+   ein-/ausschaltbar sein, falls sie die Eltern überfordert. *(Stand 13.07.2026: noch nicht
+   umgesetzt, Tabletten/Termine werden bisher nur angezeigt.)*
 4. **Ton:** komplett stumm. Erinnerung ausschließlich über farbliche Hervorhebung.
