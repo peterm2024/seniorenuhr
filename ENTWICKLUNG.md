@@ -26,6 +26,14 @@ Danach stehen `idf.py build`, `idf.py -p COMx flash monitor` usw. zur Verfügung
 Alternativ in VS Code: Befehlspalette → „ESP-IDF: Configure ESP-IDF Extension"
 → „Use existing setup" (findet die Installation automatisch).
 
+**Firmware bauen und aufs Board spielen** (Board hängt an **COM3**):
+
+```powershell
+idf.py build
+idf.py -p COM3 flash
+idf.py -p COM3 monitor    # serielle Ausgabe ansehen, Beenden mit Strg+]
+```
+
 **Parser-Tests auf dem PC ausführen:**
 
 ```powershell
@@ -41,8 +49,12 @@ tools\fonts\erzeuge_fonts.ps1
 ## Projektstruktur
 
 ```
+├── CMakeLists.txt           ESP-IDF-Projekt (Wurzel)
+├── sdkconfig.defaults       Board-Konfiguration (8 MB Flash!, Octal-PSRAM)
+├── partitions.csv           Partitionslayout
 ├── FAHRPLAN.md              Architektur & Phasenplan
 ├── ENTWICKLUNG.md           diese Datei
+├── main/                    Firmware: app_main.c, anzeige.c (Display/LVGL)
 ├── components/
 │   └── kalender/            ICS-Parser (portables C, läuft auf PC und ESP32)
 ├── test_host/               PC-Tests für den Parser (25 Prüfungen)
@@ -53,6 +65,11 @@ tools\fonts\erzeuge_fonts.ps1
 │                              schrift_klein_28  – Beschriftungen
 └── tools/fonts/             Generator-Skript (lädt die TTF bei Bedarf selbst)
 ```
+
+**Achtung Hardware-Falle:** Das Board meldet sich als N8R8-Variante —
+**8 MB Flash** (nicht 16, wie die Produktseite verspricht) und 8 MB PSRAM.
+Bei falscher Flash-Größe bootet es in einer Assert-Schleife
+(`init_flash ... flash_ret == ESP_OK`).
 
 ## Wenn die Hardware da ist (Phase 0)
 

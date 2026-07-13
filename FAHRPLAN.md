@@ -11,7 +11,7 @@ die Eltern müssen nichts bedienen.
 
 | Komponente | Detail | Bedeutung für uns |
 |---|---|---|
-| ESP32-S3 Dual-Core, 240 MHz | 512 KB SRAM, **16 MB Flash, 8 MB PSRAM** | Genug Leistung für flüssige Grafik (LVGL) |
+| ESP32-S3 Dual-Core, 240 MHz | 512 KB SRAM, **8 MB Flash, 8 MB PSRAM** (Produktseite nennt 16 MB — verbaut sind 8, per flash_id geprüft) | Genug Leistung für flüssige Grafik (LVGL) |
 | 7"-LCD, 800×480, 65K Farben | RGB-Parallel-Interface | Groß genug für sehr große Schrift |
 | Kapazitiver Touch (GT911) | 5-Punkt, per I2C | Optional: „Tablette genommen"-Bestätigung |
 | WLAN 2,4 GHz + Bluetooth 5 LE | Onboard-Antenne | Uhrzeit (NTP) + Kalender-Abruf + Fernwartung |
