@@ -45,3 +45,21 @@ Dieses Dokument dokumentiert die technischen Hürden, die während der Entwicklu
 **Ursache:** ESP-IDF hat die SNTP-API über mehrere Versionen hinweg umgebaut; ältere Tutorials/Beispiele im Netz nutzen noch `sntp_setoperatingmode()`/`sntp_init()` direkt.
 **Lösung:** Für ESP-IDF 5.5 die moderne, empfohlene API aus `esp_netif_sntp.h` verwendet (`ESP_NETIF_SNTP_DEFAULT_CONFIG`, `esp_netif_sntp_init`, `sync_cb`-Callback) — kompilierte und funktionierte im ersten Anlauf ohne Anpassung.
 **Lehre:** Bei ESP-IDF-Netzwerk-APIs immer die zur installierten IDF-Version (hier: v5.5.4, siehe `ENTWICKLUNG.md`) passende Doku/Header prüfen, nicht die erstbeste Suchtreffer-Version übernehmen.
+
+---
+
+## 6. RGB-Display flackerte, unabhängig von jeder erkennbaren Aktion im Programm
+
+**Problem:** Nach Einführung von WLAN/Kalender flackerte das Display gelegentlich sichtbar — zunächst jede Sekunde, später seltener, laut Nutzerbeobachtung "zwischendrin, ohne dass irgendwas passiert".
+**Ursache:** Mehrschichtig. (1) `lv_label_set_text()`/`lv_obj_set_style_bg_opa()` wurden jede Sekunde aufgerufen, auch wenn sich der Wert nicht änderte — jeder Aufruf löst ein Redraw aus, beim vollflächigen Dimm-Overlay sogar einen kompletten Panel-Refresh. (2) Das RGB-Display holt seinen Framebuffer per DMA direkt aus dem PSRAM; WLAN teilt sich denselben Speicherbus — der periodische Modem-Schlaf/Aufwach-Zyklus (Power-Save) erzeugte kurze Bus-Konflikte, die sich als Flackern zeigten, unabhängig von jeglicher App-Logik.
+**Lösung:** (1) Änderungs-Prüfung vor jedem `lv_label_set_text`/`lv_obj_set_style_bg_opa`-Aufruf — nur bei tatsächlich neuem Wert setzen (siehe `uhr_tick` in `app_main.c`). (2) `esp_wifi_set_ps(WIFI_PS_NONE)` nach `esp_wifi_start()` in `netz.c` — das Board hängt ohnehin am Netzteil, Stromsparen ist unnötig. (3) `bounce_buffer_size_px` in `anzeige.c` von 10 auf 20 Zeilen verdoppelt, für mehr Puffer gegen PSRAM-Zugriffsverzögerungen.
+**Lehre:** Bei "flackert unregelmäßig, ohne erkennbaren Auslöser im eigenen Code" auf ESP32-S3-Boards mit RGB-Display + PSRAM-Framebuffer + WLAN zuerst an Bus-Kontention zwischen WLAN und Display-DMA denken, nicht nur an die eigene Render-Logik.
+
+---
+
+## 7. Absturz mit hängendem schwarzem Bildschirm nach Kaltstart — fehlender `lvgl_port_lock()` um `lv_anim_*`/`lv_timer_create`
+
+**Problem:** Nach dem Einbau einer Einblend-Animation (Overlay-Deckkraft per `lv_anim` über 2s) blieb das Board nach einem Kaltstart (USB ab-/wieder angesteckt) mit komplett schwarzem Bildschirm hängen.
+**Ursache:** `lv_anim_init/set_var/.../lv_anim_start` sowie `lv_timer_create` wurden aus dem `main`-Task heraus aufgerufen, **ohne** sie wie jede andere LVGL-Funktion im Projekt mit `lvgl_port_lock()/unlock()` gegen den parallel laufenden LVGL-Task abzusichern. Der Task-Watchdog schlug 5 Sekunden später zu: `main` lief in eine Endlosschleife (vermutlich Korruption der internen LVGL-Animations-/Timer-Listen durch den Datenwettlauf) und ließ den Idle-Task verhungern.
+**Lösung:** Den gesamten Block (`lv_anim_*` und `lv_timer_create`) in `lvgl_port_lock(0); ... lvgl_port_unlock();` gekapselt — danach lief die Sequenz reproduzierbar sauber durch (verifiziert per Phasen-Logging in `app_main()`).
+**Lehre:** Ausnahmslos **jeder** Aufruf einer LVGL-Funktion außerhalb des LVGL-Tasks selbst muss gesperrt werden — auch scheinbar harmlose "nur registrieren"-Funktionen wie `lv_anim_start`/`lv_timer_create`, die selbst nicht sofort zeichnen. Ein fehlender Lock zeigt sich nicht zuverlässig als sofortiger Crash, sondern manchmal erst Sekunden später und nur bei bestimmtem Timing (hier: nur nach Kaltstart reproduzierbar, nicht bei jedem Soft-Reset) — bei "seltsamem, timingabhängigem Hänger nach LVGL-Änderungen" zuerst alle neuen LVGL-Aufrufe auf fehlende Locks prüfen.
