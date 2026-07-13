@@ -4,3 +4,6 @@
 nvs,        data, nvs,      0x9000,   24K
 phy_init,   data, phy,      0xf000,   4K
 factory,    app,  factory,  0x10000,  6M
+# Kalender-Cache: FAT + Wear-Levelling, damit der alle ~15 Minuten
+# geschriebene Kalender-Text nicht immer dieselben Flash-Sektoren abnutzt.
+speicher,   data, fat,      0x610000, 256K

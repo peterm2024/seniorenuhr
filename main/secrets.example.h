@@ -8,3 +8,5 @@
 
 #define WLAN_SSID      "Netzwerkname eintragen"
 #define WLAN_PASSWORT  "Passwort eintragen"
+
+#define KALENDER_ICS_URL "Private iCal-Adresse aus Google Kalender eintragen"
