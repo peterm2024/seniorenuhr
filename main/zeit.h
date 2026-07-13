@@ -26,4 +26,7 @@ const char *zeit_wochentag_gross(const struct tm *t);
 /* Schreibt das Datum als "10. Juli 2026" nach puffer. */
 void zeit_datum_text(const struct tm *t, char *puffer, size_t puffer_groesse);
 
+/* Tageszeit in einem Wort: "Vormittag", "Nachmittag", "Abend" oder "Nacht". */
+const char *zeit_tageszeit(const struct tm *t);
+
 #endif

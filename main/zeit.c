@@ -56,3 +56,15 @@ void zeit_datum_text(const struct tm *t, char *puffer, size_t puffer_groesse)
     const char *monat = (t->tm_mon >= 0 && t->tm_mon < 12) ? monate[t->tm_mon] : "";
     snprintf(puffer, puffer_groesse, "%d. %s %d", t->tm_mday, monat, t->tm_year + 1900);
 }
+
+const char *zeit_tageszeit(const struct tm *t)
+{
+    int stunde = t->tm_hour;
+    if (stunde >= 22 || stunde < 6)
+        return "Nacht";
+    if (stunde < 12)
+        return "Vormittag";
+    if (stunde < 18)
+        return "Nachmittag";
+    return "Abend";
+}

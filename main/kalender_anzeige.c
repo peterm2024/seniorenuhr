@@ -21,7 +21,11 @@ static const char *TAG = "kalender_anzeige";
 #define ABRUF_INTERVALL_US ((int64_t)15 * 60 * 1000000)
 #define ABRUF_RETRY_US ((int64_t)30 * 1000000)
 #define KEIN_WLAN_RETRY_US ((int64_t)10 * 1000000)
-#define TICK_MS 60000
+/* Wie oft die Schleife aufwacht, um Mitternachts-Wechsel bzw. eine gerade
+ * erst bekannt gewordene Uhrzeit zu pruefen - das eigentliche Abrufintervall
+ * (15 Min) wird unabhaengig davon ueber ABRUF_INTERVALL_US gesteuert, ein
+ * kurzes Aufwachen kostet also keine zusaetzlichen Netzwerkzugriffe. */
+#define TICK_MS 5000
 
 static SemaphoreHandle_t s_mutex;
 static kalender_anzeige_t s_anzeige;

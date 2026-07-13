@@ -85,7 +85,11 @@ static esp_err_t panel_erzeugen(esp_lcd_panel_handle_t *panel)
         .data_width = 16,
         .bits_per_pixel = 16,
         .num_fbs = 2,                                  /* Anti-Tearing */
-        .bounce_buffer_size_px = LCD_BREITE * 10,
+        /* Grosszuegig bemessen: der Bounce-Buffer puffert PSRAM-Zugriffs-
+         * verzoegerungen ab, die u.a. durch WLAN-Aktivitaet entstehen
+         * (gemeinsamer Speicherbus) - zu klein bemessen zeigt sich das
+         * als gelegentliches Flackern. */
+        .bounce_buffer_size_px = LCD_BREITE * 20,
         .hsync_gpio_num = PIN_LCD_HSYNC,
         .vsync_gpio_num = PIN_LCD_VSYNC,
         .de_gpio_num = PIN_LCD_DE,
