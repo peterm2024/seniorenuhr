@@ -7,14 +7,34 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
-CONFIG_SPIRAM_SPEED_80M=y
+# 120 MHz statt 80: doppelte PSRAM-Bandbreite. Der RGB-Framebuffer liegt im
+# PSRAM und wird per DMA dauerhaft ausgelesen - bei vollflaechigen Redraws
+# (z.B. Einblend-Animation) konkurriert das Rendern mit dem Panel-DMA um
+# dieselbe Bandbreite, was bei 80 MHz als Flackern sichtbar wurde.
+# 120 MHz gilt bei Espressif als "experimental" (eingeschraenkter
+# Temperaturbereich, <85 Grad) - fuer eine Wohnzimmer-Uhr unkritisch.
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+CONFIG_SPIRAM_SPEED_120M=y
+# Flash und PSRAM teilen sich den MSPI-Taktgeber - 120 MHz PSRAM erzwingt
+# auch 120 MHz Flash (sonst Build-Fehler: Kombination 240M-Kern/80M-Flash
+# existiert nicht in der Timing-Tabelle)
+CONFIG_ESPTOOLPY_FLASHFREQ_120M=y
 # Code/Konstanten auch aus PSRAM ausfuehrbar -> weniger Flash-Zugriffe,
 # verhindert Flackern des RGB-Displays bei WLAN-/Flash-Aktivitaet
 CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
 CONFIG_SPIRAM_RODATA=y
 
+# Groesserer Daten-Cache mit 64-Byte-Zeilen: weniger PSRAM-Transaktionen
+# pro uebertragener Datenmenge (Espressif-Empfehlung fuer RGB-Panels)
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
 # RGB-Panel: Interrupts auch waehrend Flash-Schreibzugriffen bedienen
 CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
+# Bei erkanntem Bildversatz (Bounce-Buffer-Unterlauf durch kurzzeitige
+# PSRAM-Ueberlast) den Panel-Takt automatisch im naechsten VSYNC neu
+# aufsetzen, statt dauerhaft verschoben weiterzulaufen
+CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
 
 CONFIG_FREERTOS_HZ=1000
 CONFIG_COMPILER_OPTIMIZATION_PERF=y

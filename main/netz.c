@@ -16,17 +16,21 @@ static const char *TAG = "netz";
 
 #define BIT_HAT_IP BIT0
 
-/* Ist das Geraet laenger als diese Zeit ununterbrochen ohne WLAN, hilft
- * kein Reconnect-Versuch mehr weiter - dann lieber neu starten, statt
- * dauerhaft (z. B. mit haengenden Verbindungen) steckenzubleiben. */
+/* Reisst die WLAN-Verbindung im Laufbetrieb ab und kommt laenger als diese
+ * Zeit nicht wieder, hilft kein Reconnect-Versuch mehr weiter - dann lieber
+ * neu starten, statt dauerhaft (z. B. mit haengenden Verbindungen)
+ * steckenzubleiben. Der Watchdog ist erst NACH der ersten erfolgreichen
+ * Verbindung scharf - waehrend des Bootens ueberwacht stattdessen der
+ * 60s-Countdown des Startbildschirms die WLAN-Phase (app_main). */
 #define WATCHDOG_GRENZE_US (30LL * 1000000)
 #define WATCHDOG_PRUEF_INTERVALL_US (5LL * 1000000)
 
 static EventGroupHandle_t s_events;
 static volatile bool s_verbunden = false;
+static volatile bool s_war_verbunden = false; /* schon je eine IP bekommen? */
 
-/* 0 = aktuell verbunden; sonst Zeitpunkt (esp_timer_get_time), seit dem
- * ununterbrochen keine Verbindung besteht. */
+/* 0 = aktuell verbunden (oder noch nie verbunden gewesen); sonst Zeitpunkt
+ * (esp_timer_get_time), seit dem ununterbrochen keine Verbindung besteht. */
 static volatile int64_t s_getrennt_seit_us = 0;
 
 static void wifi_watchdog_callback(void *arg)
@@ -49,12 +53,13 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
         esp_wifi_connect();
     } else if (basis == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_verbunden = false;
-        if (s_getrennt_seit_us == 0)
+        if (s_war_verbunden && s_getrennt_seit_us == 0)
             s_getrennt_seit_us = esp_timer_get_time();
         ESP_LOGW(TAG, "WLAN-Verbindung verloren, versuche erneut...");
         esp_wifi_connect();
     } else if (basis == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         s_verbunden = true;
+        s_war_verbunden = true;
         s_getrennt_seit_us = 0;
         ESP_LOGI(TAG, "WLAN verbunden, IP-Adresse erhalten");
         xEventGroupSetBits(s_events, BIT_HAT_IP);
@@ -71,7 +76,6 @@ esp_err_t netz_start(uint32_t timeout_ms)
     ESP_ERROR_CHECK(err);
 
     s_events = xEventGroupCreate();
-    s_getrennt_seit_us = esp_timer_get_time(); /* "getrennt" bis zum ersten GOT_IP */
 
     const esp_timer_create_args_t watchdog_cfg = {
         .callback = wifi_watchdog_callback,

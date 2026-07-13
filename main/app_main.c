@@ -14,6 +14,7 @@
 #include "anzeige.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -23,6 +24,14 @@
 #include "zeit.h"
 
 #define BERUEHRUNG_WACHZEIT_US (30LL * 1000000)
+
+/* Mindestabstand zwischen zwei Deckkraft-Aenderungen waehrend der Einblend-
+ * Animation. Ohne diese Bremse ruft lv_anim bei jedem LVGL-Tick (ca. alle
+ * 30ms) lv_obj_set_style_bg_opa auf dem bildschirmfuellenden Overlay auf -
+ * jeder dieser ~60 Aufrufe in 2s erzwingt ein komplettes Neuzeichnen des
+ * ganzen Panels und verschaerft die PSRAM-Bus-Kontention mit dem WLAN
+ * (siehe FALLSTRICKE_UND_WORKAROUNDS.md #6) zu sichtbarem Flackern. */
+#define EINBLEND_MIND_ABSTAND_US (100 * 1000)
 
 /* Farben */
 #define FARBE_TAG_HINTERGRUND   0x123a63
@@ -67,6 +76,11 @@ static void beruehrung_callback(lv_event_t *e)
  * Parameter mit Zufallswerten vom Stack befuellen. */
 static void einblend_anim_cb(void *var, int32_t wert)
 {
+    static int64_t s_letzte_zeit_us = 0;
+    int64_t jetzt_us = esp_timer_get_time();
+    if (jetzt_us - s_letzte_zeit_us < EINBLEND_MIND_ABSTAND_US)
+        return;
+    s_letzte_zeit_us = jetzt_us;
     lv_obj_set_style_bg_opa((lv_obj_t *)var, (lv_opa_t)wert, 0);
 }
 
@@ -298,9 +312,24 @@ static void uhr_tick(lv_timer_t *timer)
     lvgl_port_unlock();
 }
 
+/* Eine Boot-Phase hat ihren 60s-Countdown (Ring auf dem Startbildschirm)
+ * aufgebraucht - Neustart, ein weiteres Warten bringt erfahrungsgemaess
+ * nichts mehr (haengende Verbindung, DHCP-/DNS-Probleme, ...). */
+static void phase_fehlgeschlagen_neustart(const char *phase)
+{
+    ESP_LOGE(TAG, "Start: Phase '%s' nicht in %ds abgeschlossen - Neustart",
+             phase, STARTBILDSCHIRM_PHASE_TIMEOUT_S);
+    vTaskDelay(pdMS_TO_TICKS(100)); /* Log-Ausgabe rausschreiben lassen */
+    esp_restart();
+}
+
 static void einblend_fertig_cb(lv_anim_t *a)
 {
     (void)a;
+    /* Die Abstandsbremse in einblend_anim_cb kann den letzten Zwischenschritt
+     * uebersprungen haben - hier den echten Zielwert erzwingen, damit das
+     * Overlay garantiert exakt auf der Zieldeckkraft landet. */
+    lv_obj_set_style_bg_opa(s_dimm_overlay, overlay_ziel_fuer_modus(aktueller_modus()), 0);
     ESP_LOGI(TAG, "Start: Einblend-Animation fertig");
 }
 
@@ -317,27 +346,35 @@ void app_main(void)
     startbildschirm_erstellen(); /* zeigt sich auf dem aktuell aktiven Default-Screen */
     ESP_LOGI(TAG, "Start: Startbildschirm angezeigt");
 
+    /* Jede Boot-Phase muss innerhalb des Ring-Countdowns gelingen - sonst
+     * hilft nur ein Neustart (haengende Verbindungen, DHCP-Probleme, ...).
+     * Der Ring auf dem Startbildschirm zeigt genau diese Restzeit an. */
+    const int max_versuche = STARTBILDSCHIRM_PHASE_TIMEOUT_S * 10; /* Polling alle 100ms */
+
     startbildschirm_schritt_start(STARTBILDSCHIRM_WLAN);
-    esp_err_t wlan_ergebnis = netz_start(15000);
+    esp_err_t wlan_ergebnis = netz_start(STARTBILDSCHIRM_PHASE_TIMEOUT_S * 1000);
     if (wlan_ergebnis != ESP_OK)
-        ESP_LOGW(TAG, "WLAN noch nicht verbunden, versuche im Hintergrund weiter");
+        phase_fehlgeschlagen_neustart("WLAN");
     startbildschirm_schritt_fertig(STARTBILDSCHIRM_WLAN);
-    ESP_LOGI(TAG, "Start: Schritt WLAN fertig (ok=%d)", wlan_ergebnis == ESP_OK);
+    ESP_LOGI(TAG, "Start: Schritt WLAN fertig");
 
     startbildschirm_schritt_start(STARTBILDSCHIRM_UHR);
     zeit_sntp_starten();
     int uhr_versuche;
-    for (uhr_versuche = 0; uhr_versuche < 100 && !zeit_ist_synchron(); uhr_versuche++)
+    for (uhr_versuche = 0; uhr_versuche < max_versuche && !zeit_ist_synchron(); uhr_versuche++)
         vTaskDelay(pdMS_TO_TICKS(100));
+    if (!zeit_ist_synchron())
+        phase_fehlgeschlagen_neustart("Uhrzeit (NTP)");
     startbildschirm_schritt_fertig(STARTBILDSCHIRM_UHR);
-    ESP_LOGI(TAG, "Start: Schritt Uhr fertig (synchron=%d, gewartet=%dms)",
-             zeit_ist_synchron(), uhr_versuche * 100);
+    ESP_LOGI(TAG, "Start: Schritt Uhr fertig (gewartet=%dms)", uhr_versuche * 100);
 
     startbildschirm_schritt_start(STARTBILDSCHIRM_KALENDER);
     kalender_task_starten();
     int kalender_versuche;
-    for (kalender_versuche = 0; kalender_versuche < 100 && kalender_anzeige_version() == 0; kalender_versuche++)
+    for (kalender_versuche = 0; kalender_versuche < max_versuche && kalender_anzeige_version() == 0; kalender_versuche++)
         vTaskDelay(pdMS_TO_TICKS(100));
+    if (kalender_anzeige_version() == 0)
+        phase_fehlgeschlagen_neustart("Kalender");
     startbildschirm_schritt_fertig(STARTBILDSCHIRM_KALENDER);
     ESP_LOGI(TAG, "Start: Schritt Kalender fertig (version=%lu, gewartet=%dms)",
              (unsigned long)kalender_anzeige_version(), kalender_versuche * 100);

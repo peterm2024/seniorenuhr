@@ -5,6 +5,8 @@
 #include "esp_lvgl_port.h"
 
 #define FARBE_SPLASH_GRAU 0x555555
+#define FARBE_RING_AKTIV  0xaaaaaa /* heller als das Grau der Symbole, damit
+                                    * der Countdown klar erkennbar ist */
 #define MAX_TEILE 4
 
 typedef struct {
@@ -14,9 +16,12 @@ typedef struct {
 
 static lv_obj_t *s_screen;
 static icon_t s_icons[3];
+static lv_obj_t *s_ringe[3];
 static int s_aktiver_schritt = -1;
 static bool s_blink_an = false;
 static lv_timer_t *s_blink_timer;
+static lv_timer_t *s_countdown_timer;
+static int s_rest_sekunden;
 
 static void icon_teil_hinzufuegen(icon_t *ic, lv_obj_t *obj)
 {
@@ -40,6 +45,38 @@ static lv_obj_t *icon_container_erzeugen(lv_obj_t *scr, int32_t x_mitte)
     lv_obj_set_size(cont, 100, 100);
     lv_obj_set_pos(cont, x_mitte - 50, 190);
     return cont;
+}
+
+/* Countdown-Ring um ein Symbol: voller Kreis = volle Restzeit, pro
+ * Sekunde verschwindet ein Sechzigstel (im Uhrzeigersinn ab 12 Uhr).
+ * Anfangs unsichtbar - erscheint erst, wenn der Schritt beginnt. */
+static lv_obj_t *ring_erzeugen(lv_obj_t *scr, int32_t x_mitte)
+{
+    lv_obj_t *ring = lv_arc_create(scr);
+    lv_obj_set_size(ring, 130, 130);
+    lv_obj_set_pos(ring, x_mitte - 65, 175);
+    lv_arc_set_rotation(ring, 270); /* Start oben statt rechts */
+    lv_arc_set_bg_angles(ring, 0, 360);
+    lv_arc_set_range(ring, 0, STARTBILDSCHIRM_PHASE_TIMEOUT_S);
+    lv_arc_set_value(ring, STARTBILDSCHIRM_PHASE_TIMEOUT_S);
+    lv_arc_set_mode(ring, LV_ARC_MODE_REVERSE); /* leert sich im Uhrzeigersinn */
+    lv_obj_remove_style(ring, NULL, LV_PART_KNOB);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(ring, 4, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ring, 4, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(ring, LV_OPA_TRANSP, LV_PART_MAIN); /* keine Hintergrund-Spur */
+    lv_obj_set_style_arc_color(ring, lv_color_hex(FARBE_RING_AKTIV), LV_PART_INDICATOR);
+    lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
+    return ring;
+}
+
+static void countdown_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    if (s_aktiver_schritt < 0 || s_rest_sekunden <= 0)
+        return;
+    s_rest_sekunden--;
+    lv_arc_set_value(s_ringe[s_aktiver_schritt], s_rest_sekunden);
 }
 
 /* WLAN-Symbol: vier Balken steigender Hoehe (Signalstaerke) */
@@ -141,12 +178,15 @@ void startbildschirm_erstellen(void)
 
     memset(&s_icons[STARTBILDSCHIRM_WLAN], 0, sizeof s_icons[0]);
     icon_wlan_erzeugen(&s_icons[STARTBILDSCHIRM_WLAN], icon_container_erzeugen(s_screen, 200));
+    s_ringe[STARTBILDSCHIRM_WLAN] = ring_erzeugen(s_screen, 200);
 
     memset(&s_icons[STARTBILDSCHIRM_UHR], 0, sizeof s_icons[0]);
     icon_uhr_erzeugen(&s_icons[STARTBILDSCHIRM_UHR], icon_container_erzeugen(s_screen, 400));
+    s_ringe[STARTBILDSCHIRM_UHR] = ring_erzeugen(s_screen, 400);
 
     memset(&s_icons[STARTBILDSCHIRM_KALENDER], 0, sizeof s_icons[0]);
     icon_kalender_erzeugen(&s_icons[STARTBILDSCHIRM_KALENDER], icon_container_erzeugen(s_screen, 600));
+    s_ringe[STARTBILDSCHIRM_KALENDER] = ring_erzeugen(s_screen, 600);
 
     lvgl_port_unlock();
 }
@@ -156,8 +196,13 @@ void startbildschirm_schritt_start(startbildschirm_schritt_t schritt)
     lvgl_port_lock(0);
     s_aktiver_schritt = schritt;
     s_blink_an = false;
+    s_rest_sekunden = STARTBILDSCHIRM_PHASE_TIMEOUT_S;
+    lv_arc_set_value(s_ringe[schritt], s_rest_sekunden);
+    lv_obj_remove_flag(s_ringe[schritt], LV_OBJ_FLAG_HIDDEN);
     if (!s_blink_timer)
         s_blink_timer = lv_timer_create(blink_timer_cb, 400, NULL);
+    if (!s_countdown_timer)
+        s_countdown_timer = lv_timer_create(countdown_timer_cb, 1000, NULL);
     lvgl_port_unlock();
 }
 
@@ -165,6 +210,9 @@ void startbildschirm_schritt_fertig(startbildschirm_schritt_t schritt)
 {
     lvgl_port_lock(0);
     icon_farbe_setzen(&s_icons[schritt], lv_color_white());
+    /* Ring wieder auffuellen und weiss stehen lassen - "geschafft" */
+    lv_arc_set_value(s_ringe[schritt], STARTBILDSCHIRM_PHASE_TIMEOUT_S);
+    lv_obj_set_style_arc_color(s_ringe[schritt], lv_color_white(), LV_PART_INDICATOR);
     if (s_aktiver_schritt == schritt)
         s_aktiver_schritt = -1;
     lvgl_port_unlock();
@@ -176,6 +224,10 @@ void startbildschirm_aufraeumen(void)
     if (s_blink_timer) {
         lv_timer_delete(s_blink_timer);
         s_blink_timer = NULL;
+    }
+    if (s_countdown_timer) {
+        lv_timer_delete(s_countdown_timer);
+        s_countdown_timer = NULL;
     }
     if (s_screen) {
         lv_obj_delete(s_screen);
