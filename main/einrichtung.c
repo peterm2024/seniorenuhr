@@ -79,7 +79,7 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_align(btn_speichern, LV_ALIGN_TOP_LEFT, 30, 180);
     lv_obj_add_event_cb(btn_speichern, wlan_speichern_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l1 = lv_label_create(btn_speichern);
-    lv_label_set_text(l1, "Speichern & neu starten");
+    lv_label_set_text(l1, "Speichern");
     lv_obj_set_style_text_font(l1, &schrift_klein_28, 0);
     lv_obj_center(l1);
 

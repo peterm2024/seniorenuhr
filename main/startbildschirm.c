@@ -4,7 +4,7 @@
 
 #include "esp_lvgl_port.h"
 
-LV_FONT_DECLARE(schrift_mittel_40);
+LV_FONT_DECLARE(schrift_klein_28);
 
 #define FARBE_SPLASH_GRAU 0x555555
 #define FARBE_RING_AKTIV  0xaaaaaa /* heller als das Grau der Symbole, damit
@@ -122,7 +122,7 @@ static lv_obj_t *hilfe_button_erzeugen(lv_obj_t *scr, const char *text, lv_align
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, &schrift_mittel_40, 0);
+    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
     lv_obj_center(label);
     return btn;
 }

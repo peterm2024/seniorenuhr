@@ -92,10 +92,13 @@ static lv_opa_t overlay_ziel_fuer_modus(anzeige_modus_t modus)
 }
 
 /* Ermittelt den aktuellen Anzeigemodus aus Uhrzeit + Beruehrungs-Aufweckzeit.
- * Ohne bekannte Uhrzeit gibt es nichts abzudunkeln -> Tag-Modus. */
+ * Ohne bekannte Uhrzeit gibt es nichts abzudunkeln -> Tag-Modus. Haengt
+ * bewusst nur an zeit_ist_synchron() (nicht zusaetzlich an WLAN) - im
+ * Offline-Betrieb (siehe einrichtung.c) ist die Zeit manuell gesetzt und
+ * damit gueltig, obwohl kein Netz besteht. */
 static anzeige_modus_t aktueller_modus(void)
 {
-    if (!(netz_ist_verbunden() && zeit_ist_synchron()))
+    if (!zeit_ist_synchron())
         return MODUS_TAG;
 
     time_t jetzt = time(NULL);
@@ -241,7 +244,7 @@ static void uhr_tick(lv_timer_t *timer)
     const char *status;
     anzeige_modus_t modus = aktueller_modus();
 
-    if (netz_ist_verbunden() && zeit_ist_synchron()) {
+    if (zeit_ist_synchron()) {
         time_t jetzt = time(NULL);
         struct tm lokal;
         localtime_r(&jetzt, &lokal);
