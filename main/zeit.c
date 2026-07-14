@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/time.h>
 
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
@@ -34,6 +35,24 @@ void zeit_sntp_starten(void)
 bool zeit_ist_synchron(void)
 {
     return s_zeit_synchron;
+}
+
+void zeit_manuell_setzen(int tag, int monat, int jahr, int stunde, int minute)
+{
+    struct tm t = {0};
+    t.tm_mday = tag;
+    t.tm_mon = monat - 1;
+    t.tm_year = jahr - 1900;
+    t.tm_hour = stunde;
+    t.tm_min = minute;
+    t.tm_isdst = -1; /* Sommerzeit anhand der TZ-Regel automatisch ermitteln */
+
+    struct timeval tv = { .tv_sec = mktime(&t), .tv_usec = 0 };
+    settimeofday(&tv, NULL);
+
+    ESP_LOGI(TAG, "Uhrzeit manuell gesetzt (kein NTP): %04d-%02d-%02d %02d:%02d",
+             jahr, monat, tag, stunde, minute);
+    s_zeit_synchron = true;
 }
 
 const char *zeit_wochentag_gross(const struct tm *t)

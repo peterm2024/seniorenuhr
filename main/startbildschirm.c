@@ -4,9 +4,13 @@
 
 #include "esp_lvgl_port.h"
 
+LV_FONT_DECLARE(schrift_mittel_40);
+
 #define FARBE_SPLASH_GRAU 0x555555
 #define FARBE_RING_AKTIV  0xaaaaaa /* heller als das Grau der Symbole, damit
                                     * der Countdown klar erkennbar ist */
+/* Ab dieser Restzeit (Sekunden) erscheinen die beiden Hilfe-Buttons. */
+#define BUTTONS_RESTZEIT_SCHWELLE 30
 #define MAX_TEILE 4
 
 typedef struct {
@@ -22,6 +26,10 @@ static bool s_blink_an = false;
 static lv_timer_t *s_blink_timer;
 static lv_timer_t *s_countdown_timer;
 static int s_rest_sekunden;
+
+static lv_obj_t *s_btn_wlan_wechseln;
+static lv_obj_t *s_btn_offline;
+static volatile startbildschirm_aktion_t s_aktion = STARTBILDSCHIRM_AKTION_KEINE;
 
 static void icon_teil_hinzufuegen(icon_t *ic, lv_obj_t *obj)
 {
@@ -70,6 +78,12 @@ static lv_obj_t *ring_erzeugen(lv_obj_t *scr, int32_t x_mitte)
     return ring;
 }
 
+static void hilfe_buttons_verstecken(void)
+{
+    lv_obj_add_flag(s_btn_wlan_wechseln, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_btn_offline, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void countdown_timer_cb(lv_timer_t *t)
 {
     (void)t;
@@ -77,6 +91,40 @@ static void countdown_timer_cb(lv_timer_t *t)
         return;
     s_rest_sekunden--;
     lv_arc_set_value(s_ringe[s_aktiver_schritt], s_rest_sekunden);
+    if (s_rest_sekunden == BUTTONS_RESTZEIT_SCHWELLE) {
+        lv_obj_remove_flag(s_btn_wlan_wechseln, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_btn_offline, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void btn_wlan_wechseln_cb(lv_event_t *e)
+{
+    (void)e;
+    s_aktion = STARTBILDSCHIRM_AKTION_WLAN_WECHSELN;
+    hilfe_buttons_verstecken();
+}
+
+static void btn_offline_cb(lv_event_t *e)
+{
+    (void)e;
+    s_aktion = STARTBILDSCHIRM_AKTION_OFFLINE;
+    hilfe_buttons_verstecken();
+}
+
+static lv_obj_t *hilfe_button_erzeugen(lv_obj_t *scr, const char *text, lv_align_t align,
+                                       int32_t x_versatz, lv_event_cb_t cb)
+{
+    lv_obj_t *btn = lv_button_create(scr);
+    lv_obj_set_size(btn, 280, 70);
+    lv_obj_align(btn, align, x_versatz, -30);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, &schrift_mittel_40, 0);
+    lv_obj_center(label);
+    return btn;
 }
 
 /* WLAN-Symbol: vier Balken steigender Hoehe (Signalstaerke) */
@@ -188,6 +236,9 @@ void startbildschirm_erstellen(void)
     icon_kalender_erzeugen(&s_icons[STARTBILDSCHIRM_KALENDER], icon_container_erzeugen(s_screen, 600));
     s_ringe[STARTBILDSCHIRM_KALENDER] = ring_erzeugen(s_screen, 600);
 
+    s_btn_wlan_wechseln = hilfe_button_erzeugen(s_screen, "WLAN wechseln", LV_ALIGN_BOTTOM_MID, -150, btn_wlan_wechseln_cb);
+    s_btn_offline = hilfe_button_erzeugen(s_screen, "Offline", LV_ALIGN_BOTTOM_MID, 150, btn_offline_cb);
+
     lvgl_port_unlock();
 }
 
@@ -197,12 +248,29 @@ void startbildschirm_schritt_start(startbildschirm_schritt_t schritt)
     s_aktiver_schritt = schritt;
     s_blink_an = false;
     s_rest_sekunden = STARTBILDSCHIRM_PHASE_TIMEOUT_S;
+    s_aktion = STARTBILDSCHIRM_AKTION_KEINE;
     lv_arc_set_value(s_ringe[schritt], s_rest_sekunden);
     lv_obj_remove_flag(s_ringe[schritt], LV_OBJ_FLAG_HIDDEN);
+    hilfe_buttons_verstecken();
     if (!s_blink_timer)
         s_blink_timer = lv_timer_create(blink_timer_cb, 400, NULL);
     if (!s_countdown_timer)
         s_countdown_timer = lv_timer_create(countdown_timer_cb, 1000, NULL);
+    lvgl_port_unlock();
+}
+
+startbildschirm_aktion_t startbildschirm_aktion_abfragen(void)
+{
+    startbildschirm_aktion_t aktion = s_aktion;
+    s_aktion = STARTBILDSCHIRM_AKTION_KEINE;
+    return aktion;
+}
+
+void startbildschirm_reaktivieren(void)
+{
+    lvgl_port_lock(0);
+    if (s_screen)
+        lv_screen_load(s_screen);
     lvgl_port_unlock();
 }
 

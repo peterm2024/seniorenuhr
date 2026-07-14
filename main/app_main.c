@@ -12,6 +12,7 @@
 #include <time.h>
 
 #include "anzeige.h"
+#include "einrichtung.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
 #include "esp_system.h"
@@ -323,6 +324,91 @@ static void phase_fehlgeschlagen_neustart(const char *phase)
     esp_restart();
 }
 
+static bool wlan_verbunden_pruefen(void) { return netz_ist_verbunden(); }
+static bool zeit_synchron_pruefen(void) { return zeit_ist_synchron(); }
+static bool kalender_bereit_pruefen(void) { return kalender_anzeige_version() != 0; }
+
+typedef bool (*bedingung_fn)(void);
+
+typedef enum {
+    PHASE_FERTIG,
+    PHASE_TIMEOUT,
+    PHASE_WLAN_WECHSELN,
+    PHASE_OFFLINE,
+} phase_ergebnis_t;
+
+/* Wartet auf `bedingung`, bis entweder erfuellt, der 60s-Countdown
+ * abgelaufen ist, oder der Benutzer einen der beiden Hilfe-Buttons auf dem
+ * Startbildschirm antippt. */
+static phase_ergebnis_t phase_abwarten(startbildschirm_schritt_t schritt, bedingung_fn bedingung)
+{
+    startbildschirm_schritt_start(schritt);
+    for (int i = 0; i < STARTBILDSCHIRM_PHASE_TIMEOUT_S * 10; i++) {
+        if (bedingung())
+            return PHASE_FERTIG;
+        switch (startbildschirm_aktion_abfragen()) {
+        case STARTBILDSCHIRM_AKTION_WLAN_WECHSELN:
+            return PHASE_WLAN_WECHSELN;
+        case STARTBILDSCHIRM_AKTION_OFFLINE:
+            return PHASE_OFFLINE;
+        default:
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    return PHASE_TIMEOUT;
+}
+
+/* Wartet auf eine Boot-Phase und kuemmert sich um die beiden
+ * Eingriffsmoeglichkeiten: "WLAN wechseln" oeffnet die Zugangsdaten-
+ * Eingabe (bei "Speichern" startet das Geraet neu, bei "Abbrechen" wird
+ * dieselbe Phase erneut abgewartet); "Offline" oeffnet die Datum/Uhrzeit-
+ * Eingabe und markiert die AKTUELL laufende Phase danach als erledigt -
+ * das gilt auch fuer die WLAN-Phase selbst, denn ab dann laeuft das
+ * Geraet bewusst ohne Netz weiter (Kalenderdaten kommen dann hoechstens
+ * aus dem Cache, siehe kalender_anzeige.c). */
+static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *name, bedingung_fn bedingung)
+{
+    for (;;) {
+        phase_ergebnis_t ergebnis = phase_abwarten(schritt, bedingung);
+
+        if (ergebnis == PHASE_FERTIG) {
+            startbildschirm_schritt_fertig(schritt);
+            return;
+        }
+        if (ergebnis == PHASE_TIMEOUT) {
+            phase_fehlgeschlagen_neustart(name);
+            return; /* unerreichbar */
+        }
+
+        if (ergebnis == PHASE_WLAN_WECHSELN) {
+            einrichtung_wlan_zeigen();
+            einrichtung_status_t status;
+            while ((status = einrichtung_wlan_status()) == EINRICHTUNG_OFFEN)
+                vTaskDelay(pdMS_TO_TICKS(100));
+            einrichtung_wlan_aufraeumen();
+            startbildschirm_reaktivieren();
+            (void)status; /* nur ABGEBROCHEN erreichbar - Speichern startet neu */
+            continue;     /* Phase erneut abwarten */
+        }
+
+        /* PHASE_OFFLINE */
+        einrichtung_zeit_zeigen();
+        einrichtung_status_t status;
+        while ((status = einrichtung_zeit_status()) == EINRICHTUNG_OFFEN)
+            vTaskDelay(pdMS_TO_TICKS(100));
+        einrichtung_zeit_aufraeumen();
+        startbildschirm_reaktivieren();
+
+        if (status == EINRICHTUNG_UEBERNOMMEN) {
+            ESP_LOGI(TAG, "Start: Uhrzeit manuell gesetzt waehrend Phase '%s' - Phase als erledigt markiert", name);
+            startbildschirm_schritt_fertig(schritt);
+            return;
+        }
+        /* Abgebrochen -> Phase erneut abwarten */
+    }
+}
+
 static void einblend_fertig_cb(lv_anim_t *a)
 {
     (void)a;
@@ -348,36 +434,20 @@ void app_main(void)
 
     /* Jede Boot-Phase muss innerhalb des Ring-Countdowns gelingen - sonst
      * hilft nur ein Neustart (haengende Verbindungen, DHCP-Probleme, ...).
-     * Der Ring auf dem Startbildschirm zeigt genau diese Restzeit an. */
-    const int max_versuche = STARTBILDSCHIRM_PHASE_TIMEOUT_S * 10; /* Polling alle 100ms */
-
-    startbildschirm_schritt_start(STARTBILDSCHIRM_WLAN);
-    esp_err_t wlan_ergebnis = netz_start(STARTBILDSCHIRM_PHASE_TIMEOUT_S * 1000);
-    if (wlan_ergebnis != ESP_OK)
-        phase_fehlgeschlagen_neustart("WLAN");
-    startbildschirm_schritt_fertig(STARTBILDSCHIRM_WLAN);
+     * Der Ring auf dem Startbildschirm zeigt genau diese Restzeit an; nach
+     * 30s bietet er zusaetzlich "WLAN wechseln" und "Offline" an. */
+    netz_start();
+    phase_verarbeiten(STARTBILDSCHIRM_WLAN, "WLAN", wlan_verbunden_pruefen);
     ESP_LOGI(TAG, "Start: Schritt WLAN fertig");
 
-    startbildschirm_schritt_start(STARTBILDSCHIRM_UHR);
     zeit_sntp_starten();
-    int uhr_versuche;
-    for (uhr_versuche = 0; uhr_versuche < max_versuche && !zeit_ist_synchron(); uhr_versuche++)
-        vTaskDelay(pdMS_TO_TICKS(100));
-    if (!zeit_ist_synchron())
-        phase_fehlgeschlagen_neustart("Uhrzeit (NTP)");
-    startbildschirm_schritt_fertig(STARTBILDSCHIRM_UHR);
-    ESP_LOGI(TAG, "Start: Schritt Uhr fertig (gewartet=%dms)", uhr_versuche * 100);
+    phase_verarbeiten(STARTBILDSCHIRM_UHR, "Uhrzeit (NTP)", zeit_synchron_pruefen);
+    ESP_LOGI(TAG, "Start: Schritt Uhr fertig");
 
-    startbildschirm_schritt_start(STARTBILDSCHIRM_KALENDER);
     kalender_task_starten();
-    int kalender_versuche;
-    for (kalender_versuche = 0; kalender_versuche < max_versuche && kalender_anzeige_version() == 0; kalender_versuche++)
-        vTaskDelay(pdMS_TO_TICKS(100));
-    if (kalender_anzeige_version() == 0)
-        phase_fehlgeschlagen_neustart("Kalender");
-    startbildschirm_schritt_fertig(STARTBILDSCHIRM_KALENDER);
-    ESP_LOGI(TAG, "Start: Schritt Kalender fertig (version=%lu, gewartet=%dms)",
-             (unsigned long)kalender_anzeige_version(), kalender_versuche * 100);
+    phase_verarbeiten(STARTBILDSCHIRM_KALENDER, "Kalender", kalender_bereit_pruefen);
+    ESP_LOGI(TAG, "Start: Schritt Kalender fertig (version=%lu)",
+             (unsigned long)kalender_anzeige_version());
 
     vTaskDelay(pdMS_TO_TICKS(2000)); /* alle drei Symbole kurz weiss stehen lassen */
     ESP_LOGI(TAG, "Start: Wechsle zur Hauptanzeige");

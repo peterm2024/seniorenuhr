@@ -19,11 +19,29 @@ typedef enum {
     STARTBILDSCHIRM_KALENDER = 2,
 } startbildschirm_schritt_t;
 
+/* Nach 30s ohne Fortschritt bietet der Startbildschirm zwei Buttons an,
+ * die den Countdown beenden und dem Benutzer eine manuelle Einstellung
+ * ermoeglichen (siehe einrichtung.h). */
+typedef enum {
+    STARTBILDSCHIRM_AKTION_KEINE = 0,
+    STARTBILDSCHIRM_AKTION_WLAN_WECHSELN,
+    STARTBILDSCHIRM_AKTION_OFFLINE,
+} startbildschirm_aktion_t;
+
 /* Baut die drei Symbole auf dem aktuell aktiven LVGL-Screen auf. */
 void startbildschirm_erstellen(void);
 
 void startbildschirm_schritt_start(startbildschirm_schritt_t schritt);
 void startbildschirm_schritt_fertig(startbildschirm_schritt_t schritt);
+
+/* Liefert die zuletzt angetippte Aktion und setzt sie danach auf KEINE
+ * zurueck (einmal abholen = konsumiert). */
+startbildschirm_aktion_t startbildschirm_aktion_abfragen(void);
+
+/* Aktiviert den Startbildschirm erneut als sichtbaren Screen - fuer die
+ * Rueckkehr aus einem Einrichtungsbildschirm (WLAN/Zeit), der zwischendurch
+ * einen eigenen Screen geladen hatte. */
+void startbildschirm_reaktivieren(void);
 
 /* Entfernt den Startbildschirm wieder (nach dem Wechsel zur Hauptanzeige). */
 void startbildschirm_aufraeumen(void);

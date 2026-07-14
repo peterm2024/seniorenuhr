@@ -1,20 +1,22 @@
 #include "netz.h"
 #include "secrets.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 
-static const char *TAG = "netz";
+#define NVS_NAMENSRAUM "wifi_cfg"
 
-#define BIT_HAT_IP BIT0
+static const char *TAG = "netz";
 
 /* Reisst die WLAN-Verbindung im Laufbetrieb ab und kommt laenger als diese
  * Zeit nicht wieder, hilft kein Reconnect-Versuch mehr weiter - dann lieber
@@ -25,7 +27,6 @@ static const char *TAG = "netz";
 #define WATCHDOG_GRENZE_US (30LL * 1000000)
 #define WATCHDOG_PRUEF_INTERVALL_US (5LL * 1000000)
 
-static EventGroupHandle_t s_events;
 static volatile bool s_verbunden = false;
 static volatile bool s_war_verbunden = false; /* schon je eine IP bekommen? */
 
@@ -62,11 +63,49 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
         s_war_verbunden = true;
         s_getrennt_seit_us = 0;
         ESP_LOGI(TAG, "WLAN verbunden, IP-Adresse erhalten");
-        xEventGroupSetBits(s_events, BIT_HAT_IP);
     }
 }
 
-esp_err_t netz_start(uint32_t timeout_ms)
+/* Liest SSID/Passwort aus dem NVS, falls dort per
+ * netz_zugangsdaten_speichern() welche hinterlegt wurden. */
+static bool zugangsdaten_aus_nvs_lesen(char *ssid, size_t ssid_groesse,
+                                        char *passwort, size_t passwort_groesse)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMENSRAUM, NVS_READONLY, &h) != ESP_OK)
+        return false;
+
+    size_t ssid_laenge = ssid_groesse;
+    size_t passwort_laenge = passwort_groesse;
+    esp_err_t err_ssid = nvs_get_str(h, "ssid", ssid, &ssid_laenge);
+    esp_err_t err_passwort = nvs_get_str(h, "pass", passwort, &passwort_laenge);
+    nvs_close(h);
+
+    return err_ssid == ESP_OK && err_passwort == ESP_OK && ssid_laenge > 1;
+}
+
+esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMENSRAUM, NVS_READWRITE, &h);
+    if (err != ESP_OK)
+        return err;
+
+    err = nvs_set_str(h, "ssid", ssid);
+    if (err == ESP_OK)
+        err = nvs_set_str(h, "pass", passwort);
+    if (err == ESP_OK)
+        err = nvs_commit(h);
+    nvs_close(h);
+    if (err != ESP_OK)
+        return err;
+
+    ESP_LOGI(TAG, "Neue WLAN-Zugangsdaten gespeichert - starte neu");
+    esp_restart();
+    return ESP_OK; /* unerreichbar */
+}
+
+void netz_start(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -74,8 +113,6 @@ esp_err_t netz_start(uint32_t timeout_ms)
         err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(err);
-
-    s_events = xEventGroupCreate();
 
     const esp_timer_create_args_t watchdog_cfg = {
         .callback = wifi_watchdog_callback,
@@ -96,8 +133,15 @@ esp_err_t netz_start(uint32_t timeout_ms)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &ereignis_handler, NULL));
 
     wifi_config_t wifi_cfg = {0};
-    strncpy((char *)wifi_cfg.sta.ssid, WLAN_SSID, sizeof(wifi_cfg.sta.ssid) - 1);
-    strncpy((char *)wifi_cfg.sta.password, WLAN_PASSWORT, sizeof(wifi_cfg.sta.password) - 1);
+    const char *quelle;
+    if (zugangsdaten_aus_nvs_lesen((char *)wifi_cfg.sta.ssid, sizeof wifi_cfg.sta.ssid,
+                                    (char *)wifi_cfg.sta.password, sizeof wifi_cfg.sta.password)) {
+        quelle = "NVS (per Einrichtungsbildschirm gespeichert)";
+    } else {
+        snprintf((char *)wifi_cfg.sta.ssid, sizeof wifi_cfg.sta.ssid, "%s", WLAN_SSID);
+        snprintf((char *)wifi_cfg.sta.password, sizeof wifi_cfg.sta.password, "%s", WLAN_PASSWORT);
+        quelle = "secrets.h";
+    }
     wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_cfg.sta.pmf_cfg.capable = true;
     wifi_cfg.sta.pmf_cfg.required = false;
@@ -113,10 +157,7 @@ esp_err_t netz_start(uint32_t timeout_ms)
      * Aktion im Programm zusammenhaengt. */
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
-    ESP_LOGI(TAG, "Verbinde mit WLAN '%s'...", WLAN_SSID);
-    EventBits_t bits = xEventGroupWaitBits(s_events, BIT_HAT_IP, pdFALSE, pdFALSE,
-                                           pdMS_TO_TICKS(timeout_ms));
-    return (bits & BIT_HAT_IP) ? ESP_OK : ESP_ERR_TIMEOUT;
+    ESP_LOGI(TAG, "Verbinde mit WLAN (Zugangsdaten aus %s)...", quelle);
 }
 
 bool netz_ist_verbunden(void)

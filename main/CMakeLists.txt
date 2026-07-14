@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "app_main.c" "anzeige.c" "netz.c" "zeit.c" "startbildschirm.c"
+    SRCS "app_main.c" "anzeige.c" "netz.c" "zeit.c" "startbildschirm.c" "einrichtung.c"
          "kalender_holen.c" "kalender_speicher.c" "kalender_anzeige.c"
     INCLUDE_DIRS "."
     REQUIRES fonts kalender

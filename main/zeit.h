@@ -17,8 +17,15 @@ void zeit_zeitzone_setzen(void);
  * initialisiert hat. */
 void zeit_sntp_starten(void);
 
-/* true, sobald die Uhrzeit einmal erfolgreich per NTP gesetzt wurde. */
+/* true, sobald die Uhrzeit einmal gesetzt wurde - per NTP oder manuell
+ * (siehe zeit_manuell_setzen). */
 bool zeit_ist_synchron(void);
+
+/* Setzt die Systemzeit direkt, ohne NTP (Offline-Betrieb ueber den
+ * Einrichtungsbildschirm). tag/monat/jahr/stunde/minute in ueblicher
+ * Schreibweise (monat 1-12, jahr z.B. 2026). Sommerzeit wird anhand der
+ * TZ-Regel automatisch beruecksichtigt. */
+void zeit_manuell_setzen(int tag, int monat, int jahr, int stunde, int minute);
 
 /* Deutscher Wochentag in Grossbuchstaben, z. B. "MONTAG". */
 const char *zeit_wochentag_gross(const struct tm *t);
