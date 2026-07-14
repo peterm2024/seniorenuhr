@@ -41,6 +41,11 @@
 #define FARBE_TEXT_HELL         0xffffff /* Uhrzeit/Listen am Tag */
 #define FARBE_STATUS_HELL       0xd0e0f0 /* Tageszeit/Datum am Tag */
 #define FARBE_NACHT_TEXT        0x1d1d1d /* alles Text nachts: dunkles Grau, halbe Helligkeit */
+#define FARBE_WARNUNG           0xff5a4a /* Durchstrich der Status-Symbole bei fehlender Konnektivitaet */
+
+/* Kantenlaenge der kleinen Status-Symbole rechts oben (WLAN/Zeit/Kalender). */
+#define STATUS_ICON_GROESSE 34
+#define STATUS_ICON_MAX_TEILE 4
 
 LV_FONT_DECLARE(schrift_uhr_128);
 LV_FONT_DECLARE(schrift_gross_72);
@@ -143,6 +148,136 @@ static lv_obj_t *listen_label_erzeugen(lv_obj_t *scr, int32_t x, int32_t y, int3
     return label;
 }
 
+/* Kleines Status-Symbol rechts oben: Ring (=ring) mit einem Mini-Glyph
+ * (WLAN-Balken/Uhr-Zeiger/Kalender-Kopf, siehe status_glyph_*_erzeugen)
+ * darin - spiegelt dieselben drei Boot-Phasen aus startbildschirm.c.
+ * Ohne Konnektivitaet erscheint ein diagonaler Durchstrich darueber. */
+typedef struct {
+    lv_obj_t *ring;
+    lv_obj_t *glyph_teile[STATUS_ICON_MAX_TEILE];
+    int glyph_anzahl;
+    lv_obj_t *durchstrich;
+} status_icon_t;
+
+static status_icon_t s_status_wlan;
+static status_icon_t s_status_zeit;
+static status_icon_t s_status_kalender;
+
+static void status_icon_teil_hinzufuegen(status_icon_t *icon, lv_obj_t *obj)
+{
+    if (icon->glyph_anzahl < STATUS_ICON_MAX_TEILE)
+        icon->glyph_teile[icon->glyph_anzahl++] = obj;
+}
+
+static void status_icon_farbe_setzen(status_icon_t *icon, lv_color_t farbe)
+{
+    lv_obj_set_style_border_color(icon->ring, farbe, 0);
+    for (int i = 0; i < icon->glyph_anzahl; i++) {
+        lv_obj_set_style_bg_color(icon->glyph_teile[i], farbe, 0);
+        lv_obj_set_style_border_color(icon->glyph_teile[i], farbe, 0);
+        lv_obj_set_style_line_color(icon->glyph_teile[i], farbe, 0);
+    }
+}
+
+/* Blendet den Durchstrich ein (keine Konnektivitaet) bzw. aus (alles ok). */
+static void status_icon_ok_setzen(status_icon_t *icon, bool ok)
+{
+    lvgl_port_lock(0);
+    if (ok)
+        lv_obj_add_flag(icon->durchstrich, LV_OBJ_FLAG_HIDDEN);
+    else
+        lv_obj_remove_flag(icon->durchstrich, LV_OBJ_FLAG_HIDDEN);
+    lvgl_port_unlock();
+}
+
+static void status_icon_erzeugen(status_icon_t *icon, lv_obj_t *scr, int32_t x)
+{
+    icon->glyph_anzahl = 0;
+
+    icon->ring = lv_obj_create(scr);
+    lv_obj_remove_style_all(icon->ring);
+    lv_obj_set_size(icon->ring, STATUS_ICON_GROESSE, STATUS_ICON_GROESSE);
+    lv_obj_set_pos(icon->ring, x, 14);
+    lv_obj_set_style_radius(icon->ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(icon->ring, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(icon->ring, 2, 0);
+    lv_obj_remove_flag(icon->ring, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(icon->ring, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+/* Muss nach den Glyph-Teilen aufgerufen werden, damit der Strich als
+ * letztes (oberstes) Kind ueber dem Glyph liegt. */
+static void status_icon_durchstrich_erzeugen(status_icon_t *icon)
+{
+    static const lv_point_precise_t punkte[2] = {{5, 5}, {STATUS_ICON_GROESSE - 5, STATUS_ICON_GROESSE - 5}};
+    icon->durchstrich = lv_line_create(icon->ring);
+    lv_line_set_points(icon->durchstrich, punkte, 2);
+    lv_obj_set_style_line_width(icon->durchstrich, 3, 0);
+    lv_obj_set_style_line_color(icon->durchstrich, lv_color_hex(FARBE_WARNUNG), 0);
+    lv_obj_set_style_line_rounded(icon->durchstrich, true, 0);
+    lv_obj_add_flag(icon->durchstrich, LV_OBJ_FLAG_HIDDEN); /* Start: als "ok" angenommen */
+}
+
+/* WLAN-Symbol: drei Balken steigender Hoehe (verkleinerte Version des
+ * Startbildschirm-Symbols, siehe startbildschirm.c). */
+static void status_glyph_wlan_erzeugen(status_icon_t *icon)
+{
+    static const int hoehen[3] = {7, 11, 15};
+    const int breite = 4, luecke = 3;
+    const int gesamt_breite = 3 * breite + 2 * luecke;
+    const int x0 = (STATUS_ICON_GROESSE - gesamt_breite) / 2;
+
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *balken = lv_obj_create(icon->ring);
+        lv_obj_remove_style_all(balken);
+        lv_obj_set_size(balken, breite, hoehen[i]);
+        lv_obj_set_style_bg_opa(balken, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(balken, 1, 0);
+        lv_obj_set_pos(balken, x0 + i * (breite + luecke), STATUS_ICON_GROESSE - 8 - hoehen[i]);
+        lv_obj_remove_flag(balken, LV_OBJ_FLAG_CLICKABLE);
+        status_icon_teil_hinzufuegen(icon, balken);
+    }
+}
+
+/* Uhr-Symbol: nur die beiden Zeiger (der Ring selbst dient als Zifferblatt). */
+static void status_glyph_zeit_erzeugen(status_icon_t *icon)
+{
+    static const lv_point_precise_t minutenzeiger[2] = {{17, 17}, {17, 6}};
+    lv_obj_t *minute = lv_line_create(icon->ring);
+    lv_line_set_points(minute, minutenzeiger, 2);
+    lv_obj_set_style_line_width(minute, 2, 0);
+    lv_obj_set_style_line_rounded(minute, true, 0);
+    status_icon_teil_hinzufuegen(icon, minute);
+
+    static const lv_point_precise_t stundenzeiger[2] = {{17, 17}, {24, 17}};
+    lv_obj_t *stunde = lv_line_create(icon->ring);
+    lv_line_set_points(stunde, stundenzeiger, 2);
+    lv_obj_set_style_line_width(stunde, 2, 0);
+    lv_obj_set_style_line_rounded(stunde, true, 0);
+    status_icon_teil_hinzufuegen(icon, stunde);
+}
+
+/* Kalender-Symbol: abgerundetes Rechteck + Kopfleiste. */
+static void status_glyph_kalender_erzeugen(status_icon_t *icon)
+{
+    lv_obj_t *rahmen = lv_obj_create(icon->ring);
+    lv_obj_remove_style_all(rahmen);
+    lv_obj_set_size(rahmen, 20, 16);
+    lv_obj_set_pos(rahmen, 7, 9);
+    lv_obj_set_style_radius(rahmen, 2, 0);
+    lv_obj_set_style_bg_opa(rahmen, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(rahmen, 2, 0);
+    status_icon_teil_hinzufuegen(icon, rahmen);
+
+    lv_obj_t *kopf = lv_obj_create(icon->ring);
+    lv_obj_remove_style_all(kopf);
+    lv_obj_set_size(kopf, 20, 5);
+    lv_obj_set_pos(kopf, 7, 9);
+    lv_obj_set_style_radius(kopf, 2, 0);
+    lv_obj_set_style_bg_opa(kopf, LV_OPA_COVER, 0);
+    status_icon_teil_hinzufuegen(icon, kopf);
+}
+
 static void ui_aufbauen(void)
 {
     lvgl_port_lock(0);
@@ -179,6 +314,20 @@ static void ui_aufbauen(void)
     s_termine_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TERMINE HEUTE", 410, 335, 370);
     s_termine_label = listen_label_erzeugen(s_bildschirm, 410, 385, 370);
 
+    /* Live-Status rechts oben: spiegelt WLAN/Zeit/Kalender aus dem
+     * Startbildschirm, durchgestrichen bei fehlender Konnektivitaet. */
+    status_icon_erzeugen(&s_status_wlan, s_bildschirm, 650);
+    status_glyph_wlan_erzeugen(&s_status_wlan);
+    status_icon_durchstrich_erzeugen(&s_status_wlan);
+
+    status_icon_erzeugen(&s_status_zeit, s_bildschirm, 700);
+    status_glyph_zeit_erzeugen(&s_status_zeit);
+    status_icon_durchstrich_erzeugen(&s_status_zeit);
+
+    status_icon_erzeugen(&s_status_kalender, s_bildschirm, 750);
+    status_glyph_kalender_erzeugen(&s_status_kalender);
+    status_icon_durchstrich_erzeugen(&s_status_kalender);
+
     /* Abend-Dimmung: ein schwarzes Rechteck ueber allem anderen. Fuer
      * Nacht wird stattdessen direkt mit Hintergrund-/Textfarben
      * gearbeitet (siehe modus_anwenden) - das Overlay bleibt dort
@@ -209,7 +358,9 @@ static void modus_anwenden(anzeige_modus_t modus)
     uint32_t textfarbe_akzent = (modus == MODUS_NACHT) ? FARBE_NACHT_TEXT : FARBE_AKZENT;
     uint32_t textfarbe_status = (modus == MODUS_NACHT) ? FARBE_NACHT_TEXT : FARBE_STATUS_HELL;
     lv_opa_t overlay_deckkraft = overlay_ziel_fuer_modus(modus);
-    bool tabletten_termine_sichtbar = (modus != MODUS_NACHT);
+    /* Nachts wird nicht nur gedimmt, sondern alles Zusaetzliche komplett
+     * ausgeblendet - betrifft Tabletten/Termine und die Status-Symbole. */
+    bool details_sichtbar = (modus != MODUS_NACHT);
 
     lv_obj_set_style_bg_color(s_bildschirm, lv_color_hex(hintergrund), 0);
     lv_obj_set_style_text_color(s_wochentag_label, lv_color_hex(textfarbe_akzent), 0);
@@ -217,16 +368,26 @@ static void modus_anwenden(anzeige_modus_t modus)
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(textfarbe_status), 0);
     lv_obj_set_style_bg_opa(s_dimm_overlay, overlay_deckkraft, 0);
 
-    if (tabletten_termine_sichtbar) {
+    status_icon_farbe_setzen(&s_status_wlan, lv_color_hex(textfarbe_status));
+    status_icon_farbe_setzen(&s_status_zeit, lv_color_hex(textfarbe_status));
+    status_icon_farbe_setzen(&s_status_kalender, lv_color_hex(textfarbe_status));
+
+    if (details_sichtbar) {
         lv_obj_remove_flag(s_tabletten_ueberschrift, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_tabletten_label, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_termine_ueberschrift, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_termine_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_status_wlan.ring, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_status_zeit.ring, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_status_kalender.ring, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_tabletten_ueberschrift, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_tabletten_label, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_termine_ueberschrift, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_termine_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_status_wlan.ring, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_status_zeit.ring, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_status_kalender.ring, LV_OBJ_FLAG_HIDDEN);
     }
 
     lvgl_port_unlock();
@@ -298,6 +459,32 @@ static void uhr_tick(lv_timer_t *timer)
         modus_anwenden(modus);
         letzter_modus = modus;
     }
+
+    /* Status-Symbole rechts oben (WLAN/Zeit/Kalender) nur bei tatsaechlicher
+     * Aenderung durchstreichen/wieder freigeben - kein Redraw jede Sekunde.
+     * "einmalig" erzwingt beim allerersten Aufruf ein korrektes Anfangsbild,
+     * auch falls der tatsaechliche Zustand zufaellig den Default trifft. */
+    static bool einmalig = true;
+    static bool letzter_wlan_ok = true;
+    static bool letzter_zeit_ok = true;
+    static bool letzter_kalender_ok = true;
+    bool wlan_ok = netz_ist_verbunden();
+    bool zeit_ok = zeit_ist_synchron();
+    bool kalender_ok = kalender_anzeige_version() != 0;
+
+    if (einmalig || wlan_ok != letzter_wlan_ok) {
+        status_icon_ok_setzen(&s_status_wlan, wlan_ok);
+        letzter_wlan_ok = wlan_ok;
+    }
+    if (einmalig || zeit_ok != letzter_zeit_ok) {
+        status_icon_ok_setzen(&s_status_zeit, zeit_ok);
+        letzter_zeit_ok = zeit_ok;
+    }
+    if (einmalig || kalender_ok != letzter_kalender_ok) {
+        status_icon_ok_setzen(&s_status_kalender, kalender_ok);
+        letzter_kalender_ok = kalender_ok;
+    }
+    einmalig = false;
 
     /* Termine/Tabletten nur bei tatsaechlicher Aenderung neu zeichnen,
      * nicht bei jedem Sekunden-Tick. */
