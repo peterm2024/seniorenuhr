@@ -61,7 +61,8 @@
       "PowerShell($port = New-Object System.IO.Ports.SerialPort\\(\"COM3\", 115200\\); $port.ReadTimeout = 500; $port.Open\\(\\); $ende = \\(Get-Date\\).AddSeconds\\(35\\); $zeilen = @\\(\\); while \\(\\(Get-Date\\) -lt $ende\\) { try { $z = $port.ReadLine\\(\\); $zeilen += $z } catch {} }; $port.Close\\(\\); $zeilen | Where-Object { $_ -match \"Neustart|rst:|boot:|assert|Guru|abort\" })",
       "PowerShell(git commit -F \"C:\\\\Users\\\\peter\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-peter-Projekte-WaveShare\\\\9c624b28-9b94-415a-b7bb-d04486aa454c\\\\scratchpad\\\\commit-msg-8.txt\")",
       "PowerShell(git commit -F \"C:\\\\Users\\\\peter\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-peter-Projekte-WaveShare\\\\9c624b28-9b94-415a-b7bb-d04486aa454c\\\\scratchpad\\\\commit-msg-9.txt\")",
-      "PowerShell(git commit -F \"C:\\\\Users\\\\peter\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-peter-Projekte-WaveShare\\\\9c624b28-9b94-415a-b7bb-d04486aa454c\\\\scratchpad\\\\commit-msg-10.txt\")"
+      "PowerShell(git commit -F \"C:\\\\Users\\\\peter\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-peter-Projekte-WaveShare\\\\9c624b28-9b94-415a-b7bb-d04486aa454c\\\\scratchpad\\\\commit-msg-10.txt\")",
+      "PowerShell(git commit -F \"C:\\\\Users\\\\peter\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-peter-Projekte-WaveShare\\\\9c624b28-9b94-415a-b7bb-d04486aa454c\\\\scratchpad\\\\commit-msg-11.txt\")"
     ]
   }
 }

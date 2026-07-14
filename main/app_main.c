@@ -148,11 +148,21 @@ static lv_obj_t *listen_label_erzeugen(lv_obj_t *scr, int32_t x, int32_t y, int3
     return label;
 }
 
-/* Kleines Status-Symbol rechts oben: Ring (=ring) mit einem Mini-Glyph
+/* Kleines Status-Symbol rechts oben: Kreisring mit einem Mini-Glyph
  * (WLAN-Balken/Uhr-Zeiger/Kalender-Kopf, siehe status_glyph_*_erzeugen)
  * darin - spiegelt dieselben drei Boot-Phasen aus startbildschirm.c.
- * Ohne Konnektivitaet erscheint ein diagonaler Durchstrich darueber. */
+ * Ohne Konnektivitaet erscheint ein diagonaler Durchstrich darueber.
+ *
+ * Ring und Glyph-Teile sind bewusst GESCHWISTER unter einem gemeinsamen,
+ * unsichtbaren Container - nicht Ring als Elternteil der Glyphen. LVGL
+ * rueckt den Innenbereich eines Objekts mit Rand (border_width) sonst
+ * etwas ein, wodurch relativ zum Ring positionierte Kinder leicht nach
+ * rechts unten verschoben erscheinen (= der Ring wirkt nach links oben
+ * versetzt). Genau dasselbe Muster nutzt schon icon_uhr_erzeugen() in
+ * startbildschirm.c (Zeiger als Geschwister des Kreises, nicht als
+ * dessen Kinder). */
 typedef struct {
+    lv_obj_t *container;
     lv_obj_t *ring;
     lv_obj_t *glyph_teile[STATUS_ICON_MAX_TEILE];
     int glyph_anzahl;
@@ -194,10 +204,17 @@ static void status_icon_erzeugen(status_icon_t *icon, lv_obj_t *scr, int32_t x)
 {
     icon->glyph_anzahl = 0;
 
-    icon->ring = lv_obj_create(scr);
+    icon->container = lv_obj_create(scr);
+    lv_obj_remove_style_all(icon->container);
+    lv_obj_set_size(icon->container, STATUS_ICON_GROESSE, STATUS_ICON_GROESSE);
+    lv_obj_set_pos(icon->container, x, 14);
+    lv_obj_remove_flag(icon->container, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(icon->container, LV_OBJ_FLAG_SCROLLABLE);
+
+    icon->ring = lv_obj_create(icon->container);
     lv_obj_remove_style_all(icon->ring);
     lv_obj_set_size(icon->ring, STATUS_ICON_GROESSE, STATUS_ICON_GROESSE);
-    lv_obj_set_pos(icon->ring, x, 14);
+    lv_obj_set_pos(icon->ring, 0, 0);
     lv_obj_set_style_radius(icon->ring, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(icon->ring, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(icon->ring, 2, 0);
@@ -206,11 +223,11 @@ static void status_icon_erzeugen(status_icon_t *icon, lv_obj_t *scr, int32_t x)
 }
 
 /* Muss nach den Glyph-Teilen aufgerufen werden, damit der Strich als
- * letztes (oberstes) Kind ueber dem Glyph liegt. */
+ * letztes (oberstes) Geschwister ueber dem Glyph liegt. */
 static void status_icon_durchstrich_erzeugen(status_icon_t *icon)
 {
     static const lv_point_precise_t punkte[2] = {{5, 5}, {STATUS_ICON_GROESSE - 5, STATUS_ICON_GROESSE - 5}};
-    icon->durchstrich = lv_line_create(icon->ring);
+    icon->durchstrich = lv_line_create(icon->container);
     lv_line_set_points(icon->durchstrich, punkte, 2);
     lv_obj_set_style_line_width(icon->durchstrich, 3, 0);
     lv_obj_set_style_line_color(icon->durchstrich, lv_color_hex(FARBE_WARNUNG), 0);
@@ -228,7 +245,7 @@ static void status_glyph_wlan_erzeugen(status_icon_t *icon)
     const int x0 = (STATUS_ICON_GROESSE - gesamt_breite) / 2;
 
     for (int i = 0; i < 3; i++) {
-        lv_obj_t *balken = lv_obj_create(icon->ring);
+        lv_obj_t *balken = lv_obj_create(icon->container);
         lv_obj_remove_style_all(balken);
         lv_obj_set_size(balken, breite, hoehen[i]);
         lv_obj_set_style_bg_opa(balken, LV_OPA_COVER, 0);
@@ -243,14 +260,14 @@ static void status_glyph_wlan_erzeugen(status_icon_t *icon)
 static void status_glyph_zeit_erzeugen(status_icon_t *icon)
 {
     static const lv_point_precise_t minutenzeiger[2] = {{17, 17}, {17, 6}};
-    lv_obj_t *minute = lv_line_create(icon->ring);
+    lv_obj_t *minute = lv_line_create(icon->container);
     lv_line_set_points(minute, minutenzeiger, 2);
     lv_obj_set_style_line_width(minute, 2, 0);
     lv_obj_set_style_line_rounded(minute, true, 0);
     status_icon_teil_hinzufuegen(icon, minute);
 
     static const lv_point_precise_t stundenzeiger[2] = {{17, 17}, {24, 17}};
-    lv_obj_t *stunde = lv_line_create(icon->ring);
+    lv_obj_t *stunde = lv_line_create(icon->container);
     lv_line_set_points(stunde, stundenzeiger, 2);
     lv_obj_set_style_line_width(stunde, 2, 0);
     lv_obj_set_style_line_rounded(stunde, true, 0);
@@ -260,7 +277,7 @@ static void status_glyph_zeit_erzeugen(status_icon_t *icon)
 /* Kalender-Symbol: abgerundetes Rechteck + Kopfleiste. */
 static void status_glyph_kalender_erzeugen(status_icon_t *icon)
 {
-    lv_obj_t *rahmen = lv_obj_create(icon->ring);
+    lv_obj_t *rahmen = lv_obj_create(icon->container);
     lv_obj_remove_style_all(rahmen);
     lv_obj_set_size(rahmen, 20, 16);
     lv_obj_set_pos(rahmen, 7, 9);
@@ -269,7 +286,7 @@ static void status_glyph_kalender_erzeugen(status_icon_t *icon)
     lv_obj_set_style_border_width(rahmen, 2, 0);
     status_icon_teil_hinzufuegen(icon, rahmen);
 
-    lv_obj_t *kopf = lv_obj_create(icon->ring);
+    lv_obj_t *kopf = lv_obj_create(icon->container);
     lv_obj_remove_style_all(kopf);
     lv_obj_set_size(kopf, 20, 5);
     lv_obj_set_pos(kopf, 7, 9);
@@ -377,17 +394,17 @@ static void modus_anwenden(anzeige_modus_t modus)
         lv_obj_remove_flag(s_tabletten_label, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_termine_ueberschrift, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_termine_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_status_wlan.ring, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_status_zeit.ring, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_status_kalender.ring, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_status_wlan.container, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_status_zeit.container, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_status_kalender.container, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_tabletten_ueberschrift, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_tabletten_label, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_termine_ueberschrift, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_termine_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_status_wlan.ring, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_status_zeit.ring, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_status_kalender.ring, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_status_wlan.container, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_status_zeit.container, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_status_kalender.container, LV_OBJ_FLAG_HIDDEN);
     }
 
     lvgl_port_unlock();
@@ -468,9 +485,13 @@ static void uhr_tick(lv_timer_t *timer)
     static bool letzter_wlan_ok = true;
     static bool letzter_zeit_ok = true;
     static bool letzter_kalender_ok = true;
+    /* "ok" heisst hier bewusst mehr als "irgendein Wert vorhanden" - eine
+     * manuell gesetzte Zeit bzw. rein aus dem Cache geparste Kalenderdaten
+     * (Offline-Betrieb, siehe einrichtung.c) sollen als nicht bestaetigt
+     * durchgestrichen bleiben, bis NTP bzw. ein echter Download gelingt. */
     bool wlan_ok = netz_ist_verbunden();
-    bool zeit_ok = zeit_ist_synchron();
-    bool kalender_ok = kalender_anzeige_version() != 0;
+    bool zeit_ok = zeit_ist_synchron() && !zeit_ist_manuell_gesetzt();
+    bool kalender_ok = kalender_anzeige_version() != 0 && kalender_anzeige_frisch();
 
     if (einmalig || wlan_ok != letzter_wlan_ok) {
         status_icon_ok_setzen(&s_status_wlan, wlan_ok);

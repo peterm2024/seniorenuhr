@@ -27,6 +27,11 @@ bool zeit_ist_synchron(void);
  * TZ-Regel automatisch beruecksichtigt. */
 void zeit_manuell_setzen(int tag, int monat, int jahr, int stunde, int minute);
 
+/* true, wenn die aktuell gueltige Zeit zuletzt manuell gesetzt wurde statt
+ * per NTP bestaetigt - wird automatisch wieder false, sobald ein echter
+ * NTP-Sync gelingt (siehe zeit_sntp_starten). */
+bool zeit_ist_manuell_gesetzt(void);
+
 /* Deutscher Wochentag in Grossbuchstaben, z. B. "MONTAG". */
 const char *zeit_wochentag_gross(const struct tm *t);
 

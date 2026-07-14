@@ -23,6 +23,12 @@ void kalender_task_starten(void);
  * nur bei Aenderung neu zeichnen, nicht bei jedem Sekunden-Tick. */
 uint32_t kalender_anzeige_version(void);
 
+/* true, sobald in dieser Sitzung mindestens ein echter Netz-Download
+ * gelungen ist (im Unterschied zu kalender_anzeige_version() != 0, das
+ * auch bei rein gecachten, nie frisch heruntergeladenen Daten zutrifft -
+ * z. B. im Offline-Betrieb ohne WLAN). */
+bool kalender_anzeige_frisch(void);
+
 void kalender_anzeige_kopieren(kalender_anzeige_t *ziel);
 
 #endif

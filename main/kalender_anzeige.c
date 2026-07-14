@@ -30,6 +30,10 @@ static const char *TAG = "kalender_anzeige";
 static SemaphoreHandle_t s_mutex;
 static kalender_anzeige_t s_anzeige;
 static volatile uint32_t s_version = 0;
+/* true, sobald in dieser Sitzung mindestens ein echter Netz-Download
+ * gelungen ist - im Unterschied zu s_version, die auch schon beim reinen
+ * Neu-Parsen einer gecachten Datei (z. B. im Offline-Betrieb) steigt. */
+static volatile bool s_frisch = false;
 
 /* Rohtext des zuletzt bekannten Kalenders (Cache oder frischer Download) —
  * wird bei Mitternacht erneut geparst, ohne dafuer neu herunterladen zu
@@ -148,6 +152,7 @@ static void task_funktion(void *arg)
             if (err == ESP_OK) {
                 ESP_LOGI(TAG, "Kalender heruntergeladen (%u Bytes)", (unsigned)laenge);
                 neuen_kalender_uebernehmen(puffer, laenge);
+                s_frisch = true;
                 naechster_abruf_us = jetzt_us + ABRUF_INTERVALL_US;
                 if (zeit_ist_synchron())
                     fuer_heute_neu_parsen();
@@ -180,6 +185,11 @@ void kalender_task_starten(void)
 uint32_t kalender_anzeige_version(void)
 {
     return s_version;
+}
+
+bool kalender_anzeige_frisch(void)
+{
+    return s_frisch;
 }
 
 void kalender_anzeige_kopieren(kalender_anzeige_t *ziel)

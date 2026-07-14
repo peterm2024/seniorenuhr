@@ -10,6 +10,7 @@
 static const char *TAG = "zeit";
 
 static volatile bool s_zeit_synchron = false;
+static volatile bool s_zeit_manuell = false; /* true: zuletzt manuell gesetzt, nicht NTP-bestaetigt */
 
 static void sync_callback(struct timeval *tv)
 {
@@ -17,6 +18,7 @@ static void sync_callback(struct timeval *tv)
     if (!s_zeit_synchron)
         ESP_LOGI(TAG, "Uhrzeit per NTP synchronisiert");
     s_zeit_synchron = true;
+    s_zeit_manuell = false; /* NTP hat Vorrang - ab jetzt wieder bestaetigt */
 }
 
 void zeit_zeitzone_setzen(void)
@@ -37,6 +39,11 @@ bool zeit_ist_synchron(void)
     return s_zeit_synchron;
 }
 
+bool zeit_ist_manuell_gesetzt(void)
+{
+    return s_zeit_manuell;
+}
+
 void zeit_manuell_setzen(int tag, int monat, int jahr, int stunde, int minute)
 {
     struct tm t = {0};
@@ -53,6 +60,7 @@ void zeit_manuell_setzen(int tag, int monat, int jahr, int stunde, int minute)
     ESP_LOGI(TAG, "Uhrzeit manuell gesetzt (kein NTP): %04d-%02d-%02d %02d:%02d",
              jahr, monat, tag, stunde, minute);
     s_zeit_synchron = true;
+    s_zeit_manuell = true;
 }
 
 const char *zeit_wochentag_gross(const struct tm *t)
