@@ -55,7 +55,11 @@
       "PowerShell($port = New-Object System.IO.Ports.SerialPort\\(\"COM3\", 115200\\); $port.ReadTimeout = 500; $port.Open\\(\\); $port.DtrEnable = $true; $port.RtsEnable = $true; Start-Sleep -Milliseconds 100; $port.RtsEnable = $false; $port.DiscardInBuffer\\(\\); $ende = \\(Get-Date\\).AddSeconds\\(45\\); $zeilen = @\\(\\); while \\(\\(Get-Date\\) -lt $ende\\) { try { $z = $port.ReadLine\\(\\); $zeilen += $z; if \\($z -match \"Einblend-Animation fertig\"\\) { break } } catch {} }; $port.Close\\(\\); $zeilen | Where-Object { $_ -match \"Start:|netz:|zeit:|Neustart|watchdog|assert|Guru|abort|E \\\\\\(\" } | Select-Object -First 40)",
       "PowerShell($port = New-Object System.IO.Ports.SerialPort\\(\"COM3\", 115200\\); $port.ReadTimeout = 500; $port.Open\\(\\); $port.DtrEnable = $true; $port.RtsEnable = $true; Start-Sleep -Milliseconds 100; $port.RtsEnable = $false; $port.DiscardInBuffer\\(\\); $ende = \\(Get-Date\\).AddSeconds\\(20\\); $zeilen = @\\(\\); while \\(\\(Get-Date\\) -lt $ende\\) { try { $z = $port.ReadLine\\(\\); $zeilen += $z } catch {} }; $port.Close\\(\\); \"COUNT: $\\($zeilen.Count\\)\"; $zeilen | Select-Object -First 40)",
       "PowerShell([System.IO.Ports.SerialPort]::GetPortNames\\(\\); Get-PnpDevice -Class Ports -Status OK 2>$null | Format-Table -AutoSize)",
-      "PowerShell(git add -A)"
+      "PowerShell(git add -A)",
+      "PowerShell(git commit -F \"C:\\\\Users\\\\peter\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-peter-Projekte-WaveShare\\\\9c624b28-9b94-415a-b7bb-d04486aa454c\\\\scratchpad\\\\commit-msg-7.txt\")",
+      "PowerShell(git push)",
+      "PowerShell($port = New-Object System.IO.Ports.SerialPort\\(\"COM3\", 115200\\); $port.ReadTimeout = 500; $port.Open\\(\\); $ende = \\(Get-Date\\).AddSeconds\\(35\\); $zeilen = @\\(\\); while \\(\\(Get-Date\\) -lt $ende\\) { try { $z = $port.ReadLine\\(\\); $zeilen += $z } catch {} }; $port.Close\\(\\); $zeilen | Where-Object { $_ -match \"Neustart|rst:|boot:|assert|Guru|abort\" })",
+      "PowerShell(git commit -F \"C:\\\\Users\\\\peter\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-peter-Projekte-WaveShare\\\\9c624b28-9b94-415a-b7bb-d04486aa454c\\\\scratchpad\\\\commit-msg-8.txt\")"
     ]
   }
 }

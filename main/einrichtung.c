@@ -61,8 +61,8 @@ void einrichtung_wlan_zeigen(void)
     lv_textarea_set_one_line(s_ssid_ta, true);
     lv_textarea_set_placeholder_text(s_ssid_ta, "Netzwerkname (SSID)");
     lv_obj_set_style_text_font(s_ssid_ta, &schrift_klein_28, 0);
-    lv_obj_set_size(s_ssid_ta, 600, 55);
-    lv_obj_align(s_ssid_ta, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_set_size(s_ssid_ta, 600, 50);
+    lv_obj_align(s_ssid_ta, LV_ALIGN_TOP_MID, 0, 65);
     lv_obj_add_event_cb(s_ssid_ta, wlan_textarea_fokus_cb, LV_EVENT_FOCUSED, NULL);
 
     s_pass_ta = lv_textarea_create(s_wlan_screen);
@@ -70,13 +70,13 @@ void einrichtung_wlan_zeigen(void)
     lv_textarea_set_password_mode(s_pass_ta, true);
     lv_textarea_set_placeholder_text(s_pass_ta, "Passwort");
     lv_obj_set_style_text_font(s_pass_ta, &schrift_klein_28, 0);
-    lv_obj_set_size(s_pass_ta, 600, 55);
-    lv_obj_align(s_pass_ta, LV_ALIGN_TOP_MID, 0, 150);
+    lv_obj_set_size(s_pass_ta, 600, 50);
+    lv_obj_align(s_pass_ta, LV_ALIGN_TOP_MID, 0, 122);
     lv_obj_add_event_cb(s_pass_ta, wlan_textarea_fokus_cb, LV_EVENT_FOCUSED, NULL);
 
     lv_obj_t *btn_speichern = lv_button_create(s_wlan_screen);
-    lv_obj_set_size(btn_speichern, 260, 60);
-    lv_obj_align(btn_speichern, LV_ALIGN_TOP_LEFT, 30, 220);
+    lv_obj_set_size(btn_speichern, 260, 55);
+    lv_obj_align(btn_speichern, LV_ALIGN_TOP_LEFT, 30, 180);
     lv_obj_add_event_cb(btn_speichern, wlan_speichern_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l1 = lv_label_create(btn_speichern);
     lv_label_set_text(l1, "Speichern & neu starten");
@@ -84,16 +84,19 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_center(l1);
 
     lv_obj_t *btn_abbrechen = lv_button_create(s_wlan_screen);
-    lv_obj_set_size(btn_abbrechen, 200, 60);
-    lv_obj_align(btn_abbrechen, LV_ALIGN_TOP_RIGHT, -30, 220);
+    lv_obj_set_size(btn_abbrechen, 200, 55);
+    lv_obj_align(btn_abbrechen, LV_ALIGN_TOP_RIGHT, -30, 180);
     lv_obj_add_event_cb(btn_abbrechen, wlan_abbrechen_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l2 = lv_label_create(btn_abbrechen);
     lv_label_set_text(l2, "Abbrechen");
     lv_obj_set_style_text_font(l2, &schrift_klein_28, 0);
     lv_obj_center(l2);
 
+    /* Tastaturhoehe so gewaehlt, dass ihre Oberkante (480-235=245) unter den
+     * Buttons endet (180+55=235) - sonst ueberlappen sich Buttons und
+     * Tastatur im unteren Bildschirmdrittel. */
     s_wlan_keyboard = lv_keyboard_create(s_wlan_screen);
-    lv_obj_set_size(s_wlan_keyboard, LV_PCT(100), 230);
+    lv_obj_set_size(s_wlan_keyboard, LV_PCT(100), 235);
     lv_obj_align(s_wlan_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_textarea(s_wlan_keyboard, s_ssid_ta);
 

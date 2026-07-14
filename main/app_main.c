@@ -386,8 +386,14 @@ static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *nam
             einrichtung_status_t status;
             while ((status = einrichtung_wlan_status()) == EINRICHTUNG_OFFEN)
                 vTaskDelay(pdMS_TO_TICKS(100));
-            einrichtung_wlan_aufraeumen();
+            /* Erst den Startbildschirm wieder AKTIVIEREN, dann erst den
+             * (jetzt inaktiven) Einrichtungsbildschirm loeschen - in der
+             * umgekehrten Reihenfolge waere zwischen den beiden separaten
+             * lvgl_port_lock()-Bloecken kurz kein aktiver Screen gesetzt,
+             * waehrend der LVGL-Task parallel weiterlaeuft (haengt sich
+             * dann teilweise auf, aehnlich dem Absturz aus Fallstricke #7). */
             startbildschirm_reaktivieren();
+            einrichtung_wlan_aufraeumen();
             (void)status; /* nur ABGEBROCHEN erreichbar - Speichern startet neu */
             continue;     /* Phase erneut abwarten */
         }
@@ -397,8 +403,8 @@ static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *nam
         einrichtung_status_t status;
         while ((status = einrichtung_zeit_status()) == EINRICHTUNG_OFFEN)
             vTaskDelay(pdMS_TO_TICKS(100));
-        einrichtung_zeit_aufraeumen();
         startbildschirm_reaktivieren();
+        einrichtung_zeit_aufraeumen();
 
         if (status == EINRICHTUNG_UEBERNOMMEN) {
             ESP_LOGI(TAG, "Start: Uhrzeit manuell gesetzt waehrend Phase '%s' - Phase als erledigt markiert", name);
