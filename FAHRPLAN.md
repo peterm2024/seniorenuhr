@@ -79,14 +79,16 @@ Solange kein WLAN da ist, zeigt die Uhr „Uhrzeit wird geholt…" statt einer f
 ```
 seniorenuhr/
 ├── main/
-│   ├── app_main.c          – Start: Startbildschirm-Ablauf, UI-Aufbau, Sekunden-Tick
+│   ├── app_main.c          – Start: Boot-Phasen, UI-Aufbau, Sekunden-Tick, Status-Symbole
 │   ├── anzeige.c/.h         – CH422G, RGB-Panel-Init, GT911-Touch, esp_lvgl_port
-│   ├── startbildschirm.c/.h – Boot-Anzeige (3 Symbole: WLAN/Uhr/Kalender)
-│   ├── netz.c/.h            – WLAN-Verbindung, Reconnect, 30s-Watchdog
-│   ├── zeit.c/.h            – SNTP, Zeitzone, Wochentag/Tageszeit-Text
+│   ├── startbildschirm.c/.h – Boot-Anzeige (3 Symbole + Countdown-Ring + Recovery-Buttons)
+│   ├── einrichtung.c/.h     – Einrichtungsbildschirme "WLAN wechseln"/"Offline-Zeit setzen"
+│   ├── tagesansicht.c/.h    – Wochentag-Navigation + Tabletten-Abhaken (Tages-/Heute-Fenster)
+│   ├── netz.c/.h            – WLAN-Verbindung, mehrere gemerkte Netze (NVS), Reconnect, Watchdog
+│   ├── zeit.c/.h            – SNTP, Zeitzone, Wochentag/Tageszeit-Text, manuelles Setzen
 │   ├── kalender_holen.c/.h    – HTTPS-Download des ICS-Kalenders
 │   ├── kalender_speicher.c/.h – Cache auf eigener Flash-Partition
-│   ├── kalender_anzeige.c/.h  – Hintergrund-Task: verbindet Abruf+Cache+Parser
+│   ├── kalender_anzeige.c/.h  – Hintergrund-Task: verbindet Abruf+Cache+Parser, Tages-Status
 │   └── secrets.h (gitignored) – WLAN-Zugang + Kalender-URL
 ├── components/kalender/     – ICS-Parser (portables C, auch fuer PC-Tests)
 ├── assets/fonts/             – generierte LVGL-Fonts
@@ -140,8 +142,24 @@ Fonts enthalten nur Buchstaben/Umlaute), plus drei Anzeigemodi statt einer reine
 - **Berührung während Abend/Nacht** schaltet für 30 Sekunden auf volle Tag-Helligkeit
   (inklusive Tabletten/Termine), danach automatisch zurück
 - Der **Bootvorgang** zeigt einen eigenen Startbildschirm (drei Symbole: WLAN, Uhr, Kalender,
-  die nacheinander blinken und weiß werden), danach blendet die Hauptanzeige über 2 Sekunden
-  passend zur Tageszeit ein, statt hart zu erscheinen
+  die nacheinander blinken und weiß werden, mit 4px-Countdown-Ring pro Phase), danach blendet
+  die Hauptanzeige über 2 Sekunden passend zur Tageszeit ein, statt hart zu erscheinen
+- **Recovery beim Boot:** Hängt eine Phase (WLAN/Uhr/Kalender) länger als 30s, erscheinen zwei
+  Buttons „WLAN wechseln" (Zugangsdaten-Eingabe mit Bildschirmtastatur, landet im NVS) und
+  „Offline" (Datum/Uhrzeit manuell setzen, ohne NTP weiterfahren). Läuft die Phase 60s ohne
+  Reaktion, startet das Gerät neu.
+- **Mehrere WLAN-Netze:** Das Gerät merkt sich bis zu 5 Netze (leicht verschleiert im NVS) und
+  wählt beim Start per Scan automatisch das gerade sichtbare aus — praktisch beim Wechsel
+  zwischen Testaufbau zu Hause und dem Einsatzort.
+- **Live-Status-Symbole** rechts oben (WLAN/Zeit/Kalender, kleine Ringe mit Mini-Glyphen)
+  zeigen auf einen Blick, ob alles wirklich aktuell ist — durchgestrichen bei fehlender
+  Konnektivität bzw. bei nur manuell gesetzter Zeit/gecachten (nie frisch heruntergeladenen)
+  Kalenderdaten.
+- **Wochentag-Navigation:** 7 kleine Buttons links (gestern..+5 Tage, „heute" nur als
+  Pfeil-Platzhalter) öffnen ein 15s lang eingeblendetes Tages-Fenster mit den Terminen/
+  Tabletten des jeweiligen Tages. Ein hochkanter Button rechts öffnet das „Heute"-Fenster mit
+  einem Schiebeschalter pro Tablette zum Abhaken (bleibt bis Mitternacht bestehen). Beide
+  Fenster haben einen „X"-Button zum manuellen Schließen.
 
 ---
 
@@ -175,15 +193,26 @@ Umweg über Testdaten war nicht mehr nötig.
 - Tag/Abend/Nacht-Farbschema (siehe Abschnitt 2.4) statt einer reinen Dimmung
 - Berührung weckt für 30s in den Tag-Modus
 - Startbildschirm mit drei Symbolen (WLAN/Uhr/Kalender), sanftes Einblenden der Hauptanzeige
-- Tabletten-Abhaken per Touch (aus Phase 3 vorgezogen geplant) ist **noch nicht umgesetzt**
 
-### Phase 5 — Robustheit & Fernwartung *(teilweise begonnen)*
-- ✅ WLAN-Watchdog: Neustart nach 30s ununterbrochen ohne Verbindung
+### Phase 3 — Wochentag-Navigation & Tabletten-Abhaken ✅ ERLEDIGT (15.07.2026)
+- 7 Wochentag-Buttons links öffnen ein Tages-Fenster (Termine/Tabletten, 15s bzw. per „X"
+  manuell schließbar) für gestern..+5 Tage
+- Rechter „Heute"-Button öffnet ein Fenster mit Schiebeschalter pro Tablette zum Abhaken,
+  bestätigter Status bleibt bis Mitternacht bestehen (auch über Kalender-Refreshes hinweg)
+- kalender_anzeige.c liefert dafür strukturierte Tageseinträge statt nur fertig formatierter
+  Anzeige-Texte
+
+### Phase 5 — Robustheit & Fernwartung *(teilweise begonnen, 15.07.2026)*
+- ✅ WLAN-Watchdog: Neustart nach 30s ununterbrochen ohne Verbindung (pausiert waehrend der
+  Einrichtungsbildschirme, damit er nicht mitten in die Eingabe hinein feuert)
+- ✅ Recovery-Bildschirme "WLAN wechseln"/"Offline" nach 30s hängender Boot-Phase
+- ✅ Mehrere WLAN-Netze gemerkt (NVS, leicht verschleiert), automatische Auswahl per Scan
+- ✅ Live-Status-Symbole (WLAN/Zeit/Kalender) rechts oben, ehrlich durchgestrichen bei
+  unbestätigten Daten (manuelle Zeit, nur gecachter statt frisch heruntergeladener Kalender)
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung (der aktuelle Watchdog deckt nur WLAN-Verbindungsabbrüche ab)
-- ⬜ Dezente Statusanzeige bei dauerhaften Problemen
-- **Ziel:** Eine Woche Dauerlauf bei Peter ohne Eingriff
+- **Ziel:** Eine Woche Dauerlauf bei den Eltern ohne Eingriff
 
 ### Phase 6 — Einzug bei den Eltern *(1 Tag + Beobachtung)*
 - Gehäuse/Aufsteller, Kabelführung, Platzwahl (Augenhöhe, kein Gegenlicht, Steckdose)
@@ -204,7 +233,7 @@ Umweg über Testdaten war nicht mehr nötig.
 1. **Kalender-Dienst:** Google Kalender — Pflege am Notebook und unterwegs per iPhone
    (Google-Kalender-App bzw. Kalender-Abo auf dem iPhone).
 2. **WLAN bei den Eltern:** vorhanden. ✓
-3. **Touch:** Tabletten sollen per Touch **abhakbar** sein — die Funktion soll per Einstellung
-   ein-/ausschaltbar sein, falls sie die Eltern überfordert. *(Stand 13.07.2026: noch nicht
-   umgesetzt, Tabletten/Termine werden bisher nur angezeigt.)*
+3. **Touch:** Tabletten sind per Touch **abhakbar** (Schiebeschalter im "Heute"-Fenster, siehe
+   Phase 3). Eine Ein-/Ausschalt-Einstellung für den Fall, dass es die Eltern überfordert, ist
+   *(Stand 15.07.2026)* noch nicht umgesetzt.
 4. **Ton:** komplett stumm. Erinnerung ausschließlich über farbliche Hervorhebung.
