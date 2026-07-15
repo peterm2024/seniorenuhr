@@ -39,9 +39,24 @@ LV_FONT_DECLARE(schrift_mittel_40);
 
 #define FENSTER_BREITE       620
 #define FENSTER_HOEHE_TAG    300
-#define FENSTER_HOEHE_HEUTE  400
+#define FENSTER_HOEHE_HEUTE  440
 #define FARBE_FENSTER_TEXT   0xffffff
 #define FARBE_FENSTER_AKZENT 0xffd75f
+
+/* Schiebeschalter statt lv_switch: bei Zittern/Ungenauigkeit im Alter
+ * loest ein einfacher Tipp auf einen Schalter zu leicht eine Fehleingabe
+ * aus. Ein langer Schieberweg (~5cm bei diesem Display) muss bewusst
+ * durchgezogen werden - ein kurzer Tipp irgendwo auf der Spur bewegt den
+ * Knopf nicht ueber die Schwelle und die Stellung bleibt unveraendert. */
+#define SCHIEBER_BREITE        260
+#define SCHIEBER_HOEHE         50
+#define SCHIEBER_KNOPF         46
+#define SCHIEBER_TRAVEL        (SCHIEBER_BREITE - SCHIEBER_KNOPF)
+#define SCHIEBER_SCHWELLE_EIN  0.7f
+#define SCHIEBER_SCHWELLE_AUS  0.3f
+#define FARBE_SCHIEBER_AUS     0x4a5568
+#define FARBE_SCHIEBER_EIN     0x3aa655
+#define FARBE_SCHIEBER_KNOPF   0xffffff
 
 #define TAGESFENSTER_ANZEIGEDAUER_MS (15 * 1000)
 #define HEUTEFENSTER_INAKTIV_MS      (5 * 60 * 1000)
@@ -59,6 +74,19 @@ static lv_obj_t *s_tages_fenster;
 static lv_timer_t *s_tages_fenster_timer;
 static lv_obj_t *s_heute_fenster;
 static lv_timer_t *s_heute_fenster_timer;
+
+typedef struct {
+    lv_obj_t *spur;
+    lv_obj_t *knopf;
+    int index;
+    bool an;
+    int32_t min_x;
+    int32_t max_x;
+    int32_t press_start_x;
+    int32_t knopf_start_x;
+} schieber_t;
+
+static schieber_t s_schieber[KALENDER_EINTRAEGE_MAX];
 
 static void tagesfenster_intern_schliessen(void)
 {
@@ -231,17 +259,90 @@ static void tag_button_cb(lv_event_t *e)
 
 /* ---- Heute-Fenster (mit Bestaetigungs-Schaltern, 5min Inaktivitaet) - */
 
-static void heute_switch_cb(lv_event_t *e)
+static void schieber_stellung_anwenden(schieber_t *s, bool an)
 {
-    lv_obj_t *sw = lv_event_get_target(e);
-    int index = (int)(intptr_t)lv_event_get_user_data(e);
-    bool an = lv_obj_has_state(sw, LV_STATE_CHECKED);
-    kalender_anzeige_tablette_bestaetigen(index, an);
+    s->an = an;
+    lv_obj_set_style_bg_color(s->spur, lv_color_hex(an ? FARBE_SCHIEBER_EIN : FARBE_SCHIEBER_AUS), 0);
+    lv_obj_set_x(s->knopf, an ? s->max_x : s->min_x);
+}
+
+static void schieber_pressed_cb(lv_event_t *e)
+{
+    schieber_t *s = (schieber_t *)lv_event_get_user_data(e);
+    lv_indev_t *indev = lv_indev_get_act();
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    s->press_start_x = p.x;
+    s->knopf_start_x = lv_obj_get_x(s->knopf);
+}
+
+static void schieber_pressing_cb(lv_event_t *e)
+{
+    schieber_t *s = (schieber_t *)lv_event_get_user_data(e);
+    lv_indev_t *indev = lv_indev_get_act();
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    int32_t neu_x = s->knopf_start_x + (p.x - s->press_start_x);
+    if (neu_x < s->min_x)
+        neu_x = s->min_x;
+    if (neu_x > s->max_x)
+        neu_x = s->max_x;
+    lv_obj_set_x(s->knopf, neu_x);
+}
+
+/* Entscheidet beim Loslassen, ob genug gezogen wurde: nur jenseits der
+ * Schwellen wird umgeschaltet, dazwischen schnappt der Knopf zurueck. */
+static void schieber_released_cb(lv_event_t *e)
+{
+    schieber_t *s = (schieber_t *)lv_event_get_user_data(e);
+    float anteil = (float)(lv_obj_get_x(s->knopf) - s->min_x) / (float)(s->max_x - s->min_x);
+    bool neu_an = s->an;
+    if (anteil >= SCHIEBER_SCHWELLE_EIN)
+        neu_an = true;
+    else if (anteil <= SCHIEBER_SCHWELLE_AUS)
+        neu_an = false;
+    schieber_stellung_anwenden(s, neu_an);
+    kalender_anzeige_tablette_bestaetigen(s->index, neu_an);
 
     lvgl_port_lock(0);
     if (s_heute_fenster_timer)
         lv_timer_reset(s_heute_fenster_timer);
     lvgl_port_unlock();
+}
+
+static void schieber_erzeugen(lv_obj_t *parent, int32_t x, int32_t y, int index, bool an)
+{
+    schieber_t *s = &s_schieber[index];
+    s->index = index;
+    s->an = an;
+    s->min_x = x;
+    s->max_x = x + SCHIEBER_TRAVEL;
+
+    lv_obj_t *spur = lv_obj_create(parent);
+    lv_obj_remove_style_all(spur);
+    lv_obj_remove_flag(spur, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(spur, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(spur, SCHIEBER_BREITE, SCHIEBER_HOEHE);
+    lv_obj_set_pos(spur, x, y);
+    lv_obj_set_style_radius(spur, SCHIEBER_HOEHE / 2, 0);
+    lv_obj_set_style_bg_opa(spur, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(spur, lv_color_hex(an ? FARBE_SCHIEBER_EIN : FARBE_SCHIEBER_AUS), 0);
+    s->spur = spur;
+
+    lv_obj_t *knopf = lv_obj_create(parent);
+    lv_obj_remove_style_all(knopf);
+    lv_obj_remove_flag(knopf, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(knopf, SCHIEBER_KNOPF, SCHIEBER_KNOPF);
+    lv_obj_set_pos(knopf, an ? s->max_x : s->min_x, y + (SCHIEBER_HOEHE - SCHIEBER_KNOPF) / 2);
+    lv_obj_set_style_radius(knopf, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(knopf, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(knopf, lv_color_hex(FARBE_SCHIEBER_KNOPF), 0);
+    s->knopf = knopf;
+
+    lv_obj_add_event_cb(knopf, schieber_pressed_cb, LV_EVENT_PRESSED, s);
+    lv_obj_add_event_cb(knopf, schieber_pressing_cb, LV_EVENT_PRESSING, s);
+    lv_obj_add_event_cb(knopf, schieber_released_cb, LV_EVENT_RELEASED, s);
+    lv_obj_add_event_cb(knopf, schieber_released_cb, LV_EVENT_PRESS_LOST, s);
 }
 
 static void heutefenster_hintergrund_cb(lv_event_t *e)
@@ -289,15 +390,11 @@ static void heute_button_cb(lv_event_t *e)
         lv_label_set_text(label, inhalt);
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
-        lv_obj_set_pos(label, 20, y + 8);
+        lv_obj_set_pos(label, 20, y + 12);
 
-        lv_obj_t *sw = lv_switch_create(s_heute_fenster);
-        lv_obj_set_pos(sw, FENSTER_BREITE - 100, y);
-        if (eintraege[i].bestaetigt)
-            lv_obj_add_state(sw, LV_STATE_CHECKED);
-        lv_obj_add_event_cb(sw, heute_switch_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)i);
+        schieber_erzeugen(s_heute_fenster, FENSTER_BREITE - SCHIEBER_BREITE - 20, y, i, eintraege[i].bestaetigt);
 
-        y += 55;
+        y += 70;
     }
     if (!tablette_vorhanden) {
         lv_obj_t *label = lv_label_create(s_heute_fenster);
