@@ -399,20 +399,29 @@ static void schieber_released_cb(lv_event_t *e)
     lvgl_port_unlock();
 }
 
-static void schieber_erzeugen(lv_obj_t *parent, int32_t x, int32_t y, int index, bool an)
+/* Rechtsbuendig per lv_obj_align statt manuell aus FENSTER_BREITE
+ * errechnetem x: Ein Panel behaelt ohne lv_obj_remove_style_all() sein
+ * Standard-Innenpolster, wodurch von links UND rechts aus errechnete
+ * Koordinaten unterschiedlich stark verschoben werden koennen (aehnlich
+ * dem Rand-Insets-Fallstrick der Status-Symbole, siehe app_main.c).
+ * lv_obj_align kennt die tatsaechliche rechte Kante des Panels und ist
+ * dagegen immun - min_x/max_x werden danach aus der tatsaechlich
+ * aufgeloesten Position ausgelesen (lv_obj_get_x), damit der separate
+ * Knopf (dasselbe Elternobjekt) exakt dazu passt. */
+static void schieber_erzeugen(lv_obj_t *parent, int32_t y, int index, bool an)
 {
     schieber_t *s = &s_schieber[index];
     s->index = index;
     s->an = an;
-    s->min_x = x;
-    s->max_x = x + SCHIEBER_TRAVEL;
 
     lv_obj_t *spur = lv_obj_create(parent);
     lv_obj_remove_style_all(spur);
     lv_obj_remove_flag(spur, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(spur, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(spur, SCHIEBER_BREITE, SCHIEBER_HOEHE);
-    lv_obj_set_pos(spur, x, y);
+    lv_obj_align(spur, LV_ALIGN_TOP_RIGHT, -SCHIEBER_RAND, y);
+    s->min_x = lv_obj_get_x(spur);
+    s->max_x = s->min_x + SCHIEBER_TRAVEL;
     lv_obj_set_style_radius(spur, SCHIEBER_HOEHE / 2, 0);
     lv_obj_set_style_bg_opa(spur, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(spur, lv_color_hex(an ? FARBE_SCHIEBER_EIN : FARBE_SCHIEBER_AUS), 0);
@@ -479,7 +488,7 @@ static void heute_button_cb(lv_event_t *e)
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
         lv_obj_set_pos(label, 20, y + 12);
 
-        schieber_erzeugen(s_heute_fenster, FENSTER_BREITE - SCHIEBER_BREITE - SCHIEBER_RAND, y, i, eintraege[i].bestaetigt);
+        schieber_erzeugen(s_heute_fenster, y, i, eintraege[i].bestaetigt);
 
         y += 70;
     }
