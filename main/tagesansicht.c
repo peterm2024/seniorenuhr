@@ -16,11 +16,11 @@ LV_FONT_DECLARE(schrift_mittel_40);
 #define HEUTE_INDEX 1      /* Position von "heute" in der 7er-Spalte */
 
 #define BUTTON_BREITE 56
-/* Der "Heute"-Button (Position 2) darf etwas breiter sein, um visuell
- * hervorzustechen - aber nicht so breit, dass er in die bei x=80
- * beginnende Tabletten-Spalte hineinragt (siehe app_main.c/ui_aufbauen). */
-#define BUTTON_BREITE_HEUTE 74
 #define BUTTON_HOEHE  62
+/* Waagerechtes Innenpolster des "Heute"-Buttons (Position 2) - dessen
+ * Breite sich per LV_SIZE_CONTENT exakt an "Heute" anpasst, siehe
+ * tagesansicht_erstellen. */
+#define HEUTE_BTN_PAD 14
 #define BUTTON_GAP    4
 #define SPALTE_X      6
 #define SPALTE_Y      8    /* nutzt die Bildschirmhoehe fast vollstaendig aus */
@@ -56,7 +56,9 @@ LV_FONT_DECLARE(schrift_mittel_40);
 #define SCHIEBER_HOEHE         50
 #define SCHIEBER_KNOPF         46
 #define SCHIEBER_TRAVEL        (SCHIEBER_BREITE - SCHIEBER_KNOPF)
-#define SCHIEBER_RAND          30 /* Abstand zum rechten Fensterrand */
+/* Abstand zum rechten Fensterrand - bewusst gleich dem linken Rand der
+ * Eintrags-Labels (x=20), damit beide Seiten optisch symmetrisch wirken. */
+#define SCHIEBER_RAND          20
 #define SCHIEBER_SCHWELLE_EIN  0.7f
 #define SCHIEBER_SCHWELLE_AUS  0.3f
 #define FARBE_SCHIEBER_AUS     0x4a5568
@@ -234,6 +236,76 @@ static void eintrag_zeile_formatieren(const kalender_tag_eintrag_t *e, char *zie
 
 /* ---- Tages-Fenster (read-only, 15s) --------------------------------- */
 
+/* Spalten wie im Hauptbildschirm (Tabletten links, Termine rechts) statt
+ * einer gemeinsamen Liste - konsistent zur Hauptanzeige und ohne
+ * Scroll-Geste auskommend. Damit bei vielen Eintraegen an einem Tag
+ * nichts unten aus dem Fenster herauslaeuft, wird pro Spalte auf
+ * TAGESFENSTER_ZEILEN_MAX begrenzt, der Rest als "+N weitere" angezeigt. */
+#define TAGESFENSTER_SPALTE_BREITE 270
+#define TAGESFENSTER_SPALTE_X_LINKS  20
+#define TAGESFENSTER_SPALTE_X_RECHTS (FENSTER_BREITE - TAGESFENSTER_SPALTE_BREITE - 20)
+#define TAGESFENSTER_ZEILEN_MAX 5
+
+static void tagesfenster_spalte_zeichnen(lv_obj_t *parent, int32_t x, const char *ueberschrift,
+                                         const kalender_tag_eintrag_t *eintraege, int anzahl_gesamt,
+                                         bool tabletten_spalte, bool tag_vergangen)
+{
+    int32_t y = 100;
+
+    lv_obj_t *kopf = lv_label_create(parent);
+    lv_label_set_text(kopf, ueberschrift);
+    lv_obj_set_style_text_font(kopf, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(kopf, lv_color_hex(FARBE_FENSTER_AKZENT), 0);
+    lv_obj_set_pos(kopf, x, y);
+    y += 34;
+
+    int gefiltert = 0;
+    for (int i = 0; i < anzahl_gesamt; i++)
+        if (eintraege[i].ist_tablette == tabletten_spalte)
+            gefiltert++;
+
+    if (gefiltert == 0) {
+        lv_obj_t *label = lv_label_create(parent);
+        lv_label_set_text(label, tabletten_spalte ? "Keine Tabletten." : "Keine Termine.");
+        lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
+        lv_obj_set_pos(label, x, y);
+        return;
+    }
+
+    int gezeigt = 0;
+    for (int i = 0; i < anzahl_gesamt; i++) {
+        if (eintraege[i].ist_tablette != tabletten_spalte)
+            continue;
+        if (gezeigt >= TAGESFENSTER_ZEILEN_MAX - (gefiltert > TAGESFENSTER_ZEILEN_MAX ? 1 : 0))
+            break;
+
+        char inhalt[ZEILE_MAX];
+        eintrag_zeile_formatieren(&eintraege[i], inhalt, sizeof inhalt);
+
+        lv_obj_t *label = lv_label_create(parent);
+        lv_label_set_text(label, inhalt);
+        lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+        bool vergangen = tag_vergangen && !tabletten_spalte;
+        lv_obj_set_style_text_color(label, lv_color_hex(vergangen ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
+        if (vergangen)
+            lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
+        lv_obj_set_pos(label, x, y);
+        y += 36;
+        gezeigt++;
+    }
+
+    if (gefiltert > gezeigt) {
+        lv_obj_t *mehr = lv_label_create(parent);
+        char text[24];
+        snprintf(text, sizeof text, "+%d weitere", gefiltert - gezeigt);
+        lv_label_set_text(mehr, text);
+        lv_obj_set_style_text_font(mehr, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(mehr, lv_color_hex(FARBE_VERGANGEN), 0);
+        lv_obj_set_pos(mehr, x, y);
+    }
+}
+
 static void tages_fenster_oeffnen(int tage_versatz, lv_obj_t *button)
 {
     kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
@@ -258,32 +330,10 @@ static void tages_fenster_oeffnen(int tage_versatz, lv_obj_t *button)
                                                      FENSTER_HOEHE_TAG, tagesfenster_schliessen_cb);
     aktiven_button_setzen(button);
 
-    int32_t y = 100;
-    if (anzahl == 0) {
-        lv_obj_t *label = lv_label_create(s_tages_fenster);
-        lv_label_set_text(label, "Keine Eintraege.");
-        lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
-        lv_obj_set_pos(label, 20, y);
-    } else {
-        for (int i = 0; i < anzahl; i++) {
-            char inhalt[ZEILE_MAX];
-            eintrag_zeile_formatieren(&eintraege[i], inhalt, sizeof inhalt);
-            char zeile[ZEILE_MAX + 16];
-            snprintf(zeile, sizeof zeile, "%s%s", eintraege[i].ist_tablette ? "Tablette: " : "", inhalt);
-
-            lv_obj_t *label = lv_label_create(s_tages_fenster);
-            lv_label_set_text(label, zeile);
-            lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
-            bool vergangen = tag_vergangen && !eintraege[i].ist_tablette;
-            lv_obj_set_style_text_color(label,
-                lv_color_hex(vergangen ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
-            if (vergangen)
-                lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
-            lv_obj_set_pos(label, 20, y);
-            y += 36;
-        }
-    }
+    tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_LINKS, "TABLETTEN",
+                                 eintraege, anzahl, true, tag_vergangen);
+    tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_RECHTS, "TERMINE",
+                                 eintraege, anzahl, false, tag_vergangen);
 
     s_tages_fenster_timer = lv_timer_create(tagesfenster_timer_cb, TAGESFENSTER_ANZEIGEDAUER_MS, NULL);
     lv_timer_set_repeat_count(s_tages_fenster_timer, 1);
@@ -492,24 +542,27 @@ void tagesansicht_erstellen(lv_obj_t *scr)
         int32_t y = SPALTE_Y + i * (BUTTON_HOEHE + BUTTON_GAP);
         int versatz = i - HEUTE_INDEX;
         bool ist_heute = (versatz == 0);
-        int32_t breite = ist_heute ? BUTTON_BREITE_HEUTE : BUTTON_BREITE;
 
         lv_obj_t *btn = lv_button_create(scr);
         button_grundstil(btn);
-        lv_obj_set_size(btn, breite, BUTTON_HOEHE);
+        if (ist_heute) {
+            /* Breite passt sich per LV_SIZE_CONTENT exakt an "Heute" an -
+             * keine feste Breite raten muessen, die zufaellig gerade so
+             * (nicht) reicht. */
+            lv_obj_set_size(btn, LV_SIZE_CONTENT, BUTTON_HOEHE);
+            lv_obj_set_style_pad_left(btn, HEUTE_BTN_PAD, 0);
+            lv_obj_set_style_pad_right(btn, HEUTE_BTN_PAD, 0);
+        } else {
+            lv_obj_set_size(btn, BUTTON_BREITE, BUTTON_HOEHE);
+        }
         lv_obj_set_pos(btn, SPALTE_X, y);
         lv_obj_add_event_cb(btn, ist_heute ? heute_button_cb : tag_button_cb, LV_EVENT_CLICKED,
                              ist_heute ? NULL : (void *)(intptr_t)versatz);
 
         lv_obj_t *label = lv_label_create(btn);
-        lv_label_set_text(label, ist_heute ? "HEUTE" : "...");
+        lv_label_set_text(label, ist_heute ? "Heute" : "...");
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_BUTTON_TEXT), 0);
-        if (ist_heute) {
-            lv_obj_set_width(label, breite - 6);
-            lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-            lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        }
         lv_obj_center(label);
 
         s_tag_buttons[i] = btn;
