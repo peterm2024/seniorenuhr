@@ -419,7 +419,14 @@ static void schieber_erzeugen(lv_obj_t *parent, int32_t y, int index, bool an)
     lv_obj_remove_flag(spur, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(spur, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(spur, SCHIEBER_BREITE, SCHIEBER_HOEHE);
+    /* Das Fenster-Panel ist gerade erst erzeugt worden - ohne diesen
+     * erzwungenen Layout-Durchlauf sind seine Koordinaten zum Zeitpunkt
+     * von lv_obj_align/lv_obj_get_x noch nicht aufgeloest (parent-Rahmen
+     * effektiv [0..-1]), wodurch die Ausrichtung faelschlich nahe x=0
+     * statt rechtsbuendig landete. */
+    lv_obj_update_layout(parent);
     lv_obj_align(spur, LV_ALIGN_TOP_RIGHT, -SCHIEBER_RAND, y);
+    lv_obj_update_layout(parent);
     s->min_x = lv_obj_get_x(spur);
     s->max_x = s->min_x + SCHIEBER_TRAVEL;
     lv_obj_set_style_radius(spur, SCHIEBER_HOEHE / 2, 0);
