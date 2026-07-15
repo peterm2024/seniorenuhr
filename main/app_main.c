@@ -484,8 +484,14 @@ static void uhr_tick(lv_timer_t *timer)
 
     /* Farbschema/Sichtbarkeit nur bei tatsaechlichem Moduswechsel setzen -
      * betrifft den ganzen Bildschirm, ein Style-Update jede Sekunde
-     * fuehrte sonst zu sichtbarem Flackern. */
-    static anzeige_modus_t letzter_modus = MODUS_TAG;
+     * fuehrte sonst zu sichtbarem Flackern. Startwert bewusst kein
+     * gueltiger anzeige_modus_t-Wert, damit der allererste Aufruf IMMER
+     * als "Wechsel" zaehlt und modus_anwenden() garantiert einmal laeuft -
+     * sonst bekaemen z. B. die Status-Symbole (die ihre Farbe nur dort
+     * gesetzt bekommen, siehe status_icon_farbe_setzen) beim Start tags
+     * ihre Farbe nie zugewiesen, da MODUS_TAG bereits der uebliche
+     * Startzustand ist und sich der Modus dann nie "aendert". */
+    static anzeige_modus_t letzter_modus = (anzeige_modus_t)-1;
     if (modus != letzter_modus) {
         modus_anwenden(modus);
         letzter_modus = modus;
