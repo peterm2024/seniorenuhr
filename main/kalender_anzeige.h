@@ -13,12 +13,6 @@
 
 #define KALENDER_TEXT_MAX 640
 
-typedef struct {
-    char tabletten_text[KALENDER_TEXT_MAX]; /* mehrzeilig, "-" wenn keine */
-    char termine_text[KALENDER_TEXT_MAX];
-    bool hat_daten; /* false, solange noch nichts geparst werden konnte */
-} kalender_anzeige_t;
-
 /* Fuer die Tagesansicht (Wochentag-Buttons + Tages-/Heute-Fenster, siehe
  * tagesansicht.c): ein einzelner Termin/Tabletten-Eintrag mit optionalem
  * Bestaetigungsstatus (nur bei kalender_anzeige_heutige_eintraege()
@@ -45,8 +39,6 @@ uint32_t kalender_anzeige_version(void);
  * auch bei rein gecachten, nie frisch heruntergeladenen Daten zutrifft -
  * z. B. im Offline-Betrieb ohne WLAN). */
 bool kalender_anzeige_frisch(void);
-
-void kalender_anzeige_kopieren(kalender_anzeige_t *ziel);
 
 /* Strukturierte Eintraege fuer HEUTE inkl. Bestaetigungsstatus (fuer das
  * Tabletten-Abhaken im "Heute"-Fenster). Der Status bleibt bis Mitternacht

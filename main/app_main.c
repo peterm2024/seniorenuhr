@@ -44,6 +44,7 @@
 #define FARBE_NACHT_TEXT        0x1d1d1d /* alles Text nachts: dunkles Grau, halbe Helligkeit */
 #define FARBE_WARNUNG           0xff5a4a /* Durchstrich der Status-Symbole bei fehlender Konnektivitaet */
 #define FARBE_ICON_HELLGRAU     0xd8d8d8 /* Status-Symbole rechts oben - fest, unabhaengig vom Modus */
+#define FARBE_VERGANGEN         0x707a8a /* gedaempftes Grau: vergangene Termine / abgehakte Tabletten in der Uebersicht */
 
 /* Kantenlaenge der kleinen Status-Symbole rechts oben (WLAN/Zeit/Kalender). */
 #define STATUS_ICON_GROESSE 34
@@ -147,7 +148,58 @@ static lv_obj_t *listen_label_erzeugen(lv_obj_t *scr, int32_t x, int32_t y, int3
     lv_obj_set_pos(label, x, y);
     lv_obj_set_width(label, breite);
     lv_label_set_text(label, "...");
+    /* Recolor erlaubt "#RRGGBB Text#"-Faerbung einzelner Zeilen innerhalb
+     * desselben mehrzeiligen Labels - genutzt fuer vergangene Termine und
+     * abgehakte Tabletten (siehe liste_text_aufbauen), ohne dafuer auf
+     * einzelne Label-Objekte pro Eintrag umbauen zu muessen. */
+    lv_label_set_recolor(label, true);
     return label;
+}
+
+/* Baut den mehrzeiligen Uebersichtstext fuer eine der beiden Spalten
+ * (Tabletten/Termine) aus den strukturierten Tageseintraegen. Vergangene
+ * Termine sowie bereits abgehakte Tabletten werden gedaempft dargestellt -
+ * per Recolor-Markup innerhalb des einen Labels (siehe listen_label_erzeugen),
+ * daher hier keine LVGL-Objekte, nur reiner Text. */
+static void liste_text_aufbauen(const kalender_tag_eintrag_t *eintraege, int anzahl, bool nur_tabletten,
+                                bool zeit_bekannt, int jetzt_minuten, char *ziel, size_t ziel_groesse)
+{
+    ziel[0] = '\0';
+    size_t belegt = 0;
+    int gefunden = 0;
+
+    for (int i = 0; i < anzahl; i++) {
+        if (eintraege[i].ist_tablette != nur_tabletten)
+            continue;
+        gefunden++;
+
+        char inhalt[80];
+        if (eintraege[i].ganztags)
+            snprintf(inhalt, sizeof inhalt, "%s", eintraege[i].titel);
+        else
+            snprintf(inhalt, sizeof inhalt, "%02d:%02d  %s",
+                     eintraege[i].stunde, eintraege[i].minute, eintraege[i].titel);
+
+        bool gedaempft = nur_tabletten
+            ? eintraege[i].bestaetigt
+            : (zeit_bekannt && !eintraege[i].ganztags &&
+               (eintraege[i].stunde * 60 + eintraege[i].minute) < jetzt_minuten);
+
+        char zeile[104];
+        if (gedaempft)
+            snprintf(zeile, sizeof zeile, "#%06x %s#\n", FARBE_VERGANGEN, inhalt);
+        else
+            snprintf(zeile, sizeof zeile, "%s\n", inhalt);
+
+        size_t n = strlen(zeile);
+        if (belegt + n < ziel_groesse) {
+            memcpy(ziel + belegt, zeile, n);
+            belegt += n;
+            ziel[belegt] = '\0';
+        }
+    }
+    if (gefunden == 0)
+        snprintf(ziel, ziel_groesse, "-");
 }
 
 /* Kleines Status-Symbol rechts oben: Kreisring mit einem Mini-Glyph
@@ -531,21 +583,55 @@ static void uhr_tick(lv_timer_t *timer)
     }
     einmalig = false;
 
-    /* Termine/Tabletten nur bei tatsaechlicher Aenderung neu zeichnen,
-     * nicht bei jedem Sekunden-Tick. */
-    static uint32_t letzte_version = 0;
-    uint32_t version = kalender_anzeige_version();
-    if (version == letzte_version)
-        return;
-    letzte_version = version;
+    /* Termine/Tabletten: Text wird bei jedem Tick neu gebaut (billig, nur
+     * ein kurzer Mutex + Stringformatierung), aber nur bei tatsaechlicher
+     * Aenderung ans Label geschickt (wie bei uhrzeit/wochentag/status oben).
+     * Ein reines Versionsgate (nur bei Kalender-Refresh) wuerde zwei Faelle
+     * verpassen: (1) eine per Touch abgehakte Tablette aendert die Version
+     * NICHT, (2) ein Termin "rutscht in die Vergangenheit", ohne dass sich
+     * am Kalender selbst etwas aendert. */
+    bool hat_daten = kalender_anzeige_version() != 0;
+    static char tabletten_text[KALENDER_TEXT_MAX] = "...";
+    static char termine_text[KALENDER_TEXT_MAX] = "...";
+    char neuer_tabletten_text[KALENDER_TEXT_MAX];
+    char neuer_termine_text[KALENDER_TEXT_MAX];
 
-    kalender_anzeige_t stand;
-    kalender_anzeige_kopieren(&stand);
+    if (hat_daten) {
+        kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
+        int anzahl = kalender_anzeige_heutige_eintraege(eintraege, KALENDER_EINTRAEGE_MAX);
+
+        bool zeit_bekannt = zeit_ist_synchron();
+        int jetzt_minuten = 0;
+        if (zeit_bekannt) {
+            time_t t = time(NULL);
+            struct tm lokal_jetzt;
+            localtime_r(&t, &lokal_jetzt);
+            jetzt_minuten = lokal_jetzt.tm_hour * 60 + lokal_jetzt.tm_min;
+        }
+
+        liste_text_aufbauen(eintraege, anzahl, true, zeit_bekannt, jetzt_minuten,
+                             neuer_tabletten_text, sizeof neuer_tabletten_text);
+        liste_text_aufbauen(eintraege, anzahl, false, zeit_bekannt, jetzt_minuten,
+                             neuer_termine_text, sizeof neuer_termine_text);
+    } else {
+        snprintf(neuer_tabletten_text, sizeof neuer_tabletten_text, "...");
+        snprintf(neuer_termine_text, sizeof neuer_termine_text, "...");
+    }
+
+    bool tabletten_geaendert = strcmp(neuer_tabletten_text, tabletten_text) != 0;
+    bool termine_geaendert = strcmp(neuer_termine_text, termine_text) != 0;
+    if (!tabletten_geaendert && !termine_geaendert)
+        return;
 
     lvgl_port_lock(0);
-    lv_label_set_text(s_tabletten_label, stand.hat_daten ? stand.tabletten_text : "...");
-    lv_label_set_text(s_termine_label, stand.hat_daten ? stand.termine_text : "...");
+    if (tabletten_geaendert)
+        lv_label_set_text(s_tabletten_label, neuer_tabletten_text);
+    if (termine_geaendert)
+        lv_label_set_text(s_termine_label, neuer_termine_text);
     lvgl_port_unlock();
+
+    snprintf(tabletten_text, sizeof tabletten_text, "%s", neuer_tabletten_text);
+    snprintf(termine_text, sizeof termine_text, "%s", neuer_termine_text);
 }
 
 /* Eine Boot-Phase hat ihren 60s-Countdown (Ring auf dem Startbildschirm)

@@ -28,7 +28,6 @@ static const char *TAG = "kalender_anzeige";
 #define TICK_MS 5000
 
 static SemaphoreHandle_t s_mutex;
-static kalender_anzeige_t s_anzeige;
 static volatile uint32_t s_version = 0;
 /* true, sobald in dieser Sitzung mindestens ein echter Netz-Download
  * gelungen ist - im Unterschied zu s_version, die auch schon beim reinen
@@ -42,46 +41,10 @@ static char *s_ics_text;
 static size_t s_ics_laenge;
 static int s_letzter_tag_schluessel = -1; /* JJJJMMTT des letzten Parse-Laufs */
 
-/* Strukturierte Eintraege fuer HEUTE inkl. Bestaetigungsstatus - separat
- * von s_anzeige (den fertig formatierten Texten), damit das Abhaken einer
- * einzelnen Tablette nicht das ganze Textformat neu zusammenbauen muss.
- * Durch denselben Mutex wie s_anzeige geschuetzt. */
+/* Strukturierte Eintraege fuer HEUTE inkl. Bestaetigungsstatus - die UI
+ * (app_main.c) baut die eigentlichen Anzeigetexte daraus selbst zusammen. */
 static kalender_tag_eintrag_t s_heute_eintraege[KALENDER_EINTRAEGE_MAX];
 static int s_heute_anzahl = 0;
-
-static void zeile_anhaengen(char *ziel, size_t ziel_groesse, size_t *belegt, const char *zeile)
-{
-    size_t zeile_laenge = strlen(zeile);
-    if (*belegt + zeile_laenge >= ziel_groesse)
-        return;
-    memcpy(ziel + *belegt, zeile, zeile_laenge);
-    *belegt += zeile_laenge;
-    ziel[*belegt] = '\0';
-}
-
-static void text_aufbauen(const ics_termin_t *termine, int anzahl, bool nur_tabletten,
-                          char *ziel, size_t ziel_groesse)
-{
-    ziel[0] = '\0';
-    size_t belegt = 0;
-    int gefunden = 0;
-
-    for (int i = 0; i < anzahl; i++) {
-        if (termine[i].ist_tablette != nur_tabletten)
-            continue;
-        gefunden++;
-
-        char zeile[96];
-        if (termine[i].ganztags)
-            snprintf(zeile, sizeof zeile, "%s\n", termine[i].titel);
-        else
-            snprintf(zeile, sizeof zeile, "%02d:%02d  %s\n",
-                     termine[i].beginn.stunde, termine[i].beginn.minute, termine[i].titel);
-        zeile_anhaengen(ziel, ziel_groesse, &belegt, zeile);
-    }
-    if (gefunden == 0)
-        snprintf(ziel, ziel_groesse, "-");
-}
 
 static int heute_schluessel(struct tm *ausgabe_lokal)
 {
@@ -124,11 +87,6 @@ static void fuer_heute_neu_parsen(void)
         return;
     }
 
-    kalender_anzeige_t neu;
-    text_aufbauen(termine, n, true, neu.tabletten_text, sizeof neu.tabletten_text);
-    text_aufbauen(termine, n, false, neu.termine_text, sizeof neu.termine_text);
-    neu.hat_daten = true;
-
     kalender_tag_eintrag_t neue_eintraege[KALENDER_EINTRAEGE_MAX];
     int neue_anzahl = n < KALENDER_EINTRAEGE_MAX ? n : KALENDER_EINTRAEGE_MAX;
     for (int i = 0; i < neue_anzahl; i++)
@@ -154,7 +112,6 @@ static void fuer_heute_neu_parsen(void)
     memcpy(s_heute_eintraege, neue_eintraege, sizeof neue_eintraege[0] * (size_t)neue_anzahl);
     s_heute_anzahl = neue_anzahl;
 
-    s_anzeige = neu;
     s_version++;
     xSemaphoreGive(s_mutex);
 
@@ -244,13 +201,6 @@ uint32_t kalender_anzeige_version(void)
 bool kalender_anzeige_frisch(void)
 {
     return s_frisch;
-}
-
-void kalender_anzeige_kopieren(kalender_anzeige_t *ziel)
-{
-    xSemaphoreTake(s_mutex, portMAX_DELAY);
-    *ziel = s_anzeige;
-    xSemaphoreGive(s_mutex);
 }
 
 int kalender_anzeige_heutige_eintraege(kalender_tag_eintrag_t *ziel, int max)

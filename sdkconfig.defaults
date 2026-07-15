@@ -39,6 +39,18 @@ CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
 CONFIG_FREERTOS_HZ=1000
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
+# main-Task-Stack von 3584 auf 16384 erhoeht: uhr_tick() (app_main.c) baut
+# beim allerersten synchronen Aufruf (noch auf dem main-Task, vor Anlegen
+# des periodischen Timers) inzwischen zusaetzlich die Tabletten-/Termine-
+# Uebersichtstexte selbst zusammen UND tagesansicht_tag_aktualisieren()
+# ruft fuer alle 7 Wochentag-Buttons kalender_anzeige_eintraege_fuer_tag()
+# auf - dieselbe Funktion mit dem grossen ics_termin_t[32]-Puffer (~3,9KB),
+# die schon im Kalender-Task 16384 statt 8192 brauchte (siehe
+# FALLSTRICKE_UND_WORKAROUNDS.md #8). 8192 reichte hier trotzdem nicht,
+# da mehrere solcher Aufrufe + uhr_ticks eigene Puffer denselben Stack
+# gleichzeitig (verschachtelt) belegen.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
