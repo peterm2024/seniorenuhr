@@ -235,6 +235,17 @@ Umweg über Testdaten war nicht mehr nötig.
 - Fotos/Geburtstage einblenden, Wetter
 - DS3231-RTC-Modul, Helligkeitssensor
 - Zweites Gerät (z. B. Schlafzimmer)
+- **Akustische Erinnerung per Buzzer** (15.07.2026, noch nicht umgesetzt — fehlende Bauteile):
+  Peter hat einen übrigen aktiven Magnet-Buzzer (Mainboard-Ersatzteil, 2 Adern, Polung "+"
+  markiert) von einem Mainboard übrig. Anschluss geplant am "Sensor AD"-Header (J8) des
+  Waveshare-Boards → GPIO6, laut Schaltplan der einzige dort exklusiv herausgeführte, sonst
+  unbenutzte Pin. Geplante Schaltung: GPIO6 über 1kΩ an die Basis eines NPN-Transistors
+  (z. B. S8050, wird auf dem Board selbst schon verwendet), Buzzer "+" an 3V3, Buzzer "−" an
+  den Kollektor, Emitter an GND, Freilaufdiode (1N4148) parallel zum Buzzer wegen der Spule.
+  Software: GPIO6 als normaler Digitalausgang, einfaches An/Aus genügt (aktiver Buzzer hat
+  eigenen Oszillator). Steht im Widerspruch zur bisherigen "komplett stumm"-Entscheidung
+  (Abschnitt 4) — falls umgesetzt, braucht es vermutlich eine Ein/Aus-Einstellung, damit es
+  die Eltern nicht überfordert oder erschreckt.
 
 ---
 
