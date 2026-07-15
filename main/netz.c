@@ -201,34 +201,55 @@ static void beste_konfiguration_ermitteln(wifi_config_t *cfg, const char **quell
     wlan_profil_t profile[WLAN_PROFIL_MAX];
     int anzahl = profil_liste_lesen(profile, WLAN_PROFIL_MAX);
 
-    if (anzahl > 0) {
-        uint16_t gefunden = 0;
-        esp_err_t scan_err = esp_wifi_scan_start(NULL, true); /* blockierend */
-        if (scan_err != ESP_OK)
-            ESP_LOGW(TAG, "WLAN-Scan fehlgeschlagen: %s", esp_err_to_name(scan_err));
-        esp_wifi_scan_get_ap_num(&gefunden);
+    uint16_t gefunden = 0;
+    esp_err_t scan_err = esp_wifi_scan_start(NULL, true); /* blockierend */
+    if (scan_err != ESP_OK)
+        ESP_LOGW(TAG, "WLAN-Scan fehlgeschlagen: %s", esp_err_to_name(scan_err));
+    esp_wifi_scan_get_ap_num(&gefunden);
 
-        if (gefunden > 0) {
-            wifi_ap_record_t *aps = calloc(gefunden, sizeof(wifi_ap_record_t));
-            if (aps) {
-                esp_wifi_scan_get_ap_records(&gefunden, aps);
-                for (int p = anzahl - 1; p >= 0; p--) {
-                    for (int a = 0; a < gefunden; a++) {
-                        if (strcmp((char *)aps[a].ssid, profile[p].ssid) == 0) {
-                            snprintf((char *)cfg->sta.ssid, sizeof cfg->sta.ssid, "%s", profile[p].ssid);
-                            snprintf((char *)cfg->sta.password, sizeof cfg->sta.password, "%s", profile[p].passwort);
-                            *quelle_aus = "bekanntes Netz (im Scan gefunden)";
-                            free(aps);
-                            return;
-                        }
-                    }
+    wifi_ap_record_t *aps = NULL;
+    if (gefunden > 0) {
+        aps = calloc(gefunden, sizeof(wifi_ap_record_t));
+        if (aps)
+            esp_wifi_scan_get_ap_records(&gefunden, aps);
+    }
+
+    if (aps) {
+        for (int p = anzahl - 1; p >= 0; p--) {
+            for (int a = 0; a < gefunden; a++) {
+                if (strcmp((char *)aps[a].ssid, profile[p].ssid) == 0) {
+                    snprintf((char *)cfg->sta.ssid, sizeof cfg->sta.ssid, "%s", profile[p].ssid);
+                    snprintf((char *)cfg->sta.password, sizeof cfg->sta.password, "%s", profile[p].passwort);
+                    *quelle_aus = "bekanntes Netz (im Scan gefunden)";
+                    free(aps);
+                    return;
                 }
-                free(aps);
             }
         }
 
-        /* Kein bekanntes Netz im Scan gefunden - trotzdem das zuletzt
-         * gespeicherte probieren (z. B. falls der Scan unvollstaendig war). */
+        /* Keines der gespeicherten Profile sichtbar - bevor blind geraten
+         * wird, pruefen ob wenigstens das feste Basisnetz aus secrets.h
+         * (z. B. Zuhause) im Scan auftaucht. Ohne diesen Zwischenschritt
+         * wuerde sonst dauerhaft ein NICHT sichtbares Profil probiert,
+         * sobald ueberhaupt irgendein Profil gespeichert ist - z. B. wenn
+         * nur das Eltern-WLAN gemerkt wurde und das Geraet dann wieder
+         * zuhause landet (siehe Fallstricke). */
+        for (int a = 0; a < gefunden; a++) {
+            if (strcmp((char *)aps[a].ssid, WLAN_SSID) == 0) {
+                snprintf((char *)cfg->sta.ssid, sizeof cfg->sta.ssid, "%s", WLAN_SSID);
+                snprintf((char *)cfg->sta.password, sizeof cfg->sta.password, "%s", WLAN_PASSWORT);
+                *quelle_aus = "secrets.h (im Scan gefunden)";
+                free(aps);
+                return;
+            }
+        }
+        free(aps);
+    }
+
+    if (anzahl > 0) {
+        /* Nichts Bekanntes im Scan sichtbar (oder Scan fehlgeschlagen) -
+         * trotzdem das zuletzt gespeicherte Profil probieren, falls der
+         * Scan z. B. unvollstaendig war. */
         snprintf((char *)cfg->sta.ssid, sizeof cfg->sta.ssid, "%s", profile[anzahl - 1].ssid);
         snprintf((char *)cfg->sta.password, sizeof cfg->sta.password, "%s", profile[anzahl - 1].passwort);
         *quelle_aus = "zuletzt gespeichertes Netz (kein bekanntes Netz im Scan sichtbar)";
