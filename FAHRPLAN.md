@@ -155,11 +155,16 @@ Fonts enthalten nur Buchstaben/Umlaute), plus drei Anzeigemodi statt einer reine
   zeigen auf einen Blick, ob alles wirklich aktuell ist — durchgestrichen bei fehlender
   Konnektivität bzw. bei nur manuell gesetzter Zeit/gecachten (nie frisch heruntergeladenen)
   Kalenderdaten.
-- **Wochentag-Navigation:** 7 kleine Buttons links (gestern..+5 Tage, „heute" nur als
-  Pfeil-Platzhalter) öffnen ein 15s lang eingeblendetes Tages-Fenster mit den Terminen/
-  Tabletten des jeweiligen Tages. Ein hochkanter Button rechts öffnet das „Heute"-Fenster mit
-  einem Schiebeschalter pro Tablette zum Abhaken (bleibt bis Mitternacht bestehen). Beide
-  Fenster haben einen „X"-Button zum manuellen Schließen.
+- **Wochentag-Navigation:** 7 Buttons links (gestern..+5 Tage), Position 2 ist ein etwas
+  breiterer „Heute"-Button. Wochentag-Buttons öffnen ein 15s lang eingeblendetes Tages-Fenster
+  mit Terminen/Tabletten in zwei Spalten (wie der Hauptbildschirm), auf 5 Zeilen pro Spalte
+  begrenzt („+N weitere" statt Überlauf); vergangene Termine erscheinen grau/durchgestrichen.
+  Der „Heute"-Button öffnet ein eigenes Fenster mit einem breiten Schiebeschalter pro Tablette
+  zum Abhaken (bleibt bis Mitternacht bestehen). Beide Fenster haben einen „X"-Button zum
+  manuellen Schließen; der Button, dessen Fenster gerade offen ist, bekommt einen hellblauen
+  Rahmen. Wochentag-Beschriftungen färben sich nach Terminanzahl des Tages (1×hellorange,
+  2×dunkelorange, 3+×rot). Die Tabletten-Übersicht auf dem Hauptbildschirm zeigt abgehakte
+  Tabletten ebenfalls gedämpft an.
 
 ---
 
@@ -195,12 +200,17 @@ Umweg über Testdaten war nicht mehr nötig.
 - Startbildschirm mit drei Symbolen (WLAN/Uhr/Kalender), sanftes Einblenden der Hauptanzeige
 
 ### Phase 3 — Wochentag-Navigation & Tabletten-Abhaken ✅ ERLEDIGT (15.07.2026)
-- 7 Wochentag-Buttons links öffnen ein Tages-Fenster (Termine/Tabletten, 15s bzw. per „X"
-  manuell schließbar) für gestern..+5 Tage
-- Rechter „Heute"-Button öffnet ein Fenster mit Schiebeschalter pro Tablette zum Abhaken,
-  bestätigter Status bleibt bis Mitternacht bestehen (auch über Kalender-Refreshes hinweg)
+- 7 Wochentag-Buttons links öffnen ein Tages-Fenster (Termine/Tabletten in zwei Spalten, 15s
+  bzw. per „X" manuell schließbar) für gestern..+5 Tage
+- „Heute"-Button (Position 2, etwas breiter) öffnet ein Fenster mit Schiebeschalter pro
+  Tablette zum Abhaken, bestätigter Status bleibt bis Mitternacht bestehen (auch über
+  Kalender-Refreshes hinweg)
 - kalender_anzeige.c liefert dafür strukturierte Tageseinträge statt nur fertig formatierter
   Anzeige-Texte
+- Nachtrag nach weiterem Feinschliff (gleicher Tag): aktiver Rahmen um den gerade offenen
+  Button, Terminanzahl-Farbcodierung, vergangene Termine grau/durchgestrichen, abgehakte
+  Tabletten auch in der Hauptbildschirm-Übersicht gedämpft, Schiebeschalter rechtsbündig per
+  `lv_obj_align` (siehe FALLSTRICKE_UND_WORKAROUNDS.md #11)
 
 ### Phase 5 — Robustheit & Fernwartung *(teilweise begonnen, 15.07.2026)*
 - ✅ WLAN-Watchdog: Neustart nach 30s ununterbrochen ohne Verbindung (pausiert waehrend der
