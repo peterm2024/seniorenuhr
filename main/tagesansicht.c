@@ -16,14 +16,17 @@ LV_FONT_DECLARE(schrift_mittel_40);
 #define HEUTE_INDEX 1      /* Position von "heute" in der 7er-Spalte */
 
 #define BUTTON_BREITE 56
-#define BUTTON_HOEHE  50
+#define BUTTON_HOEHE  62
 #define BUTTON_GAP    4
 #define SPALTE_X      6
-#define SPALTE_Y      55
+#define SPALTE_Y      8    /* nutzt die Bildschirmhoehe fast vollstaendig aus */
 #define SPALTE_HOEHE  (TAGE_ANZAHL * BUTTON_HOEHE + (TAGE_ANZAHL - 1) * BUTTON_GAP)
 
 #define HEUTE_BTN_BREITE 70
 #define BILDSCHIRM_BREITE 800
+
+#define FARBE_BUTTON_HINTERGRUND 0xd8d8d8 /* hellgrau statt schwarz/transparent */
+#define FARBE_BUTTON_TEXT        0x1a1a2e /* dunkel, gut lesbar auf hellgrau */
 
 #define FENSTER_BREITE       620
 #define FENSTER_HOEHE_TAG    300
@@ -88,10 +91,29 @@ static void heutefenster_timer_cb(lv_timer_t *t)
     lvgl_port_unlock();
 }
 
-/* Baut das gemeinsame Grundgeruest (dunkles Panel + Ueberschrift) fuer
- * beide Fenstertypen. Muss innerhalb eines bereits gehaltenen LVGL-Locks
- * aufgerufen werden (siehe Aufrufer unten). */
-static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel, int32_t hoehe)
+/* Manuelles Schliessen per "X"-Button - beide Fenster boten bisher nur
+ * das automatische Timeout an, das wurde als fehlende Bedienmoeglichkeit
+ * zurueckgemeldet. */
+static void tagesfenster_schliessen_cb(lv_event_t *e)
+{
+    (void)e;
+    lvgl_port_lock(0);
+    tagesfenster_intern_schliessen();
+    lvgl_port_unlock();
+}
+
+static void heutefenster_schliessen_cb(lv_event_t *e)
+{
+    (void)e;
+    lvgl_port_lock(0);
+    heutefenster_intern_schliessen();
+    lvgl_port_unlock();
+}
+
+/* Baut das gemeinsame Grundgeruest (dunkles Panel + Ueberschrift + "X"-
+ * Schliessen-Button) fuer beide Fenstertypen. Muss innerhalb eines bereits
+ * gehaltenen LVGL-Locks aufgerufen werden (siehe Aufrufer unten). */
+static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel, int32_t hoehe, lv_event_cb_t schliessen_cb)
 {
     lv_obj_t *panel = lv_obj_create(s_scr);
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -108,6 +130,19 @@ static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel, int32_t hoehe)
     lv_obj_set_style_text_font(kopf, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(kopf, lv_color_hex(FARBE_FENSTER_TEXT), 0);
     lv_obj_align(kopf, LV_ALIGN_TOP_MID, 0, 10);
+
+    lv_obj_t *btn_schliessen = lv_button_create(panel);
+    lv_obj_set_size(btn_schliessen, 46, 46);
+    lv_obj_set_style_bg_color(btn_schliessen, lv_color_hex(FARBE_BUTTON_HINTERGRUND), 0);
+    lv_obj_set_style_bg_opa(btn_schliessen, LV_OPA_COVER, 0);
+    lv_obj_align(btn_schliessen, LV_ALIGN_TOP_RIGHT, -10, 10);
+    lv_obj_add_event_cb(btn_schliessen, schliessen_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *x_label = lv_label_create(btn_schliessen);
+    lv_label_set_text(x_label, "X");
+    lv_obj_set_style_text_font(x_label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(x_label, lv_color_hex(FARBE_BUTTON_TEXT), 0);
+    lv_obj_center(x_label);
 
     return panel;
 }
@@ -164,7 +199,7 @@ static void tages_fenster_oeffnen(int tage_versatz)
     tagesfenster_intern_schliessen();
     heutefenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
 
-    s_tages_fenster = fenster_grundgeruest_erzeugen(titel, FENSTER_HOEHE_TAG);
+    s_tages_fenster = fenster_grundgeruest_erzeugen(titel, FENSTER_HOEHE_TAG, tagesfenster_schliessen_cb);
 
     lv_obj_t *liste = lv_label_create(s_tages_fenster);
     lv_obj_set_style_text_font(liste, &schrift_klein_28, 0);
@@ -228,7 +263,7 @@ static void heute_button_cb(lv_event_t *e)
     heutefenster_intern_schliessen();
     tagesfenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
 
-    s_heute_fenster = fenster_grundgeruest_erzeugen(titel, FENSTER_HOEHE_HEUTE);
+    s_heute_fenster = fenster_grundgeruest_erzeugen(titel, FENSTER_HOEHE_HEUTE, heutefenster_schliessen_cb);
     lv_obj_add_event_cb(s_heute_fenster, heutefenster_hintergrund_cb, LV_EVENT_PRESSED, NULL);
 
     int32_t y = 70;
@@ -297,8 +332,8 @@ static void button_grundstil(lv_obj_t *btn)
 {
     lv_obj_remove_style_all(btn);
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(btn, 2, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(FARBE_BUTTON_HINTERGRUND), 0);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(btn, 6, 0);
 }
 
@@ -312,11 +347,17 @@ void tagesansicht_erstellen(lv_obj_t *scr)
 
         if (versatz == 0) {
             /* "Heute" ist bewusst kein Button - nur ein Pfeil zur
-             * Orientierung, wo "heute" in der Spalte sitzt. */
+             * Orientierung, wo "heute" in der Spalte sitzt. Gleiche
+             * Hintergrundfarbe wie die Buttons, damit die Spalte optisch
+             * durchgehend wirkt. */
             lv_obj_t *platz = lv_label_create(scr);
             lv_label_set_text(platz, ">");
             lv_obj_set_style_text_font(platz, &schrift_klein_28, 0);
+            lv_obj_set_style_text_color(platz, lv_color_hex(FARBE_BUTTON_TEXT), 0);
             lv_obj_set_style_text_align(platz, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_bg_color(platz, lv_color_hex(FARBE_BUTTON_HINTERGRUND), 0);
+            lv_obj_set_style_bg_opa(platz, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(platz, 6, 0);
             lv_obj_set_size(platz, BUTTON_BREITE, BUTTON_HOEHE);
             lv_obj_set_pos(platz, SPALTE_X, y);
             lv_obj_remove_flag(platz, LV_OBJ_FLAG_CLICKABLE);
@@ -334,6 +375,7 @@ void tagesansicht_erstellen(lv_obj_t *scr)
         lv_obj_t *label = lv_label_create(btn);
         lv_label_set_text(label, "...");
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(FARBE_BUTTON_TEXT), 0);
         lv_obj_center(label);
 
         s_tag_buttons[i] = btn;
@@ -349,6 +391,7 @@ void tagesansicht_erstellen(lv_obj_t *scr)
     lv_obj_t *heute_label = lv_label_create(s_heute_button);
     lv_label_set_text(heute_label, "H\nE\nU\nT\nE");
     lv_obj_set_style_text_font(heute_label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(heute_label, lv_color_hex(FARBE_BUTTON_TEXT), 0);
     lv_obj_set_style_text_align(heute_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(heute_label);
 }
@@ -377,19 +420,6 @@ void tagesansicht_tag_aktualisieren(void)
         lv_label_set_text(s_tag_labels[i], zeit_wochentag_kurz(&tag_lokal));
     }
     lvgl_port_unlock();
-}
-
-void tagesansicht_farbe_setzen(lv_color_t farbe)
-{
-    for (int i = 0; i < TAGE_ANZAHL; i++) {
-        if (s_tag_buttons[i])
-            lv_obj_set_style_border_color(s_tag_buttons[i], farbe, 0);
-        lv_obj_set_style_text_color(s_tag_labels[i], farbe, 0);
-    }
-    lv_obj_set_style_border_color(s_heute_button, farbe, 0);
-    uint32_t kinder = lv_obj_get_child_count(s_heute_button);
-    for (uint32_t i = 0; i < kinder; i++)
-        lv_obj_set_style_text_color(lv_obj_get_child(s_heute_button, i), farbe, 0);
 }
 
 void tagesansicht_sichtbarkeit_setzen(bool sichtbar)

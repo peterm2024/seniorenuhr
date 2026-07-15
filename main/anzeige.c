@@ -146,7 +146,13 @@ esp_err_t anzeige_start(void)
     ESP_RETURN_ON_ERROR(panel_erzeugen(&panel), TAG, "Panel");
 
     /* LVGL starten und Display anmelden */
-    const lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    /* Der Standard-Stack (4K) reichte nicht mehr, seit Button-Callbacks
+     * (siehe tagesansicht.c/tages_fenster_oeffnen) auf dem LVGL-Task recht
+     * grosse lokale Puffer (kalender_tag_eintrag_t-Arrays, ics_termin_t[32])
+     * verwenden - fuehrte zu einem Stack-Overflow-Absturz beim Antippen
+     * eines Wochentag-Buttons. */
+    port_cfg.task_stack = 10240;
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "LVGL-Port");
 
     const lvgl_port_display_cfg_t disp_cfg = {

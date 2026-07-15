@@ -400,7 +400,6 @@ static void modus_anwenden(anzeige_modus_t modus)
     status_icon_farbe_setzen(&s_status_wlan, lv_color_hex(textfarbe_status));
     status_icon_farbe_setzen(&s_status_zeit, lv_color_hex(textfarbe_status));
     status_icon_farbe_setzen(&s_status_kalender, lv_color_hex(textfarbe_status));
-    tagesansicht_farbe_setzen(lv_color_hex(textfarbe_status));
     tagesansicht_sichtbarkeit_setzen(details_sichtbar);
 
     if (details_sichtbar) {

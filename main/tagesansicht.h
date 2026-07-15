@@ -20,11 +20,6 @@ void tagesansicht_erstellen(lv_obj_t *scr);
  * ueber Aenderungserkennung gegen unnoetige Redraws abgesichert). */
 void tagesansicht_tag_aktualisieren(void);
 
-/* Textfarbe der Buttons/Platzhalter passend zum Tag/Abend/Nacht-Modus -
- * wird vom Aufrufer bereits gesperrt aufgerufen (siehe modus_anwenden in
- * app_main.c), sperrt also selbst nicht erneut. */
-void tagesansicht_farbe_setzen(lv_color_t farbe);
-
 /* Sichtbarkeit der Buttons - nachts wie Tabletten/Termine komplett
  * ausgeblendet. Wird ebenfalls bereits gesperrt aufgerufen. */
 void tagesansicht_sichtbarkeit_setzen(bool sichtbar);
