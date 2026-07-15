@@ -9,6 +9,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ics_parser.h"
+
 #define KALENDER_TEXT_MAX 640
 
 typedef struct {
@@ -16,6 +18,21 @@ typedef struct {
     char termine_text[KALENDER_TEXT_MAX];
     bool hat_daten; /* false, solange noch nichts geparst werden konnte */
 } kalender_anzeige_t;
+
+/* Fuer die Tagesansicht (Wochentag-Buttons + Tages-/Heute-Fenster, siehe
+ * tagesansicht.c): ein einzelner Termin/Tabletten-Eintrag mit optionalem
+ * Bestaetigungsstatus (nur bei kalender_anzeige_heutige_eintraege()
+ * sinnvoll gesetzt, sonst immer false). */
+#define KALENDER_EINTRAEGE_MAX 12
+
+typedef struct {
+    char titel[ICS_TITEL_MAX];
+    int stunde;
+    int minute;
+    bool ganztags;
+    bool ist_tablette;
+    bool bestaetigt;
+} kalender_tag_eintrag_t;
 
 void kalender_task_starten(void);
 
@@ -30,5 +47,21 @@ uint32_t kalender_anzeige_version(void);
 bool kalender_anzeige_frisch(void);
 
 void kalender_anzeige_kopieren(kalender_anzeige_t *ziel);
+
+/* Strukturierte Eintraege fuer HEUTE inkl. Bestaetigungsstatus (fuer das
+ * Tabletten-Abhaken im "Heute"-Fenster). Der Status bleibt bis Mitternacht
+ * bestehen, auch ueber zwischenzeitliche Kalender-Refreshes hinweg (per
+ * Titel-Abgleich uebernommen). Rueckgabe: Anzahl geschriebener Eintraege. */
+int kalender_anzeige_heutige_eintraege(kalender_tag_eintrag_t *ziel, int max);
+
+/* Bestaetigt/entbestaetigt die Tablette an Index `index` (Index aus
+ * kalender_anzeige_heutige_eintraege()). */
+void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt);
+
+/* Rein lesende Eintraege fuer einen beliebigen anderen Tag (Versatz in
+ * Tagen zu heute, z. B. -1 = gestern, +1 = morgen) - fuer die Tages-Fenster
+ * der uebrigen Wochentag-Buttons. Kein Bestaetigungsstatus (immer false).
+ * Rueckgabe: Anzahl geschriebener Eintraege. */
+int kalender_anzeige_eintraege_fuer_tag(int tage_versatz, kalender_tag_eintrag_t *ziel, int max);
 
 #endif

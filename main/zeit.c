@@ -74,6 +74,16 @@ const char *zeit_wochentag_gross(const struct tm *t)
     return namen[t->tm_wday];
 }
 
+const char *zeit_wochentag_kurz(const struct tm *t)
+{
+    static const char *namen[7] = {
+        "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"
+    };
+    if (t->tm_wday < 0 || t->tm_wday > 6)
+        return "";
+    return namen[t->tm_wday];
+}
+
 void zeit_datum_text(const struct tm *t, char *puffer, size_t puffer_groesse)
 {
     static const char *monate[12] = {

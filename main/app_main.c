@@ -22,6 +22,7 @@
 #include "kalender_anzeige.h"
 #include "netz.h"
 #include "startbildschirm.h"
+#include "tagesansicht.h"
 #include "zeit.h"
 
 #define BERUEHRUNG_WACHZEIT_US (30LL * 1000000)
@@ -328,12 +329,19 @@ static void ui_aufbauen(void)
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(FARBE_STATUS_HELL), 0);
     lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 275);
 
-    /* Untere Haelfte: links Tabletten, rechts Termine - nachts ausgeblendet */
-    s_tabletten_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TABLETTEN HEUTE", 20, 335, 370);
-    s_tabletten_label = listen_label_erzeugen(s_bildschirm, 20, 385, 370);
+    /* Untere Haelfte: links Tabletten, rechts Termine - nachts ausgeblendet.
+     * Etwas schmaler/eingerueckt als urspruenglich (war 20..390/410..780),
+     * damit links die Wochentag-Buttons und rechts der Heute-Button Platz
+     * haben (siehe tagesansicht_erstellen unten). */
+    s_tabletten_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TABLETTEN HEUTE", 80, 335, 300);
+    s_tabletten_label = listen_label_erzeugen(s_bildschirm, 80, 385, 300);
 
-    s_termine_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TERMINE HEUTE", 410, 335, 370);
-    s_termine_label = listen_label_erzeugen(s_bildschirm, 410, 385, 370);
+    s_termine_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TERMINE HEUTE", 420, 335, 300);
+    s_termine_label = listen_label_erzeugen(s_bildschirm, 420, 385, 300);
+
+    /* Wochentag-Navigation: 7 Buttons links (gestern..+5 Tage) + Heute-
+     * Button rechts, oeffnen Tages-/Heute-Fenster mit Terminen/Tabletten. */
+    tagesansicht_erstellen(s_bildschirm);
 
     /* Live-Status rechts oben: spiegelt WLAN/Zeit/Kalender aus dem
      * Startbildschirm, durchgestrichen bei fehlender Konnektivitaet. */
@@ -392,6 +400,8 @@ static void modus_anwenden(anzeige_modus_t modus)
     status_icon_farbe_setzen(&s_status_wlan, lv_color_hex(textfarbe_status));
     status_icon_farbe_setzen(&s_status_zeit, lv_color_hex(textfarbe_status));
     status_icon_farbe_setzen(&s_status_kalender, lv_color_hex(textfarbe_status));
+    tagesansicht_farbe_setzen(lv_color_hex(textfarbe_status));
+    tagesansicht_sichtbarkeit_setzen(details_sichtbar);
 
     if (details_sichtbar) {
         lv_obj_remove_flag(s_tabletten_ueberschrift, LV_OBJ_FLAG_HIDDEN);
@@ -480,6 +490,10 @@ static void uhr_tick(lv_timer_t *timer)
         modus_anwenden(modus);
         letzter_modus = modus;
     }
+
+    /* Wochentag-Buttons der Tagesansicht - intern gegen unnoetige Updates
+     * abgesichert (nur bei tatsaechlichem Tageswechsel). */
+    tagesansicht_tag_aktualisieren();
 
     /* Status-Symbole rechts oben (WLAN/Zeit/Kalender) nur bei tatsaechlicher
      * Aenderung durchstreichen/wieder freigeben - kein Redraw jede Sekunde.

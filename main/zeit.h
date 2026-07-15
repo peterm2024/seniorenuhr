@@ -35,6 +35,9 @@ bool zeit_ist_manuell_gesetzt(void);
 /* Deutscher Wochentag in Grossbuchstaben, z. B. "MONTAG". */
 const char *zeit_wochentag_gross(const struct tm *t);
 
+/* Deutscher Wochentag abgekuerzt auf 2 Buchstaben, z. B. "Mo". */
+const char *zeit_wochentag_kurz(const struct tm *t);
+
 /* Schreibt das Datum als "10. Juli 2026" nach puffer. */
 void zeit_datum_text(const struct tm *t, char *puffer, size_t puffer_groesse);
 
