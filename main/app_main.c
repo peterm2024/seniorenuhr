@@ -43,6 +43,7 @@
 #define FARBE_STATUS_HELL       0xd0e0f0 /* Tageszeit/Datum am Tag */
 #define FARBE_NACHT_TEXT        0x1d1d1d /* alles Text nachts: dunkles Grau, halbe Helligkeit */
 #define FARBE_WARNUNG           0xff5a4a /* Durchstrich der Status-Symbole bei fehlender Konnektivitaet */
+#define FARBE_ICON_HELLGRAU     0xd8d8d8 /* Status-Symbole rechts oben - fest, unabhaengig vom Modus */
 
 /* Kantenlaenge der kleinen Status-Symbole rechts oben (WLAN/Zeit/Kalender). */
 #define STATUS_ICON_GROESSE 34
@@ -397,9 +398,9 @@ static void modus_anwenden(anzeige_modus_t modus)
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(textfarbe_status), 0);
     lv_obj_set_style_bg_opa(s_dimm_overlay, overlay_deckkraft, 0);
 
-    status_icon_farbe_setzen(&s_status_wlan, lv_color_hex(textfarbe_status));
-    status_icon_farbe_setzen(&s_status_zeit, lv_color_hex(textfarbe_status));
-    status_icon_farbe_setzen(&s_status_kalender, lv_color_hex(textfarbe_status));
+    status_icon_farbe_setzen(&s_status_wlan, lv_color_hex(FARBE_ICON_HELLGRAU));
+    status_icon_farbe_setzen(&s_status_zeit, lv_color_hex(FARBE_ICON_HELLGRAU));
+    status_icon_farbe_setzen(&s_status_kalender, lv_color_hex(FARBE_ICON_HELLGRAU));
     tagesansicht_sichtbarkeit_setzen(details_sichtbar);
 
     if (details_sichtbar) {

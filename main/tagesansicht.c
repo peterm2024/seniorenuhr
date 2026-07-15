@@ -23,10 +23,19 @@ LV_FONT_DECLARE(schrift_mittel_40);
 #define SPALTE_HOEHE  (TAGE_ANZAHL * BUTTON_HOEHE + (TAGE_ANZAHL - 1) * BUTTON_GAP)
 
 #define HEUTE_BTN_BREITE 70
+/* Startet unterhalb der Status-Symbole (y=14, Hoehe 34, siehe app_main.c/
+ * ui_aufbauen) - sonst ueberschneidet der hochkante Button den Info-
+ * Bereich oben rechts. Endet buendig mit der linken 7er-Spalte. */
+#define HEUTE_BTN_Y      56
+#define HEUTE_BTN_HOEHE  (SPALTE_Y + SPALTE_HOEHE - HEUTE_BTN_Y)
 #define BILDSCHIRM_BREITE 800
 
-#define FARBE_BUTTON_HINTERGRUND 0xd8d8d8 /* hellgrau statt schwarz/transparent */
-#define FARBE_BUTTON_TEXT        0x1a1a2e /* dunkel, gut lesbar auf hellgrau */
+/* Aus FARBE_TAG_HINTERGRUND (app_main.c, 0x123a63 = 18/58/99) errechnet:
+ * jeder Farbkanal um 20% angehoben (22/70/119) - die Buttons sollen sich
+ * nur dezent vom Hintergrund abheben, nicht wie zuvor (festes Hellgrau)
+ * stark hervorstechen. */
+#define FARBE_BUTTON_HINTERGRUND 0x164677
+#define FARBE_BUTTON_TEXT        0xd0e0f0 /* helles Blau-Weiss, wie der uebrige Anzeigetext */
 
 #define FENSTER_BREITE       620
 #define FENSTER_HOEHE_TAG    300
@@ -384,8 +393,8 @@ void tagesansicht_erstellen(lv_obj_t *scr)
 
     s_heute_button = lv_button_create(scr);
     button_grundstil(s_heute_button);
-    lv_obj_set_size(s_heute_button, HEUTE_BTN_BREITE, SPALTE_HOEHE);
-    lv_obj_set_pos(s_heute_button, BILDSCHIRM_BREITE - HEUTE_BTN_BREITE - SPALTE_X, SPALTE_Y);
+    lv_obj_set_size(s_heute_button, HEUTE_BTN_BREITE, HEUTE_BTN_HOEHE);
+    lv_obj_set_pos(s_heute_button, BILDSCHIRM_BREITE - HEUTE_BTN_BREITE - SPALTE_X, HEUTE_BTN_Y);
     lv_obj_add_event_cb(s_heute_button, heute_button_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *heute_label = lv_label_create(s_heute_button);
