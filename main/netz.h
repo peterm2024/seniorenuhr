@@ -23,6 +23,13 @@ void netz_start(void);
 /* true, sobald das Board aktuell eine IP-Adresse hat. */
 bool netz_ist_verbunden(void);
 
+/* Pausiert (true) bzw. entpausiert (false) den WLAN-Watchdog (30s ohne
+ * Verbindung -> Neustart). Waehrend der Benutzer auf einem
+ * Einrichtungsbildschirm Zugangsdaten eintippt, soll ein Verbindungsabbruch
+ * im Hintergrund keinen ueberraschenden Neustart mitten in der Eingabe
+ * ausloesen (siehe app_main.c). */
+void netz_watchdog_pausieren(bool pausieren);
+
 /* Speichert neue WLAN-Zugangsdaten dauerhaft im NVS (haben ab dem naechsten
  * netz_start() Vorrang vor secrets.h) und startet das Geraet neu, damit die
  * neuen Daten gleich im normalen Boot-Ablauf ausprobiert werden. Kehrt bei

@@ -29,6 +29,7 @@ static const char *TAG = "netz";
 
 static volatile bool s_verbunden = false;
 static volatile bool s_war_verbunden = false; /* schon je eine IP bekommen? */
+static volatile bool s_watchdog_pausiert = false;
 
 /* 0 = aktuell verbunden (oder noch nie verbunden gewesen); sonst Zeitpunkt
  * (esp_timer_get_time), seit dem ununterbrochen keine Verbindung besteht. */
@@ -37,6 +38,8 @@ static volatile int64_t s_getrennt_seit_us = 0;
 static void wifi_watchdog_callback(void *arg)
 {
     (void)arg;
+    if (s_watchdog_pausiert)
+        return;
     int64_t getrennt_seit = s_getrennt_seit_us;
     if (getrennt_seit == 0)
         return;
@@ -44,6 +47,20 @@ static void wifi_watchdog_callback(void *arg)
         ESP_LOGE(TAG, "Seit ueber 30s ohne WLAN-Verbindung - Neustart");
         esp_restart();
     }
+}
+
+/* Pausiert/entpausiert den Watchdog - waehrend der Benutzer auf einem
+ * Einrichtungsbildschirm (WLAN-Zugangsdaten/Uhrzeit) unterwegs ist, darf
+ * ein Verbindungsabbruch im Hintergrund nicht mitten in die Eingabe hinein
+ * einen Neustart ausloesen (siehe app_main.c/phase_verarbeiten). Beim
+ * Fortsetzen faengt die 30s-Frist neu an, falls weiterhin keine Verbindung
+ * besteht - sonst wuerde die waehrend der Pause aufgelaufene Zeit sofort
+ * zum Neustart fuehren. */
+void netz_watchdog_pausieren(bool pausieren)
+{
+    s_watchdog_pausiert = pausieren;
+    if (!pausieren && !s_verbunden && s_war_verbunden)
+        s_getrennt_seit_us = esp_timer_get_time();
 }
 
 static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void *daten)

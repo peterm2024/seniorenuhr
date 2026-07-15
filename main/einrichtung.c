@@ -50,6 +50,7 @@ void einrichtung_wlan_zeigen(void)
 
     s_wlan_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_wlan_screen, lv_color_black(), 0);
+    lv_obj_remove_flag(s_wlan_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
 
     lv_obj_t *titel = lv_label_create(s_wlan_screen);
     lv_label_set_text(titel, "WLAN-Zugangsdaten aendern");
@@ -196,6 +197,7 @@ void einrichtung_zeit_zeigen(void)
 
     s_zeit_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_zeit_screen, lv_color_black(), 0);
+    lv_obj_remove_flag(s_zeit_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
 
     lv_obj_t *titel = lv_label_create(s_zeit_screen);
     lv_label_set_text(titel, "Datum und Uhrzeit einstellen");

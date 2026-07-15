@@ -304,6 +304,10 @@ static void ui_aufbauen(void)
      * den Startbildschirm (siehe app_main). */
     s_bildschirm = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_bildschirm, lv_color_hex(FARBE_TAG_HINTERGRUND), 0);
+    /* lv_obj_create() ist standardmaessig scrollbar - ohne dies liesse sich
+     * die Anzeige per Touch ein paar Pixel hoch-/runterschieben (elastischer
+     * Rueckfedereffekt), obwohl der Inhalt exakt in den Bildschirm passt. */
+    lv_obj_remove_flag(s_bildschirm, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_bildschirm, beruehrung_callback, LV_EVENT_PRESSED, NULL);
 
     s_wochentag_label = lv_label_create(s_bildschirm);
@@ -593,6 +597,10 @@ static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *nam
         }
 
         if (ergebnis == PHASE_WLAN_WECHSELN) {
+            /* Waehrend der Eingabe darf ein WLAN-Abbruch im Hintergrund
+             * keinen ueberraschenden Neustart ausloesen (der Watchdog
+             * zaehlt unabhaengig vom angezeigten Bildschirm weiter). */
+            netz_watchdog_pausieren(true);
             einrichtung_wlan_zeigen();
             einrichtung_status_t status;
             while ((status = einrichtung_wlan_status()) == EINRICHTUNG_OFFEN)
@@ -605,17 +613,20 @@ static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *nam
              * dann teilweise auf, aehnlich dem Absturz aus Fallstricke #7). */
             startbildschirm_reaktivieren();
             einrichtung_wlan_aufraeumen();
+            netz_watchdog_pausieren(false);
             (void)status; /* nur ABGEBROCHEN erreichbar - Speichern startet neu */
             continue;     /* Phase erneut abwarten */
         }
 
         /* PHASE_OFFLINE */
+        netz_watchdog_pausieren(true);
         einrichtung_zeit_zeigen();
         einrichtung_status_t status;
         while ((status = einrichtung_zeit_status()) == EINRICHTUNG_OFFEN)
             vTaskDelay(pdMS_TO_TICKS(100));
         startbildschirm_reaktivieren();
         einrichtung_zeit_aufraeumen();
+        netz_watchdog_pausieren(false);
 
         if (status == EINRICHTUNG_UEBERNOMMEN) {
             ESP_LOGI(TAG, "Start: Uhrzeit manuell gesetzt waehrend Phase '%s' - Phase als erledigt markiert", name);

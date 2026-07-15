@@ -223,6 +223,7 @@ void startbildschirm_erstellen(void)
 
     s_screen = lv_screen_active();
     lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
+    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe Kommentar in app_main.c/ui_aufbauen */
 
     memset(&s_icons[STARTBILDSCHIRM_WLAN], 0, sizeof s_icons[0]);
     icon_wlan_erzeugen(&s_icons[STARTBILDSCHIRM_WLAN], icon_container_erzeugen(s_screen, 200));
