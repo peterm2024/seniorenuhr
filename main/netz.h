@@ -14,9 +14,11 @@
  * Timeout/Countdown-Anzeige fuer alle Boot-Phasen). Im Hintergrund wird
  * die Verbindung bei Abbruch automatisch neu aufgebaut.
  *
- * Verwendet WLAN-Zugangsdaten aus dem NVS, falls dort per
- * netz_zugangsdaten_speichern() welche hinterlegt wurden, sonst die
- * einkompilierten aus secrets.h.
+ * Waehlt per kurzem WLAN-Scan unter den bekannten (im NVS gespeicherten,
+ * siehe netz_zugangsdaten_speichern) Netzen dasjenige aus, das gerade
+ * sichtbar ist - praktisch, wenn das Geraet zwischen mehreren Orten
+ * (z. B. Testaufbau zu Hause und Einsatzort) wechselt. Ohne gespeicherte
+ * Netze werden die einkompilierten Zugangsdaten aus secrets.h verwendet.
  */
 void netz_start(void);
 
@@ -30,11 +32,13 @@ bool netz_ist_verbunden(void);
  * ausloesen (siehe app_main.c). */
 void netz_watchdog_pausieren(bool pausieren);
 
-/* Speichert neue WLAN-Zugangsdaten dauerhaft im NVS (haben ab dem naechsten
- * netz_start() Vorrang vor secrets.h) und startet das Geraet neu, damit die
- * neuen Daten gleich im normalen Boot-Ablauf ausprobiert werden. Kehrt bei
- * Erfolg nicht zurueck; nur bei einem NVS-Fehler wird ein Fehlercode
- * geliefert. */
+/* Fuegt ein WLAN-Netz zur Liste der bekannten Netze im NVS hinzu (oder
+ * aktualisiert das Passwort, falls die SSID schon bekannt ist) - leicht
+ * verschleiert abgelegt (kein kryptographisch starkes Verfahren, siehe
+ * netz.c/verschleiern), und startet das Geraet neu, damit die Liste gleich
+ * im normalen Boot-Ablauf verwendet wird. Bis zu 5 Netze werden gemerkt,
+ * danach wird das aelteste verdraengt. Kehrt bei Erfolg nicht zurueck; nur
+ * bei einem NVS-Fehler wird ein Fehlercode geliefert. */
 esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort);
 
 #endif

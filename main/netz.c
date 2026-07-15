@@ -2,10 +2,12 @@
 #include "secrets.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_event.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -15,6 +17,16 @@
 #include "nvs_flash.h"
 
 #define NVS_NAMENSRAUM "wifi_cfg"
+
+/* Bis zu so viele bekannte Netze werden gemerkt (z. B. das Testnetz zu
+ * Hause UND das Netz bei den Eltern) - beim Voll-Werden wird das
+ * aelteste (zuerst gespeicherte) verdraengt. */
+#define WLAN_PROFIL_MAX 5
+
+typedef struct {
+    char ssid[33];
+    char passwort[65];
+} wlan_profil_t;
 
 static const char *TAG = "netz";
 
@@ -67,9 +79,7 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
 {
     (void)arg; (void)daten;
 
-    if (basis == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (basis == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+    if (basis == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_verbunden = false;
         if (s_war_verbunden && s_getrennt_seit_us == 0)
             s_getrennt_seit_us = esp_timer_get_time();
@@ -83,43 +93,151 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
     }
 }
 
-/* Liest SSID/Passwort aus dem NVS, falls dort per
- * netz_zugangsdaten_speichern() welche hinterlegt wurden. */
-static bool zugangsdaten_aus_nvs_lesen(char *ssid, size_t ssid_groesse,
-                                        char *passwort, size_t passwort_groesse)
+/* Leichte Verschleierung (kein kryptographisch starkes Verfahren!) mit
+ * einem geraeteindividuellen Schluessel aus der Chip-MAC-Adresse - schuetzt
+ * davor, dass die Passwoerter bei einem rohen Blick in einen Flash-Dump
+ * direkt im Klartext lesbar sind. XOR ist selbstinvers, dieselbe Funktion
+ * verschleiert und entschleiert also gleichermassen. */
+static void verschleiern(uint8_t *daten, size_t laenge)
+{
+    uint8_t mac[6];
+    esp_efuse_mac_get_default(mac);
+    for (size_t i = 0; i < laenge; i++)
+        daten[i] ^= mac[i % sizeof mac] ^ (uint8_t)(i * 0x2B + 0x7F);
+}
+
+/* Liest die Liste bekannter Netze aus dem NVS (leer, falls noch keine
+ * gespeichert wurden). Rueckgabe: Anzahl gueltiger Eintraege. */
+static int profil_liste_lesen(wlan_profil_t *liste, int max_anzahl)
 {
     nvs_handle_t h;
     if (nvs_open(NVS_NAMENSRAUM, NVS_READONLY, &h) != ESP_OK)
-        return false;
+        return 0;
 
-    size_t ssid_laenge = ssid_groesse;
-    size_t passwort_laenge = passwort_groesse;
-    esp_err_t err_ssid = nvs_get_str(h, "ssid", ssid, &ssid_laenge);
-    esp_err_t err_passwort = nvs_get_str(h, "pass", passwort, &passwort_laenge);
+    uint8_t anzahl_u8 = 0;
+    esp_err_t err_anzahl = nvs_get_u8(h, "anzahl", &anzahl_u8);
+    if (err_anzahl != ESP_OK) {
+        nvs_close(h);
+        return 0;
+    }
+    int anzahl = anzahl_u8 > max_anzahl ? max_anzahl : anzahl_u8;
+
+    size_t blob_laenge = (size_t)anzahl * sizeof(wlan_profil_t);
+    esp_err_t err = nvs_get_blob(h, "profile", liste, &blob_laenge);
     nvs_close(h);
+    if (err != ESP_OK)
+        return 0;
 
-    return err_ssid == ESP_OK && err_passwort == ESP_OK && ssid_laenge > 1;
+    verschleiern((uint8_t *)liste, blob_laenge);
+    return anzahl;
 }
 
-esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort)
+static esp_err_t profil_liste_schreiben(const wlan_profil_t *liste, int anzahl)
 {
+    wlan_profil_t kopie[WLAN_PROFIL_MAX];
+    memcpy(kopie, liste, (size_t)anzahl * sizeof(wlan_profil_t));
+    verschleiern((uint8_t *)kopie, (size_t)anzahl * sizeof(wlan_profil_t));
+
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NAMENSRAUM, NVS_READWRITE, &h);
     if (err != ESP_OK)
         return err;
 
-    err = nvs_set_str(h, "ssid", ssid);
+    err = nvs_set_u8(h, "anzahl", (uint8_t)anzahl);
     if (err == ESP_OK)
-        err = nvs_set_str(h, "pass", passwort);
+        err = nvs_set_blob(h, "profile", kopie, (size_t)anzahl * sizeof(wlan_profil_t));
     if (err == ESP_OK)
         err = nvs_commit(h);
     nvs_close(h);
+    return err;
+}
+
+esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort)
+{
+    wlan_profil_t liste[WLAN_PROFIL_MAX];
+    int anzahl = profil_liste_lesen(liste, WLAN_PROFIL_MAX);
+
+    int index_vorhanden = -1;
+    for (int i = 0; i < anzahl; i++) {
+        if (strcmp(liste[i].ssid, ssid) == 0) {
+            index_vorhanden = i;
+            break;
+        }
+    }
+
+    if (index_vorhanden >= 0) {
+        snprintf(liste[index_vorhanden].passwort, sizeof liste[index_vorhanden].passwort, "%s", passwort);
+    } else {
+        if (anzahl >= WLAN_PROFIL_MAX) {
+            /* Aeltestes (zuerst gespeichertes) Profil verdraengen */
+            memmove(&liste[0], &liste[1], (size_t)(WLAN_PROFIL_MAX - 1) * sizeof(wlan_profil_t));
+            anzahl = WLAN_PROFIL_MAX - 1;
+        }
+        snprintf(liste[anzahl].ssid, sizeof liste[anzahl].ssid, "%s", ssid);
+        snprintf(liste[anzahl].passwort, sizeof liste[anzahl].passwort, "%s", passwort);
+        anzahl++;
+    }
+
+    esp_err_t err = profil_liste_schreiben(liste, anzahl);
     if (err != ESP_OK)
         return err;
 
-    ESP_LOGI(TAG, "Neue WLAN-Zugangsdaten gespeichert - starte neu");
+    ESP_LOGI(TAG, "WLAN-Zugangsdaten gespeichert (%d bekannte Netze) - starte neu", anzahl);
     esp_restart();
     return ESP_OK; /* unerreichbar */
+}
+
+/* Sucht per WLAN-Scan unter den sichtbaren Netzen nach einem bekannten
+ * (gespeicherten) Netz - so muss nicht blind das zuletzt gespeicherte
+ * Netz probiert werden, wenn das Geraet z. B. zwischen Zuhause (Testen)
+ * und den Eltern hin- und herwandert. Neuere Profile werden bei mehreren
+ * Treffern bevorzugt. Ohne Treffer (oder ganz ohne gespeicherte Profile)
+ * faellt die Funktion auf das zuletzt gespeicherte bzw. auf secrets.h
+ * zurueck. */
+static void beste_konfiguration_ermitteln(wifi_config_t *cfg, const char **quelle_aus)
+{
+    memset(cfg, 0, sizeof *cfg);
+
+    wlan_profil_t profile[WLAN_PROFIL_MAX];
+    int anzahl = profil_liste_lesen(profile, WLAN_PROFIL_MAX);
+
+    if (anzahl > 0) {
+        uint16_t gefunden = 0;
+        esp_err_t scan_err = esp_wifi_scan_start(NULL, true); /* blockierend */
+        if (scan_err != ESP_OK)
+            ESP_LOGW(TAG, "WLAN-Scan fehlgeschlagen: %s", esp_err_to_name(scan_err));
+        esp_wifi_scan_get_ap_num(&gefunden);
+
+        if (gefunden > 0) {
+            wifi_ap_record_t *aps = calloc(gefunden, sizeof(wifi_ap_record_t));
+            if (aps) {
+                esp_wifi_scan_get_ap_records(&gefunden, aps);
+                for (int p = anzahl - 1; p >= 0; p--) {
+                    for (int a = 0; a < gefunden; a++) {
+                        if (strcmp((char *)aps[a].ssid, profile[p].ssid) == 0) {
+                            snprintf((char *)cfg->sta.ssid, sizeof cfg->sta.ssid, "%s", profile[p].ssid);
+                            snprintf((char *)cfg->sta.password, sizeof cfg->sta.password, "%s", profile[p].passwort);
+                            *quelle_aus = "bekanntes Netz (im Scan gefunden)";
+                            free(aps);
+                            return;
+                        }
+                    }
+                }
+                free(aps);
+            }
+        }
+
+        /* Kein bekanntes Netz im Scan gefunden - trotzdem das zuletzt
+         * gespeicherte probieren (z. B. falls der Scan unvollstaendig war). */
+        snprintf((char *)cfg->sta.ssid, sizeof cfg->sta.ssid, "%s", profile[anzahl - 1].ssid);
+        snprintf((char *)cfg->sta.password, sizeof cfg->sta.password, "%s", profile[anzahl - 1].passwort);
+        *quelle_aus = "zuletzt gespeichertes Netz (kein bekanntes Netz im Scan sichtbar)";
+        return;
+    }
+
+    snprintf((char *)cfg->sta.ssid, sizeof cfg->sta.ssid, "%s", WLAN_SSID);
+    snprintf((char *)cfg->sta.password, sizeof cfg->sta.password, "%s", WLAN_PASSWORT);
+    *quelle_aus = "secrets.h";
 }
 
 void netz_start(void)
@@ -149,23 +267,22 @@ void netz_start(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &ereignis_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &ereignis_handler, NULL));
 
-    wifi_config_t wifi_cfg = {0};
+    /* STA-Modus schon vor der Konfigurationswahl starten - der Scan in
+     * beste_konfiguration_ermitteln() braucht dafuer keine Verbindung,
+     * nur den gestarteten WLAN-Treiber. Erst danach wird die ausgewaehlte
+     * SSID/Passwort gesetzt und explizit verbunden (kein Auto-Connect
+     * mehr auf WIFI_EVENT_STA_START, das wuerde die Scan-Auswahl umgehen). */
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    wifi_config_t wifi_cfg;
     const char *quelle;
-    if (zugangsdaten_aus_nvs_lesen((char *)wifi_cfg.sta.ssid, sizeof wifi_cfg.sta.ssid,
-                                    (char *)wifi_cfg.sta.password, sizeof wifi_cfg.sta.password)) {
-        quelle = "NVS (per Einrichtungsbildschirm gespeichert)";
-    } else {
-        snprintf((char *)wifi_cfg.sta.ssid, sizeof wifi_cfg.sta.ssid, "%s", WLAN_SSID);
-        snprintf((char *)wifi_cfg.sta.password, sizeof wifi_cfg.sta.password, "%s", WLAN_PASSWORT);
-        quelle = "secrets.h";
-    }
+    beste_konfiguration_ermitteln(&wifi_cfg, &quelle);
     wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_cfg.sta.pmf_cfg.capable = true;
     wifi_cfg.sta.pmf_cfg.required = false;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
-    ESP_ERROR_CHECK(esp_wifi_start());
 
     /* WLAN-Stromsparmodus aus: Das Board haengt an einem Netzteil, Strom
      * sparen ist unnoetig - der periodische Modem-Schlaf/Aufwach-Zyklus
@@ -174,7 +291,8 @@ void netz_start(void)
      * Aktion im Programm zusammenhaengt. */
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
-    ESP_LOGI(TAG, "Verbinde mit WLAN (Zugangsdaten aus %s)...", quelle);
+    ESP_LOGI(TAG, "Verbinde mit WLAN (Zugangsdaten: %s)...", quelle);
+    ESP_ERROR_CHECK(esp_wifi_connect());
 }
 
 bool netz_ist_verbunden(void)
