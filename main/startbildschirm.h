@@ -21,11 +21,15 @@ typedef enum {
 
 /* Nach 30s ohne Fortschritt bietet der Startbildschirm zwei Buttons an,
  * die den Countdown beenden und dem Benutzer eine manuelle Einstellung
- * ermoeglichen (siehe einrichtung.h). */
+ * ermoeglichen (siehe einrichtung.h). Das Zahnrad-Symbol unten rechts ist
+ * dagegen von Anfang an sichtbar und fuehrt zum Einstellungen-Menue, das
+ * dieselben zwei Optionen zusaetzlich zu Rotation/Buzzer/Kalender-Adresse
+ * enthaelt. */
 typedef enum {
     STARTBILDSCHIRM_AKTION_KEINE = 0,
     STARTBILDSCHIRM_AKTION_WLAN_WECHSELN,
     STARTBILDSCHIRM_AKTION_OFFLINE,
+    STARTBILDSCHIRM_AKTION_EINSTELLUNGEN,
 } startbildschirm_aktion_t;
 
 /* Baut die drei Symbole auf dem aktuell aktiven LVGL-Screen auf. */

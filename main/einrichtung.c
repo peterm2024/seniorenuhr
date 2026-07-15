@@ -1,4 +1,5 @@
 #include "einrichtung.h"
+#include "einstellungen.h"
 #include "netz.h"
 #include "zeit.h"
 
@@ -205,9 +206,14 @@ void einrichtung_zeit_zeigen(void)
     lv_obj_set_style_text_color(titel, lv_color_white(), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 15);
 
-    /* Ausgangswert: aktuelle Systemzeit (ohne RTC-Batterie meist 1970 -
-     * der Benutzer stellt ohnehin von Hand richtig). */
-    time_t jetzt = time(NULL);
+    /* Ausgangswert: zuletzt angezeigter Zeitstempel statt roher Systemzeit -
+     * ohne RTC-Batterie steht die Systemzeit nach jedem Stromausfall auf
+     * 1970, die letzte Anzeige ist ein deutlich besserer Ausgangspunkt (in
+     * der Regel muss man dann nur noch die seither vergangene Zeit
+     * nachtragen). Ganz erster Boot ohne je gespeicherten Wert -> Systemzeit. */
+    time_t jetzt = einstellungen_letzte_anzeige();
+    if (jetzt == 0)
+        jetzt = time(NULL);
     struct tm lokal;
     localtime_r(&jetzt, &lokal);
     int start_tag = lokal.tm_mday >= 1 && lokal.tm_mday <= 31 ? lokal.tm_mday - 1 : 0;
@@ -271,6 +277,162 @@ void einrichtung_zeit_aufraeumen(void)
     if (s_zeit_screen) {
         lv_obj_delete(s_zeit_screen);
         s_zeit_screen = NULL;
+    }
+    lvgl_port_unlock();
+}
+
+/* -------------------------------------------------------------------- */
+/* Einstellungen-Menue                                                   */
+/* -------------------------------------------------------------------- */
+
+static lv_obj_t *s_einstellungen_screen;
+static lv_obj_t *s_kalender_url_ta;
+static volatile einrichtung_status_t s_einstellungen_status = EINRICHTUNG_OFFEN;
+static volatile einstellungen_aktion_t s_einstellungen_aktion = EINSTELLUNGEN_AKTION_KEINE;
+
+static void einstellungen_wlan_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_WLAN;
+}
+
+static void einstellungen_datum_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_DATUM;
+}
+
+static void einstellungen_schliessen_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_status = EINRICHTUNG_ABGEBROCHEN;
+}
+
+static void einstellungen_buzzer_cb(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    einstellungen_buzzer_aktiv_setzen(lv_obj_has_state(sw, LV_STATE_CHECKED));
+}
+
+static void einstellungen_kalender_speichern_cb(lv_event_t *e)
+{
+    (void)e;
+    einstellungen_kalender_url_setzen(lv_textarea_get_text(s_kalender_url_ta));
+}
+
+static lv_obj_t *einstellungen_schalter_zeile(lv_obj_t *scr, int32_t y, const char *text, bool an,
+                                               lv_event_cb_t cb)
+{
+    lv_obj_t *sw = lv_switch_create(scr);
+    lv_obj_set_size(sw, 70, 36);
+    lv_obj_align(sw, LV_ALIGN_TOP_LEFT, 30, y);
+    if (an)
+        lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *label = lv_label_create(scr);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 115, y + 4);
+    return sw;
+}
+
+void einrichtung_einstellungen_zeigen(void)
+{
+    lvgl_port_lock(0);
+    s_einstellungen_status = EINRICHTUNG_OFFEN;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_KEINE;
+
+    s_einstellungen_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_einstellungen_screen, lv_color_black(), 0);
+    lv_obj_remove_flag(s_einstellungen_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
+
+    lv_obj_t *titel = lv_label_create(s_einstellungen_screen);
+    lv_label_set_text(titel, "Einstellungen");
+    lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
+    lv_obj_set_style_text_color(titel, lv_color_white(), 0);
+    lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 8);
+
+    lv_obj_t *btn_schliessen = lv_button_create(s_einstellungen_screen);
+    lv_obj_set_size(btn_schliessen, 140, 42);
+    lv_obj_align(btn_schliessen, LV_ALIGN_TOP_RIGHT, -20, 6);
+    lv_obj_add_event_cb(btn_schliessen, einstellungen_schliessen_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l_schliessen = lv_label_create(btn_schliessen);
+    lv_label_set_text(l_schliessen, "Schliessen");
+    lv_obj_set_style_text_font(l_schliessen, &schrift_klein_28, 0);
+    lv_obj_center(l_schliessen);
+
+    lv_obj_t *btn_wlan = lv_button_create(s_einstellungen_screen);
+    lv_obj_set_size(btn_wlan, 360, 48);
+    lv_obj_align(btn_wlan, LV_ALIGN_TOP_LEFT, 30, 54);
+    lv_obj_add_event_cb(btn_wlan, einstellungen_wlan_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l_wlan = lv_label_create(btn_wlan);
+    lv_label_set_text(l_wlan, "WLAN wechseln");
+    lv_obj_set_style_text_font(l_wlan, &schrift_klein_28, 0);
+    lv_obj_center(l_wlan);
+
+    lv_obj_t *btn_datum = lv_button_create(s_einstellungen_screen);
+    lv_obj_set_size(btn_datum, 360, 48);
+    lv_obj_align(btn_datum, LV_ALIGN_TOP_LEFT, 410, 54);
+    lv_obj_add_event_cb(btn_datum, einstellungen_datum_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l_datum = lv_label_create(btn_datum);
+    lv_label_set_text(l_datum, "Datum, Uhrzeit einstellen");
+    lv_obj_set_style_text_font(l_datum, &schrift_klein_28, 0);
+    lv_obj_center(l_datum);
+
+    einstellungen_schalter_zeile(s_einstellungen_screen, 118, "Signalton bei Erinnerungen",
+                                  einstellungen_buzzer_aktiv(), einstellungen_buzzer_cb);
+
+    s_kalender_url_ta = lv_textarea_create(s_einstellungen_screen);
+    lv_textarea_set_one_line(s_kalender_url_ta, true);
+    lv_textarea_set_placeholder_text(s_kalender_url_ta, "Kalender-Adresse (ICS-URL)");
+    char aktuelle_url[EINSTELLUNGEN_KALENDER_URL_MAX];
+    einstellungen_kalender_url_effektiv(aktuelle_url, sizeof aktuelle_url);
+    lv_textarea_set_text(s_kalender_url_ta, aktuelle_url);
+    lv_obj_set_style_text_font(s_kalender_url_ta, &schrift_klein_28, 0);
+    lv_obj_set_size(s_kalender_url_ta, 520, 44);
+    lv_obj_align(s_kalender_url_ta, LV_ALIGN_TOP_LEFT, 30, 172);
+
+    lv_obj_t *btn_url_speichern = lv_button_create(s_einstellungen_screen);
+    lv_obj_set_size(btn_url_speichern, 200, 44);
+    lv_obj_align(btn_url_speichern, LV_ALIGN_TOP_LEFT, 570, 172);
+    lv_obj_add_event_cb(btn_url_speichern, einstellungen_kalender_speichern_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l_url_speichern = lv_label_create(btn_url_speichern);
+    lv_label_set_text(l_url_speichern, "Speichern");
+    lv_obj_set_style_text_font(l_url_speichern, &schrift_klein_28, 0);
+    lv_obj_center(l_url_speichern);
+
+    /* Tastatur immer sichtbar und fest an das einzige Textfeld dieses
+     * Bildschirms gebunden (anders als beim WLAN-Screen mit zwei Feldern
+     * braucht es hier keinen Fokus-Wechsel-Callback). */
+    lv_obj_t *keyboard = lv_keyboard_create(s_einstellungen_screen);
+    lv_obj_set_size(keyboard, LV_PCT(100), 235);
+    lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_keyboard_set_textarea(keyboard, s_kalender_url_ta);
+
+    lv_screen_load(s_einstellungen_screen);
+    lvgl_port_unlock();
+}
+
+einrichtung_status_t einrichtung_einstellungen_status(void)
+{
+    return s_einstellungen_status;
+}
+
+einstellungen_aktion_t einrichtung_einstellungen_aktion_abfragen(void)
+{
+    einstellungen_aktion_t aktion = s_einstellungen_aktion;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_KEINE;
+    return aktion;
+}
+
+void einrichtung_einstellungen_aufraeumen(void)
+{
+    lvgl_port_lock(0);
+    if (s_einstellungen_screen) {
+        lv_obj_delete(s_einstellungen_screen);
+        s_einstellungen_screen = NULL;
     }
     lvgl_port_unlock();
 }

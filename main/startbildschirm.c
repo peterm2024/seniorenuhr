@@ -29,7 +29,11 @@ static int s_rest_sekunden;
 
 static lv_obj_t *s_btn_wlan_wechseln;
 static lv_obj_t *s_btn_offline;
+static lv_obj_t *s_btn_einstellungen;
 static volatile startbildschirm_aktion_t s_aktion = STARTBILDSCHIRM_AKTION_KEINE;
+
+#define ZAHNRAD_GROESSE 70
+#define ZAHNRAD_FARBE 0x999999
 
 static void icon_teil_hinzufuegen(icon_t *ic, lv_obj_t *obj)
 {
@@ -207,6 +211,44 @@ static void icon_kalender_erzeugen(icon_t *ic, lv_obj_t *cont)
     icon_teil_hinzufuegen(ic, kopf);
 }
 
+/* Zahnrad-Symbol: Ring + acht Zaehne rundherum (feste Positionen statt
+ * Laufzeit-Trigonometrie, da immer dieselben acht Himmelsrichtungen). Anders
+ * als die drei Status-Symbole oben ist dieser Button von Anfang an sichtbar
+ * und aendert seine Farbe nie - er fuehrt direkt ins Einstellungen-Menue. */
+static void icon_zahnrad_erzeugen(lv_obj_t *btn)
+{
+    lv_obj_t *ring = lv_obj_create(btn);
+    lv_obj_remove_style_all(ring);
+    lv_obj_set_size(ring, 36, 36);
+    lv_obj_set_pos(ring, 17, 17);
+    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(ring, 4, 0);
+    lv_obj_set_style_border_color(ring, lv_color_hex(ZAHNRAD_FARBE), 0);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+
+    static const lv_point_t zahn_positionen[8] = {
+        {56, 32}, {49, 49}, {32, 56}, {15, 49},
+        {8, 32}, {15, 15}, {32, 8}, {49, 15},
+    };
+    for (int i = 0; i < 8; i++) {
+        lv_obj_t *zahn = lv_obj_create(btn);
+        lv_obj_remove_style_all(zahn);
+        lv_obj_set_size(zahn, 6, 6);
+        lv_obj_set_pos(zahn, zahn_positionen[i].x, zahn_positionen[i].y);
+        lv_obj_set_style_radius(zahn, 1, 0);
+        lv_obj_set_style_bg_color(zahn, lv_color_hex(ZAHNRAD_FARBE), 0);
+        lv_obj_set_style_bg_opa(zahn, LV_OPA_COVER, 0);
+        lv_obj_remove_flag(zahn, LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
+static void btn_einstellungen_cb(lv_event_t *e)
+{
+    (void)e;
+    s_aktion = STARTBILDSCHIRM_AKTION_EINSTELLUNGEN;
+}
+
 static void blink_timer_cb(lv_timer_t *t)
 {
     (void)t;
@@ -239,6 +281,14 @@ void startbildschirm_erstellen(void)
 
     s_btn_wlan_wechseln = hilfe_button_erzeugen(s_screen, "WLAN wechseln", LV_ALIGN_BOTTOM_MID, -150, btn_wlan_wechseln_cb);
     s_btn_offline = hilfe_button_erzeugen(s_screen, "Offline", LV_ALIGN_BOTTOM_MID, 150, btn_offline_cb);
+
+    s_btn_einstellungen = lv_obj_create(s_screen);
+    lv_obj_remove_style_all(s_btn_einstellungen);
+    lv_obj_set_size(s_btn_einstellungen, ZAHNRAD_GROESSE, ZAHNRAD_GROESSE);
+    lv_obj_align(s_btn_einstellungen, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
+    lv_obj_add_flag(s_btn_einstellungen, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_btn_einstellungen, btn_einstellungen_cb, LV_EVENT_CLICKED, NULL);
+    icon_zahnrad_erzeugen(s_btn_einstellungen);
 
     lvgl_port_unlock();
 }

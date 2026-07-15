@@ -219,6 +219,17 @@ Umweg über Testdaten war nicht mehr nötig.
 - ✅ Mehrere WLAN-Netze gemerkt (NVS, leicht verschleiert), automatische Auswahl per Scan
 - ✅ Live-Status-Symbole (WLAN/Zeit/Kalender) rechts oben, ehrlich durchgestrichen bei
   unbestätigten Daten (manuelle Zeit, nur gecachter statt frisch heruntergeladener Kalender)
+- ✅ Einstellungen-Menü (15.07.2026): Zahnrad-Symbol unten rechts auf dem Startbildschirm
+  (von Anfang an sichtbar, nicht erst nach 30s) öffnet ein Menü mit sofortigem Zugriff auf
+  "WLAN wechseln"/"Datum, Uhrzeit einstellen" sowie neu: Schalter für die künftige
+  Buzzer-Tonausgabe (siehe "Später/Ideen") und ein Textfeld für die Kalender-Adresse
+  (überschreibt/löst secrets.h zur Laufzeit ab, persistiert im NVS). Neues Modul
+  main/einstellungen.c/h dafür. Die manuelle Datum/Uhrzeit-Eingabe geht jetzt vom zuletzt
+  angezeigten Zeitstempel aus statt von der rohen Systemzeit (nach Stromausfall sonst 1970).
+  Versuch, dabei auch eine 180°-Display-Rotation (Kabelaustritt oben) einzubauen, wurde nach
+  einem gefundenen Flacker-Bug (direct_mode/Anti-Tearing vertragen sich nicht mit LVGLs
+  Rotationswegen) wieder verworfen — Kabelführung wird stattdessen hardwareseitig gelöst,
+  siehe FALLSTRICKE_UND_WORKAROUNDS.md #12.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung (der aktuelle Watchdog deckt nur WLAN-Verbindungsabbrüche ab)
@@ -244,8 +255,8 @@ Umweg über Testdaten war nicht mehr nötig.
   den Kollektor, Emitter an GND, Freilaufdiode (1N4148) parallel zum Buzzer wegen der Spule.
   Software: GPIO6 als normaler Digitalausgang, einfaches An/Aus genügt (aktiver Buzzer hat
   eigenen Oszillator). Steht im Widerspruch zur bisherigen "komplett stumm"-Entscheidung
-  (Abschnitt 4) — falls umgesetzt, braucht es vermutlich eine Ein/Aus-Einstellung, damit es
-  die Eltern nicht überfordert oder erschreckt.
+  (Abschnitt 4). Die Ein/Aus-Einstellung dafür existiert bereits vorbereitet im neuen
+  Einstellungen-Menü (siehe Phase 5) — wirkt erst, sobald der Buzzer tatsächlich verbaut ist.
 
 ---
 

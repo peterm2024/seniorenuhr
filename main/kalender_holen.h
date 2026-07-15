@@ -8,7 +8,9 @@
 #include "esp_err.h"
 
 /*
- * Laedt den Kalender von KALENDER_ICS_URL (main/secrets.h).
+ * Laedt den Kalender von der effektiven Kalender-Adresse (siehe
+ * einstellungen.h: manueller Override falls gesetzt, sonst KALENDER_ICS_URL
+ * aus main/secrets.h).
  * *puffer wird per malloc (bevorzugt im PSRAM) belegt und muss vom
  * Aufrufer mit free() freigegeben werden. Bricht bei mehr als
  * einigen hundert KB ab (Notbremse gegen Speicherueberlauf).

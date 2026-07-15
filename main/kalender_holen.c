@@ -1,5 +1,5 @@
 #include "kalender_holen.h"
-#include "secrets.h"
+#include "einstellungen.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -61,8 +61,11 @@ esp_err_t kalender_holen(char **puffer, size_t *laenge)
     if (kapazitaet_sicherstellen(&p, ANFANGSGROESSE) != ESP_OK)
         return ESP_ERR_NO_MEM;
 
+    char url[EINSTELLUNGEN_KALENDER_URL_MAX];
+    einstellungen_kalender_url_effektiv(url, sizeof url);
+
     esp_http_client_config_t cfg = {
-        .url = KALENDER_ICS_URL,
+        .url = url,
         .event_handler = ereignis_handler,
         .user_data = &p,
         .crt_bundle_attach = esp_crt_bundle_attach,

@@ -1,4 +1,5 @@
 #include "zeit.h"
+#include "einstellungen.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@ static void sync_callback(struct timeval *tv)
         ESP_LOGI(TAG, "Uhrzeit per NTP synchronisiert");
     s_zeit_synchron = true;
     s_zeit_manuell = false; /* NTP hat Vorrang - ab jetzt wieder bestaetigt */
+    einstellungen_letzte_sync_setzen(time(NULL));
 }
 
 void zeit_zeitzone_setzen(void)

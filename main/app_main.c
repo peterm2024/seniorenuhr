@@ -13,6 +13,7 @@
 
 #include "anzeige.h"
 #include "einrichtung.h"
+#include "einstellungen.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
 #include "esp_system.h"
@@ -492,6 +493,7 @@ static void uhr_tick(lv_timer_t *timer)
         time_t jetzt = time(NULL);
         struct tm lokal;
         localtime_r(&jetzt, &lokal);
+        einstellungen_letzte_anzeige_setzen(jetzt);
 
         snprintf(uhrzeit, sizeof uhrzeit, "%02d:%02d", lokal.tm_hour, lokal.tm_min);
         wochentag = zeit_wochentag_gross(&lokal);
@@ -656,6 +658,7 @@ typedef enum {
     PHASE_TIMEOUT,
     PHASE_WLAN_WECHSELN,
     PHASE_OFFLINE,
+    PHASE_EINSTELLUNGEN,
 } phase_ergebnis_t;
 
 /* Wartet auf `bedingung`, bis entweder erfuellt, der 60s-Countdown
@@ -672,6 +675,8 @@ static phase_ergebnis_t phase_abwarten(startbildschirm_schritt_t schritt, beding
             return PHASE_WLAN_WECHSELN;
         case STARTBILDSCHIRM_AKTION_OFFLINE:
             return PHASE_OFFLINE;
+        case STARTBILDSCHIRM_AKTION_EINSTELLUNGEN:
+            return PHASE_EINSTELLUNGEN;
         default:
             break;
         }
@@ -680,14 +685,61 @@ static phase_ergebnis_t phase_abwarten(startbildschirm_schritt_t schritt, beding
     return PHASE_TIMEOUT;
 }
 
-/* Wartet auf eine Boot-Phase und kuemmert sich um die beiden
- * Eingriffsmoeglichkeiten: "WLAN wechseln" oeffnet die Zugangsdaten-
- * Eingabe (bei "Speichern" startet das Geraet neu, bei "Abbrechen" wird
- * dieselbe Phase erneut abgewartet); "Offline" oeffnet die Datum/Uhrzeit-
- * Eingabe und markiert die AKTUELL laufende Phase danach als erledigt -
- * das gilt auch fuer die WLAN-Phase selbst, denn ab dann laeuft das
- * Geraet bewusst ohne Netz weiter (Kalenderdaten kommen dann hoechstens
- * aus dem Cache, siehe kalender_anzeige.c). */
+/* Verschachtelte Unternavigation innerhalb des Einstellungen-Menues: WLAN-
+ * oder Datum-Bildschirm wird ueber dem Menue geoeffnet, nach dessen
+ * Ende kehrt die Funktion (ueber eine neu aufgebaute Menue-Instanz) dorthin
+ * zurueck - genau wie schon fuer "WLAN wechseln"/"Offline" auf dem
+ * Startbildschirm selbst (siehe phase_verarbeiten), inklusive derselben
+ * Reihenfolge "neuen Screen erst laden, dann alten erst loeschen". */
+static void einstellungen_bildschirm_verarbeiten(void)
+{
+    einrichtung_einstellungen_zeigen();
+    for (;;) {
+        einrichtung_status_t status = einrichtung_einstellungen_status();
+        if (status != EINRICHTUNG_OFFEN)
+            break;
+
+        switch (einrichtung_einstellungen_aktion_abfragen()) {
+        case EINSTELLUNGEN_AKTION_WLAN: {
+            einrichtung_wlan_zeigen();
+            einrichtung_status_t wlan_status;
+            while ((wlan_status = einrichtung_wlan_status()) == EINRICHTUNG_OFFEN)
+                vTaskDelay(pdMS_TO_TICKS(100));
+            (void)wlan_status; /* nur ABGEBROCHEN erreichbar - Speichern startet neu */
+            einrichtung_einstellungen_zeigen();
+            einrichtung_wlan_aufraeumen();
+            break;
+        }
+        case EINSTELLUNGEN_AKTION_DATUM: {
+            einrichtung_zeit_zeigen();
+            einrichtung_status_t zeit_status;
+            while ((zeit_status = einrichtung_zeit_status()) == EINRICHTUNG_OFFEN)
+                vTaskDelay(pdMS_TO_TICKS(100));
+            (void)zeit_status;
+            einrichtung_einstellungen_zeigen();
+            einrichtung_zeit_aufraeumen();
+            break;
+        }
+        default:
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    /* Aufraeumen bewusst NICHT hier - der Aufrufer laedt zuerst den
+     * Startbildschirm wieder als aktiven Screen, bevor dieser (dann
+     * inaktive) Screen geloescht wird (siehe phase_verarbeiten). */
+}
+
+/* Wartet auf eine Boot-Phase und kuemmert sich um die Eingriffsmoeglich-
+ * keiten: "WLAN wechseln" oeffnet die Zugangsdaten-Eingabe (bei "Speichern"
+ * startet das Geraet neu, bei "Abbrechen" wird dieselbe Phase erneut
+ * abgewartet); "Offline" oeffnet die Datum/Uhrzeit-Eingabe und markiert die
+ * AKTUELL laufende Phase danach als erledigt - das gilt auch fuer die
+ * WLAN-Phase selbst, denn ab dann laeuft das Geraet bewusst ohne Netz weiter
+ * (Kalenderdaten kommen dann hoechstens aus dem Cache, siehe
+ * kalender_anzeige.c); das Zahnrad-Symbol oeffnet das Einstellungen-Menue
+ * (siehe einstellungen_bildschirm_verarbeiten), nach dessen Schliessen wird
+ * die Phase ebenfalls erneut abgewartet (frischer Countdown). */
 static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *name, bedingung_fn bedingung)
 {
     for (;;) {
@@ -700,6 +752,15 @@ static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *nam
         if (ergebnis == PHASE_TIMEOUT) {
             phase_fehlgeschlagen_neustart(name);
             return; /* unerreichbar */
+        }
+
+        if (ergebnis == PHASE_EINSTELLUNGEN) {
+            netz_watchdog_pausieren(true);
+            einstellungen_bildschirm_verarbeiten();
+            startbildschirm_reaktivieren();
+            einrichtung_einstellungen_aufraeumen();
+            netz_watchdog_pausieren(false);
+            continue; /* Phase erneut abwarten */
         }
 
         if (ergebnis == PHASE_WLAN_WECHSELN) {
@@ -756,6 +817,11 @@ static void einblend_fertig_cb(lv_anim_t *a)
 void app_main(void)
 {
     ESP_LOGI(TAG, "Start: Seniorenuhr startet");
+
+    /* Ganz zuerst - initialisiert bei Bedarf selbst das NVS und muss vor
+     * anzeige_start() gelaufen sein, da dort die gespeicherte Rotation
+     * schon beim Display-Start angewendet wird. */
+    einstellungen_laden();
 
     zeit_zeitzone_setzen();
 
