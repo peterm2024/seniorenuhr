@@ -35,13 +35,27 @@ static const char *TAG = "netz";
  * neu starten, statt dauerhaft (z. B. mit haengenden Verbindungen)
  * steckenzubleiben. Der Watchdog ist erst NACH der ersten erfolgreichen
  * Verbindung scharf - waehrend des Bootens ueberwacht stattdessen der
- * 60s-Countdown des Startbildschirms die WLAN-Phase (app_main). */
-#define WATCHDOG_GRENZE_US (30LL * 1000000)
+ * 60s-Countdown des Startbildschirms die WLAN-Phase (app_main).
+ *
+ * Die scharfe 30s-Grenze gilt aber nur bis zum ERSTEN Erreichen des
+ * Hauptbildschirms (siehe netz_watchdog_lockern, von app_main() aufgerufen,
+ * sobald WLAN/Zeit/Kalender einmal durchgelaufen sind). Danach hat die
+ * Anzeige von Uhrzeit/Tabletten/Terminen oberste Prioritaet - ein
+ * Neustart-Reflex bei schwachem WLAN (siehe FALLSTRICKE #14) koennte sonst
+ * eine nie endende Boot-Schleife ausloesen, waehrend der die Anzeige
+ * DAUERHAFT schwarz bliebe und faellig werdende Tabletten gar nicht erst
+ * angezeigt wuerden - eine zeitweise falsche Uhrzeit ist das eindeutig
+ * kleinere Uebel. Ab dann greift eine viel groessere Grenze: ein Neustart
+ * ist dann nur noch ein letzter Reparaturversuch, falls das WLAN wirklich
+ * eine ganze Woche am Stueck nicht wiederkommt. */
+#define WATCHDOG_GRENZE_KURZ_US (30LL * 1000000)
+#define WATCHDOG_GRENZE_LANG_US (7LL * 24 * 3600 * 1000000LL)
 #define WATCHDOG_PRUEF_INTERVALL_US (5LL * 1000000)
 
 static volatile bool s_verbunden = false;
 static volatile bool s_war_verbunden = false; /* schon je eine IP bekommen? */
 static volatile bool s_watchdog_pausiert = false;
+static volatile int64_t s_watchdog_grenze_us = WATCHDOG_GRENZE_KURZ_US;
 
 /* 0 = aktuell verbunden (oder noch nie verbunden gewesen); sonst Zeitpunkt
  * (esp_timer_get_time), seit dem ununterbrochen keine Verbindung besteht. */
@@ -55,10 +69,19 @@ static void wifi_watchdog_callback(void *arg)
     int64_t getrennt_seit = s_getrennt_seit_us;
     if (getrennt_seit == 0)
         return;
-    if (esp_timer_get_time() - getrennt_seit > WATCHDOG_GRENZE_US) {
-        ESP_LOGE(TAG, "Seit ueber 30s ohne WLAN-Verbindung - Neustart");
+    if (esp_timer_get_time() - getrennt_seit > s_watchdog_grenze_us) {
+        ESP_LOGE(TAG, "Seit laengerer Zeit ohne WLAN-Verbindung - Neustart");
         esp_restart();
     }
+}
+
+/* Wird von app_main() aufgerufen, sobald der Hauptbildschirm zum ersten Mal
+ * erreicht ist (WLAN, Zeit und Kalender einmal erfolgreich durchgelaufen) -
+ * lockert die Neustart-Schwelle von 30s auf 1 Woche (siehe Kommentar oben). */
+void netz_watchdog_lockern(void)
+{
+    s_watchdog_grenze_us = WATCHDOG_GRENZE_LANG_US;
+    ESP_LOGI(TAG, "WLAN-Watchdog gelockert: Neustart erst nach 1 Woche ohne Verbindung");
 }
 
 /* Pausiert/entpausiert den Watchdog - waehrend der Benutzer auf einem

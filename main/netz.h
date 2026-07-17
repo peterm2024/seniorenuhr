@@ -37,6 +37,14 @@ int netz_rssi_dbm(void);
  * ausloesen (siehe app_main.c). */
 void netz_watchdog_pausieren(bool pausieren);
 
+/* Lockert die Neustart-Schwelle des Watchdogs von 30s auf 1 Woche - einmal
+ * von app_main() aufgerufen, sobald der Hauptbildschirm zum ersten Mal
+ * erreicht ist (WLAN/Zeit/Kalender einmal erfolgreich durchgelaufen). Die
+ * Anzeige von Uhrzeit/Tabletten/Terminen hat danach oberste Prioritaet -
+ * lieber eine zeitweise veraltete Anzeige als eine nie endende
+ * Boot-Neustart-Schleife bei schwachem WLAN (siehe FALLSTRICKE #14). */
+void netz_watchdog_lockern(void);
+
 /* Fuegt ein WLAN-Netz zur Liste der bekannten Netze im NVS hinzu (oder
  * aktualisiert das Passwort, falls die SSID schon bekannt ist) - leicht
  * verschleiert abgelegt (kein kryptographisch starkes Verfahren, siehe

@@ -65,6 +65,16 @@ void zeit_manuell_setzen(int tag, int monat, int jahr, int stunde, int minute)
     s_zeit_manuell = true;
 }
 
+void zeit_uebernehmen(time_t zeitstempel)
+{
+    struct timeval tv = { .tv_sec = zeitstempel, .tv_usec = 0 };
+    settimeofday(&tv, NULL);
+
+    ESP_LOGW(TAG, "Uhrzeit vom letzten bekannten Stand uebernommen (kein NTP, keine manuelle Eingabe)");
+    s_zeit_synchron = true;
+    s_zeit_manuell = true;
+}
+
 const char *zeit_wochentag_gross(const struct tm *t)
 {
     static const char *namen[7] = {

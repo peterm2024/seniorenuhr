@@ -250,10 +250,22 @@ Umweg über Testdaten war nicht mehr nötig.
   Neustart und eine kurzzeitig fehlende WLAN-Verbindung sein; per Boot-Log bestätigt: RSSI lag
   bei -77 dBm ("schwach"), ein WLAN-Verbindungsversuch schlug einmal fehl, bevor der zweite
   gelang. Ausserdem: Reset-Grund wird jetzt sofort beim Boot geloggt (siehe Nachtrag 1).
+- ✅ Nachtrag 3 (17.07.2026) — Neustart-Schleife bei schwachem/fehlendem WLAN ausgeschlossen:
+  Peter wies zurecht darauf hin, dass ein Neustart bei WLAN-Verlust riskant ist, wenn dadurch
+  eine faellige Tablette nicht angezeigt wird (Prioritaet: Anzeige > korrekte Uhrzeit). Zwei
+  Aenderungen: (1) der WLAN-Watchdog (30s → Neustart) wird jetzt erst NACH dem ersten
+  Erreichen der Hauptanzeige auf 1 Woche gelockert (`netz_watchdog_lockern()`); (2) der
+  60s-Boot-Timeout je Phase fuehrt nicht mehr zu einem Neustart, sondern macht automatisch
+  weiter wie beim manuellen "Offline"-Button (`phase_timeout_automatisch_fortsetzen()`) - die
+  Uhrzeit wird dabei auf den zuletzt angezeigten Stand gesetzt (`zeit_uebernehmen()`) und die
+  grosse Uhrzeit blinkt dunkelorange, solange sie unbestaetigt ist. Am Geraet verifiziert
+  (testweise falsche WLAN-SSID, kompletten 60s-Timeout abgewartet): kein Neustart, Hauptanzeige
+  erscheint trotzdem. Details siehe FALLSTRICKE_UND_WORKAROUNDS.md #14.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
-  bestehender WLAN-Verbindung (der aktuelle Watchdog deckt nur WLAN-Verbindungsabbrüche ab);
-  evtl. mit demselben schwachen WLAN-Signal am Testplatz zusammenhaengend (siehe Nachtrag 2)
+  bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz
+  zusammenhaengend (siehe Nachtrag 2) - durch Nachtrag 3 aber ohnehin nicht mehr
+  neustart-kritisch, da die Anzeige davon unabhaengig laeuft
 - **Ziel:** Eine Woche Dauerlauf bei den Eltern ohne Eingriff
 
 ### Phase 6 — Einzug bei den Eltern *(1 Tag + Beobachtung)*

@@ -46,6 +46,7 @@
 #define FARBE_WARNUNG           0xff5a4a /* Durchstrich der Status-Symbole bei fehlender Konnektivitaet */
 #define FARBE_ICON_HELLGRAU     0xd8d8d8 /* Status-Symbole rechts oben - fest, unabhaengig vom Modus */
 #define FARBE_VERGANGEN         0x707a8a /* gedaempftes Grau: vergangene Termine / abgehakte Tabletten in der Uebersicht */
+#define FARBE_ZEIT_UNBESTAETIGT 0xcc7a1a /* dunkles Orange: grosse Uhrzeit blinkt damit, solange die Zeit nicht per NTP bestaetigt ist */
 
 /* Kantenlaenge der kleinen Status-Symbole rechts oben (WLAN/Zeit/Kalender). */
 #define STATUS_ICON_GROESSE 34
@@ -162,6 +163,14 @@ static void einblend_anim_cb(void *var, int32_t wert)
 static lv_opa_t overlay_ziel_fuer_modus(anzeige_modus_t modus)
 {
     return (modus == MODUS_ABEND) ? LV_OPA_70 : LV_OPA_TRANSP;
+}
+
+/* Normale (nicht-blinkende) Textfarbe der grossen Uhrzeit im jeweiligen
+ * Modus - ausgelagert, damit uhr_tick() sie auch fuer das Zurueckschalten
+ * nach dem Unbestaetigt-Blinken kennt (siehe FARBE_ZEIT_UNBESTAETIGT). */
+static uint32_t uhrzeit_farbe_fuer_modus(anzeige_modus_t modus)
+{
+    return (modus == MODUS_NACHT) ? FARBE_NACHT_TEXT : FARBE_TEXT_HELL;
 }
 
 /* Ermittelt den aktuellen Anzeigemodus aus Uhrzeit + Beruehrungs-Aufweckzeit.
@@ -702,6 +711,29 @@ static void uhr_tick(lv_timer_t *timer)
         letzter_modus = modus;
     }
 
+    /* Grosse Uhrzeit blinkt dunkelorange, solange die Zeit nicht per NTP
+     * bestaetigt ist (manuell eingegeben ODER automatisch vom letzten
+     * bekannten Stand uebernommen, siehe zeit_uebernehmen) - deutlich
+     * auffaelliger als nur das kleine durchgestrichene Status-Symbol.
+     * Peters ausdruecklicher Wunsch: man soll auf den ersten Blick sehen,
+     * dass die angezeigte Uhrzeit (noch) nicht bestaetigt ist. */
+    bool zeit_unbestaetigt = zeit_ist_synchron() && zeit_ist_manuell_gesetzt();
+    static bool zeit_blink_an = false;
+    static bool zeit_war_unbestaetigt = false;
+    if (zeit_unbestaetigt) {
+        zeit_blink_an = !zeit_blink_an;
+        lvgl_port_lock(0);
+        lv_obj_set_style_text_color(s_uhr_label,
+            lv_color_hex(zeit_blink_an ? FARBE_ZEIT_UNBESTAETIGT : uhrzeit_farbe_fuer_modus(modus)), 0);
+        lvgl_port_unlock();
+        zeit_war_unbestaetigt = true;
+    } else if (zeit_war_unbestaetigt) {
+        lvgl_port_lock(0);
+        lv_obj_set_style_text_color(s_uhr_label, lv_color_hex(uhrzeit_farbe_fuer_modus(modus)), 0);
+        lvgl_port_unlock();
+        zeit_war_unbestaetigt = false;
+    }
+
     /* Wochentag-Buttons der Tagesansicht - intern gegen unnoetige Updates
      * abgesichert (nur bei tatsaechlichem Tageswechsel). */
     tagesansicht_tag_aktualisieren();
@@ -801,14 +833,34 @@ static void uhr_tick(lv_timer_t *timer)
 }
 
 /* Eine Boot-Phase hat ihren 60s-Countdown (Ring auf dem Startbildschirm)
- * aufgebraucht - Neustart, ein weiteres Warten bringt erfahrungsgemaess
- * nichts mehr (haengende Verbindung, DHCP-/DNS-Probleme, ...). */
-static void phase_fehlgeschlagen_neustart(const char *phase)
+ * aufgebraucht. Fruehere Fassung: Neustart. Problem dabei: ohne
+ * batteriegepufferte RTC verliert das Geraet bei JEDEM Neustart die
+ * Uhrzeit komplett, und die Software kann einen echten Stromausfall/eine
+ * Spannungsschwankung nicht von einer (noch) fehlenden WLAN-Verbindung
+ * unterscheiden. Bleibt WLAN laenger weg (schwaches Signal, Router-
+ * Ausfall, ...), wuerde ein Neustart-Reflex in eine nie endende
+ * Boot-Schleife fuehren, waehrend der die Anzeige DAUERHAFT schwarz
+ * bliebe und faellige Tabletten/Termine gar nicht erst gezeigt wuerden -
+ * der Super-GAU, den Peter nach dem WLAN-Watchdog-Vorfall ausdruecklich
+ * vermeiden wollte (siehe FALLSTRICKE #14). Deshalb macht das Geraet
+ * stattdessen automatisch weiter - wie beim manuellen "Offline"-Button,
+ * nur ohne dass jemand danebenstehen muss: die Uhrzeit wird (falls noch
+ * nicht bekannt) auf den zuletzt angezeigten Stand gesetzt (siehe
+ * zeit_uebernehmen/einstellungen_letzte_anzeige) und als unbestaetigt
+ * markiert (durchgestrichenes Status-Symbol, blinkende Uhrzeit - siehe
+ * uhr_tick). Eine zeitweise falsche Uhrzeit ist das eindeutig kleinere
+ * Uebel gegenueber einer dauerhaft schwarzen Anzeige. */
+static void phase_timeout_automatisch_fortsetzen(startbildschirm_schritt_t schritt, const char *phase)
 {
-    ESP_LOGE(TAG, "Start: Phase '%s' nicht in %ds abgeschlossen - Neustart",
+    ESP_LOGW(TAG, "Start: Phase '%s' nicht in %ds abgeschlossen - mache automatisch weiter "
+                  "(letzter bekannter Zeitstand, Anzeige hat Prioritaet)",
              phase, STARTBILDSCHIRM_PHASE_TIMEOUT_S);
-    vTaskDelay(pdMS_TO_TICKS(100)); /* Log-Ausgabe rausschreiben lassen */
-    esp_restart();
+    if (!zeit_ist_synchron()) {
+        time_t letzte_anzeige = einstellungen_letzte_anzeige();
+        if (letzte_anzeige != 0)
+            zeit_uebernehmen(letzte_anzeige);
+    }
+    startbildschirm_schritt_fertig(schritt);
 }
 
 static bool wlan_verbunden_pruefen(void) { return netz_ist_verbunden(); }
@@ -924,8 +976,8 @@ static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *nam
             return;
         }
         if (ergebnis == PHASE_TIMEOUT) {
-            phase_fehlgeschlagen_neustart(name);
-            return; /* unerreichbar */
+            phase_timeout_automatisch_fortsetzen(schritt, name);
+            return;
         }
 
         if (ergebnis == PHASE_EINSTELLUNGEN) {
@@ -1021,6 +1073,11 @@ void app_main(void)
     phase_verarbeiten(STARTBILDSCHIRM_KALENDER, "Kalender", kalender_bereit_pruefen);
     ESP_LOGI(TAG, "Start: Schritt Kalender fertig (version=%lu)",
              (unsigned long)kalender_anzeige_version());
+
+    /* Ab hier hat die Anzeige oberste Prioritaet - der WLAN-Watchdog darf
+     * jetzt keinen Neustart mehr wegen normaler, kurzzeitiger
+     * Verbindungsaussetzer ausloesen (siehe netz_watchdog_lockern). */
+    netz_watchdog_lockern();
 
     vTaskDelay(pdMS_TO_TICKS(2000)); /* alle drei Symbole kurz weiss stehen lassen */
     ESP_LOGI(TAG, "Start: Wechsle zur Hauptanzeige");

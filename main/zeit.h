@@ -27,6 +27,13 @@ bool zeit_ist_synchron(void);
  * TZ-Regel automatisch beruecksichtigt. */
 void zeit_manuell_setzen(int tag, int monat, int jahr, int stunde, int minute);
 
+/* Uebernimmt einen Unix-Zeitstempel direkt als Systemzeit, ohne NTP und
+ * ohne manuelle Eingabe - fuer den automatischen Boot-Fallback, wenn WLAN/
+ * NTP innerhalb des Boot-Timeouts nicht zustande kommt (siehe app_main.c/
+ * phase_timeout_automatisch_fortsetzen und einstellungen_letzte_anzeige).
+ * Zaehlt wie zeit_manuell_setzen als "unbestaetigt" (zeit_ist_manuell_gesetzt). */
+void zeit_uebernehmen(time_t zeitstempel);
+
 /* true, wenn die aktuell gueltige Zeit zuletzt manuell gesetzt wurde statt
  * per NTP bestaetigt - wird automatisch wieder false, sobald ein echter
  * NTP-Sync gelingt (siehe zeit_sntp_starten). */
