@@ -1,5 +1,6 @@
 #include "kalender_speicher.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +13,11 @@ static const char *TAG = "kalender_speicher";
 
 #define BASISPFAD "/speicher"
 #define DATEIPFAD BASISPFAD "/kalender.ics"
-#define BESTAETIGUNGEN_PFAD BASISPFAD "/tabletten.txt"
+/* Dateiname im klassischen 8.3-Format (max. 8 Zeichen Basisname) - das
+ * Projekt nutzt CONFIG_FATFS_LFN_NONE (keine langen Dateinamen, spart RAM),
+ * ein laengerer Name wie "tabletten.txt" wird von FatFs als ungueltig
+ * abgelehnt (fopen liefert dann NULL/errno=EINVAL). */
+#define BESTAETIGUNGEN_PFAD BASISPFAD "/tablette.txt"
 
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
@@ -79,13 +84,15 @@ esp_err_t kalender_speicher_bestaetigungen_schreiben(int tag_schluessel,
 {
     FILE *f = fopen(BESTAETIGUNGEN_PFAD, "wb");
     if (!f) {
-        ESP_LOGW(TAG, "Konnte Bestaetigungs-Datei nicht zum Schreiben oeffnen");
+        ESP_LOGW(TAG, "Konnte Bestaetigungs-Datei nicht zum Schreiben oeffnen (errno=%d: %s)",
+                 errno, strerror(errno));
         return ESP_FAIL;
     }
     fprintf(f, "%d\n", tag_schluessel);
     for (int i = 0; i < anzahl; i++)
         fprintf(f, "%s\n", titel[i]);
     fclose(f);
+    ESP_LOGI(TAG, "Bestaetigungen gespeichert: Tag=%d, %d Titel", tag_schluessel, anzahl);
     return ESP_OK;
 }
 
@@ -94,15 +101,21 @@ int kalender_speicher_bestaetigungen_lesen(int erwarteter_tag_schluessel,
                                             int max)
 {
     FILE *f = fopen(BESTAETIGUNGEN_PFAD, "rb");
-    if (!f)
+    if (!f) {
+        ESP_LOGI(TAG, "Bestaetigungs-Datei existiert noch nicht");
         return 0; /* noch nichts gespeichert - kein Fehler */
+    }
 
     char zeile[ICS_TITEL_MAX + 8];
     if (!fgets(zeile, sizeof zeile, f)) {
+        ESP_LOGW(TAG, "Bestaetigungs-Datei ist leer");
         fclose(f);
         return 0;
     }
-    if (atoi(zeile) != erwarteter_tag_schluessel) {
+    int gespeicherter_tag = atoi(zeile);
+    if (gespeicherter_tag != erwarteter_tag_schluessel) {
+        ESP_LOGI(TAG, "Bestaetigungen verworfen: gespeicherter Tag=%d, erwartet=%d",
+                 gespeicherter_tag, erwarteter_tag_schluessel);
         fclose(f); /* Bestaetigungen vom Vortag - nicht auf heute anwenden */
         return 0;
     }
@@ -118,5 +131,6 @@ int kalender_speicher_bestaetigungen_lesen(int erwarteter_tag_schluessel,
         anzahl++;
     }
     fclose(f);
+    ESP_LOGI(TAG, "Bestaetigungen gelesen: Tag=%d, %d Titel", gespeicherter_tag, anzahl);
     return anzahl;
 }

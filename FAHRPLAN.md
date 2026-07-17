@@ -268,9 +268,10 @@ Umweg über Testdaten war nicht mehr nötig.
   Kalender-Cache-Partition persistiert (`kalender_speicher_bestaetigungen_schreiben/_lesen`) und
   ueberlebt damit einen unerwarteten Neustart mitten am Tag - ein Ruecksync ins ICS/Google-
   Calendar wurde verworfen, da die genutzte private ICS-Adresse rein lesend ist und ein
-  Zurueckschreiben die volle Calendar-API samt OAuth2 braeuchte. Details siehe
-  FALLSTRICKE_UND_WORKAROUNDS.md #15. Build/Boot-Log verifiziert; der eigentliche
-  Abhaken-dann-Neustart-Test braucht echte Touch-Bedienung und steht bei Peter noch aus.
+  Zurueckschreiben die volle Calendar-API samt OAuth2 braeuchte. Erster Live-Test zeigte einen
+  echten Bug (Dateiname zu lang fuer 8.3-Kurznamen bei `CONFIG_FATFS_LFN_NONE`, `fopen` scheiterte
+  mit EINVAL) - nach Umbenennung erneut getestet: Peter bestaetigte, der Haken bleibt jetzt nach
+  einem Neustart erhalten. Details siehe FALLSTRICKE_UND_WORKAROUNDS.md #15.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz
