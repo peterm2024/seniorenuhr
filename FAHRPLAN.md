@@ -230,6 +230,14 @@ Umweg über Testdaten war nicht mehr nötig.
   einem gefundenen Flacker-Bug (direct_mode/Anti-Tearing vertragen sich nicht mit LVGLs
   Rotationswegen) wieder verworfen — Kabelführung wird stattdessen hardwareseitig gelöst,
   siehe FALLSTRICKE_UND_WORKAROUNDS.md #12.
+- ✅ Nachtrag nach erstem Demo-Einsatz (17.07.2026): Reset-Grund wird beim Boot geloggt
+  (`esp_reset_reason()`, siehe FALLSTRICKE #13 zum Anlass); Anzeige bleibt jetzt im Tag-Modus,
+  solange ein Tages-/Heute-Fenster offen ist (vorher fiel sie mitten in der Tabletten-Bedienung
+  in den Nacht-Modus zurück, siehe FALLSTRICKE #13); Tabletten/Termine-Übersicht auf dem
+  Hauptbildschirm ist jetzt antippbar und öffnet direkt das Heute-Fenster; Einstellungen-Menü
+  überarbeitet (nur noch Buttons/Schalter mit LV_SIZE_CONTENT statt geratener Festbreite, die
+  Buttontexte abgeschnitten hatte) und die Kalender-Adresse hat jetzt einen eigenen,
+  mehrzeiligen Bildschirm statt eines zu schmalen einzeiligen Textfelds im Menü selbst.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung (der aktuelle Watchdog deckt nur WLAN-Verbindungsabbrüche ab)

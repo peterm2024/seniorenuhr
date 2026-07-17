@@ -286,7 +286,6 @@ void einrichtung_zeit_aufraeumen(void)
 /* -------------------------------------------------------------------- */
 
 static lv_obj_t *s_einstellungen_screen;
-static lv_obj_t *s_kalender_url_ta;
 static volatile einrichtung_status_t s_einstellungen_status = EINRICHTUNG_OFFEN;
 static volatile einstellungen_aktion_t s_einstellungen_aktion = EINSTELLUNGEN_AKTION_KEINE;
 
@@ -302,6 +301,12 @@ static void einstellungen_datum_cb(lv_event_t *e)
     s_einstellungen_aktion = EINSTELLUNGEN_AKTION_DATUM;
 }
 
+static void einstellungen_kalenderurl_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_KALENDER_URL;
+}
+
 static void einstellungen_schliessen_cb(lv_event_t *e)
 {
     (void)e;
@@ -314,10 +319,23 @@ static void einstellungen_buzzer_cb(lv_event_t *e)
     einstellungen_buzzer_aktiv_setzen(lv_obj_has_state(sw, LV_STATE_CHECKED));
 }
 
-static void einstellungen_kalender_speichern_cb(lv_event_t *e)
+/* Breite passt sich per LV_SIZE_CONTENT der Beschriftung an (wie das
+ * "Heute"-Button-Muster in tagesansicht.c) - eine geratene Festbreite hatte
+ * zuvor laengere Texte ("Datum, Uhrzeit einstellen", "Schliessen")
+ * abgeschnitten. */
+static lv_obj_t *einstellungen_nav_button_erzeugen(lv_obj_t *parent, const char *text, lv_event_cb_t cb)
 {
-    (void)e;
-    einstellungen_kalender_url_setzen(lv_textarea_get_text(s_kalender_url_ta));
+    lv_obj_t *btn = lv_button_create(parent);
+    lv_obj_set_size(btn, LV_SIZE_CONTENT, 48);
+    lv_obj_set_style_pad_left(btn, 20, 0);
+    lv_obj_set_style_pad_right(btn, 20, 0);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+    lv_obj_center(label);
+    return btn;
 }
 
 static lv_obj_t *einstellungen_schalter_zeile(lv_obj_t *scr, int32_t y, const char *text, bool an,
@@ -354,62 +372,35 @@ void einrichtung_einstellungen_zeigen(void)
     lv_obj_set_style_text_color(titel, lv_color_white(), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 8);
 
-    lv_obj_t *btn_schliessen = lv_button_create(s_einstellungen_screen);
-    lv_obj_set_size(btn_schliessen, 140, 42);
+    lv_obj_t *btn_schliessen = einstellungen_nav_button_erzeugen(s_einstellungen_screen, "Schliessen",
+                                                                  einstellungen_schliessen_cb);
     lv_obj_align(btn_schliessen, LV_ALIGN_TOP_RIGHT, -20, 6);
-    lv_obj_add_event_cb(btn_schliessen, einstellungen_schliessen_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *l_schliessen = lv_label_create(btn_schliessen);
-    lv_label_set_text(l_schliessen, "Schliessen");
-    lv_obj_set_style_text_font(l_schliessen, &schrift_klein_28, 0);
-    lv_obj_center(l_schliessen);
 
-    lv_obj_t *btn_wlan = lv_button_create(s_einstellungen_screen);
-    lv_obj_set_size(btn_wlan, 360, 48);
-    lv_obj_align(btn_wlan, LV_ALIGN_TOP_LEFT, 30, 54);
-    lv_obj_add_event_cb(btn_wlan, einstellungen_wlan_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *l_wlan = lv_label_create(btn_wlan);
-    lv_label_set_text(l_wlan, "WLAN wechseln");
-    lv_obj_set_style_text_font(l_wlan, &schrift_klein_28, 0);
-    lv_obj_center(l_wlan);
+    /* Reihe aus Buttons zu den Unterbildschirmen - lv_flex mit Zeilenumbruch
+     * statt fester x-Positionen, damit unterschiedlich lange Beschriftungen
+     * (LV_SIZE_CONTENT) einander nie ueberlappen koennen, egal wie breit
+     * sie tatsaechlich ausfallen. */
+    lv_obj_t *reihe = lv_obj_create(s_einstellungen_screen);
+    lv_obj_remove_style_all(reihe);
+    lv_obj_remove_flag(reihe, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(reihe, 740, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(reihe, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_column(reihe, 16, 0);
+    lv_obj_set_style_pad_row(reihe, 12, 0);
+    lv_obj_align(reihe, LV_ALIGN_TOP_LEFT, 30, 64);
 
-    lv_obj_t *btn_datum = lv_button_create(s_einstellungen_screen);
-    lv_obj_set_size(btn_datum, 360, 48);
-    lv_obj_align(btn_datum, LV_ALIGN_TOP_LEFT, 410, 54);
-    lv_obj_add_event_cb(btn_datum, einstellungen_datum_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *l_datum = lv_label_create(btn_datum);
-    lv_label_set_text(l_datum, "Datum, Uhrzeit einstellen");
-    lv_obj_set_style_text_font(l_datum, &schrift_klein_28, 0);
-    lv_obj_center(l_datum);
+    einstellungen_nav_button_erzeugen(reihe, "WLAN wechseln", einstellungen_wlan_cb);
+    einstellungen_nav_button_erzeugen(reihe, "Datum, Uhrzeit einstellen", einstellungen_datum_cb);
+    einstellungen_nav_button_erzeugen(reihe, "Kalender-Adresse aendern", einstellungen_kalenderurl_cb);
 
-    einstellungen_schalter_zeile(s_einstellungen_screen, 118, "Signalton bei Erinnerungen",
+    /* Tatsaechliche Hoehe der Reihe erst nach dem Layout-Durchlauf bekannt
+     * (haengt davon ab, ob die drei Buttons in eine oder zwei Zeilen
+     * passen) - siehe FALLSTRICKE_UND_WORKAROUNDS.md #11. */
+    lv_obj_update_layout(reihe);
+    int32_t schalter_y = 64 + lv_obj_get_height(reihe) + 20;
+
+    einstellungen_schalter_zeile(s_einstellungen_screen, schalter_y, "Signalton bei Erinnerungen",
                                   einstellungen_buzzer_aktiv(), einstellungen_buzzer_cb);
-
-    s_kalender_url_ta = lv_textarea_create(s_einstellungen_screen);
-    lv_textarea_set_one_line(s_kalender_url_ta, true);
-    lv_textarea_set_placeholder_text(s_kalender_url_ta, "Kalender-Adresse (ICS-URL)");
-    char aktuelle_url[EINSTELLUNGEN_KALENDER_URL_MAX];
-    einstellungen_kalender_url_effektiv(aktuelle_url, sizeof aktuelle_url);
-    lv_textarea_set_text(s_kalender_url_ta, aktuelle_url);
-    lv_obj_set_style_text_font(s_kalender_url_ta, &schrift_klein_28, 0);
-    lv_obj_set_size(s_kalender_url_ta, 520, 44);
-    lv_obj_align(s_kalender_url_ta, LV_ALIGN_TOP_LEFT, 30, 172);
-
-    lv_obj_t *btn_url_speichern = lv_button_create(s_einstellungen_screen);
-    lv_obj_set_size(btn_url_speichern, 200, 44);
-    lv_obj_align(btn_url_speichern, LV_ALIGN_TOP_LEFT, 570, 172);
-    lv_obj_add_event_cb(btn_url_speichern, einstellungen_kalender_speichern_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *l_url_speichern = lv_label_create(btn_url_speichern);
-    lv_label_set_text(l_url_speichern, "Speichern");
-    lv_obj_set_style_text_font(l_url_speichern, &schrift_klein_28, 0);
-    lv_obj_center(l_url_speichern);
-
-    /* Tastatur immer sichtbar und fest an das einzige Textfeld dieses
-     * Bildschirms gebunden (anders als beim WLAN-Screen mit zwei Feldern
-     * braucht es hier keinen Fokus-Wechsel-Callback). */
-    lv_obj_t *keyboard = lv_keyboard_create(s_einstellungen_screen);
-    lv_obj_set_size(keyboard, LV_PCT(100), 235);
-    lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_keyboard_set_textarea(keyboard, s_kalender_url_ta);
 
     lv_screen_load(s_einstellungen_screen);
     lvgl_port_unlock();
@@ -433,6 +424,98 @@ void einrichtung_einstellungen_aufraeumen(void)
     if (s_einstellungen_screen) {
         lv_obj_delete(s_einstellungen_screen);
         s_einstellungen_screen = NULL;
+    }
+    lvgl_port_unlock();
+}
+
+/* -------------------------------------------------------------------- */
+/* Kalender-Adresse aendern                                              */
+/* -------------------------------------------------------------------- */
+
+static lv_obj_t *s_kalenderurl_screen;
+static lv_obj_t *s_kalenderurl_ta;
+static volatile einrichtung_status_t s_kalenderurl_status = EINRICHTUNG_OFFEN;
+
+static void kalenderurl_speichern_cb(lv_event_t *e)
+{
+    (void)e;
+    einstellungen_kalender_url_setzen(lv_textarea_get_text(s_kalenderurl_ta));
+    s_kalenderurl_status = EINRICHTUNG_UEBERNOMMEN;
+}
+
+static void kalenderurl_abbrechen_cb(lv_event_t *e)
+{
+    (void)e;
+    s_kalenderurl_status = EINRICHTUNG_ABGEBROCHEN;
+}
+
+void einrichtung_kalenderurl_zeigen(void)
+{
+    lvgl_port_lock(0);
+    s_kalenderurl_status = EINRICHTUNG_OFFEN;
+
+    s_kalenderurl_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_kalenderurl_screen, lv_color_black(), 0);
+    lv_obj_remove_flag(s_kalenderurl_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
+
+    lv_obj_t *titel = lv_label_create(s_kalenderurl_screen);
+    lv_label_set_text(titel, "Kalender-Adresse aendern");
+    lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
+    lv_obj_set_style_text_color(titel, lv_color_white(), 0);
+    lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 15);
+
+    /* Mehrzeilig (kein one_line) und ueber fast die volle Breite - die
+     * bisherige einzeilige Variante im Einstellungen-Menue lief bei einer
+     * langen ICS-URL seitlich aus dem Textfeld heraus und war nicht mehr
+     * vollstaendig lesbar. */
+    s_kalenderurl_ta = lv_textarea_create(s_kalenderurl_screen);
+    lv_textarea_set_one_line(s_kalenderurl_ta, false);
+    lv_textarea_set_placeholder_text(s_kalenderurl_ta, "Kalender-Adresse (ICS-URL)");
+    char aktuelle_url[EINSTELLUNGEN_KALENDER_URL_MAX];
+    einstellungen_kalender_url_effektiv(aktuelle_url, sizeof aktuelle_url);
+    lv_textarea_set_text(s_kalenderurl_ta, aktuelle_url);
+    lv_obj_set_style_text_font(s_kalenderurl_ta, &schrift_klein_28, 0);
+    lv_obj_set_size(s_kalenderurl_ta, 740, 110);
+    lv_obj_align(s_kalenderurl_ta, LV_ALIGN_TOP_MID, 0, 65);
+
+    lv_obj_t *btn_speichern = lv_button_create(s_kalenderurl_screen);
+    lv_obj_set_size(btn_speichern, 260, 50);
+    lv_obj_align(btn_speichern, LV_ALIGN_TOP_LEFT, 30, 185);
+    lv_obj_add_event_cb(btn_speichern, kalenderurl_speichern_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l1 = lv_label_create(btn_speichern);
+    lv_label_set_text(l1, "Speichern");
+    lv_obj_set_style_text_font(l1, &schrift_klein_28, 0);
+    lv_obj_center(l1);
+
+    lv_obj_t *btn_abbrechen = lv_button_create(s_kalenderurl_screen);
+    lv_obj_set_size(btn_abbrechen, 200, 50);
+    lv_obj_align(btn_abbrechen, LV_ALIGN_TOP_RIGHT, -30, 185);
+    lv_obj_add_event_cb(btn_abbrechen, kalenderurl_abbrechen_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l2 = lv_label_create(btn_abbrechen);
+    lv_label_set_text(l2, "Abbrechen");
+    lv_obj_set_style_text_font(l2, &schrift_klein_28, 0);
+    lv_obj_center(l2);
+
+    lv_obj_t *keyboard = lv_keyboard_create(s_kalenderurl_screen);
+    lv_obj_set_size(keyboard, LV_PCT(100), 235);
+    lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_keyboard_set_textarea(keyboard, s_kalenderurl_ta);
+
+    lv_screen_load(s_kalenderurl_screen);
+    lvgl_port_unlock();
+}
+
+einrichtung_status_t einrichtung_kalenderurl_status(void)
+{
+    return s_kalenderurl_status;
+}
+
+void einrichtung_kalenderurl_aufraeumen(void)
+{
+    lvgl_port_lock(0);
+    if (s_kalenderurl_screen) {
+        lv_obj_delete(s_kalenderurl_screen);
+        s_kalenderurl_screen = NULL;
     }
     lvgl_port_unlock();
 }

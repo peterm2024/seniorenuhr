@@ -58,6 +58,28 @@ LV_FONT_DECLARE(schrift_klein_28);
 
 static const char *TAG = "seniorenuhr";
 
+/* Deutscher Klartext fuer esp_reset_reason() - wird ganz am Anfang von
+ * app_main() geloggt, damit ein unerwarteter Neustart wenigstens beim
+ * NAECHSTEN Boot im (dann laufenden) seriellen Log erkennbar ist. Ohne
+ * dauerhaft mitlaufenden Monitor gibt es sonst keine Spur, WARUM ein
+ * Neustart passiert ist (WLAN-Watchdog, Absturz, Stromausfall, ...). */
+static const char *reset_grund_text(esp_reset_reason_t grund)
+{
+    switch (grund) {
+    case ESP_RST_POWERON:   return "Stromversorgung eingeschaltet";
+    case ESP_RST_EXT:       return "externer Reset-Pin";
+    case ESP_RST_SW:        return "Software (esp_restart, z. B. WLAN-Watchdog oder Speichern im Einrichtungs-Bildschirm)";
+    case ESP_RST_PANIC:     return "Absturz/Exception (Panic)";
+    case ESP_RST_INT_WDT:   return "interner Watchdog (haengender Interrupt)";
+    case ESP_RST_TASK_WDT:  return "Task-Watchdog (haengender Task)";
+    case ESP_RST_WDT:       return "sonstiger Watchdog";
+    case ESP_RST_DEEPSLEEP: return "Aufwachen aus Deep-Sleep (wird hier nicht genutzt)";
+    case ESP_RST_BROWNOUT:  return "Unterspannung (Brownout, z. B. schwaches Netzteil)";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "unbekannt";
+    }
+}
+
 typedef enum { MODUS_TAG, MODUS_ABEND, MODUS_NACHT } anzeige_modus_t;
 
 static lv_obj_t *s_bildschirm;
@@ -78,6 +100,23 @@ static void beruehrung_callback(lv_event_t *e)
 {
     (void)e;
     s_wach_bis_us = esp_timer_get_time() + BERUEHRUNG_WACHZEIT_US;
+}
+
+/* Tipp auf die Tabletten/Termine-Uebersicht oeffnet direkt das "Heute"-
+ * Fenster - bisher ging das nur ueber den eigenen "Heute"-Button links. */
+static void uebersicht_geklickt_cb(lv_event_t *e)
+{
+    (void)e;
+    tagesansicht_heute_oeffnen();
+}
+
+/* Macht ein Label per Tipp klickbar (Ueberschrift/Inhalt der Tabletten-
+ * bzw. Termine-Uebersicht) - Labels sind in LVGL standardmaessig nicht
+ * klickbar. */
+static void uebersicht_tippbar_machen(lv_obj_t *label)
+{
+    lv_obj_add_flag(label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(label, uebersicht_geklickt_cb, LV_EVENT_CLICKED, NULL);
 }
 
 /* lv_obj_set_style_bg_opa hat 3 Parameter (Objekt, Deckkraft, Selektor) -
@@ -108,6 +147,15 @@ static lv_opa_t overlay_ziel_fuer_modus(anzeige_modus_t modus)
 static anzeige_modus_t aktueller_modus(void)
 {
     if (!zeit_ist_synchron())
+        return MODUS_TAG;
+
+    /* Waehrend ein Tages-/Heute-Fenster offen ist, bleibt es Tag-Modus -
+     * Presses auf Elemente innerhalb dieser Fenster (Schieberegler,
+     * Schliessen-Button, ...) bubbeln nicht bis zu beruehrung_callback
+     * durch und wuerden die 30s-Wachzeit sonst nicht verlaengern, obwohl
+     * der Benutzer aktiv am Geraet ist (z. B. beim Abhaken mehrerer
+     * Tabletten). */
+    if (tagesansicht_fenster_offen())
         return MODUS_TAG;
 
     time_t jetzt = time(NULL);
@@ -389,9 +437,13 @@ static void ui_aufbauen(void)
      * haben (siehe tagesansicht_erstellen unten). */
     s_tabletten_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TABLETTEN HEUTE", 80, 335, 300);
     s_tabletten_label = listen_label_erzeugen(s_bildschirm, 80, 385, 300);
+    uebersicht_tippbar_machen(s_tabletten_ueberschrift);
+    uebersicht_tippbar_machen(s_tabletten_label);
 
     s_termine_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TERMINE HEUTE", 420, 335, 300);
     s_termine_label = listen_label_erzeugen(s_bildschirm, 420, 385, 300);
+    uebersicht_tippbar_machen(s_termine_ueberschrift);
+    uebersicht_tippbar_machen(s_termine_label);
 
     /* Wochentag-Navigation: 7 Buttons links (gestern..+5 Tage) + Heute-
      * Button rechts, oeffnen Tages-/Heute-Fenster mit Terminen/Tabletten. */
@@ -720,6 +772,16 @@ static void einstellungen_bildschirm_verarbeiten(void)
             einrichtung_zeit_aufraeumen();
             break;
         }
+        case EINSTELLUNGEN_AKTION_KALENDER_URL: {
+            einrichtung_kalenderurl_zeigen();
+            einrichtung_status_t url_status;
+            while ((url_status = einrichtung_kalenderurl_status()) == EINRICHTUNG_OFFEN)
+                vTaskDelay(pdMS_TO_TICKS(100));
+            (void)url_status; /* Speichern und Abbrechen fuehren beide zurueck ins Menue */
+            einrichtung_einstellungen_zeigen();
+            einrichtung_kalenderurl_aufraeumen();
+            break;
+        }
         default:
             break;
         }
@@ -816,11 +878,10 @@ static void einblend_fertig_cb(lv_anim_t *a)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Start: Seniorenuhr startet");
+    ESP_LOGI(TAG, "Start: Seniorenuhr startet (letzter Neustart-Grund: %s)",
+             reset_grund_text(esp_reset_reason()));
 
-    /* Ganz zuerst - initialisiert bei Bedarf selbst das NVS und muss vor
-     * anzeige_start() gelaufen sein, da dort die gespeicherte Rotation
-     * schon beim Display-Start angewendet wird. */
+    /* Ganz zuerst - initialisiert bei Bedarf selbst das NVS. */
     einstellungen_laden();
 
     zeit_zeitzone_setzen();

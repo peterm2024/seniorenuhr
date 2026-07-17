@@ -37,15 +37,17 @@ void einrichtung_zeit_aufraeumen(void);
 /* -------------------------------------------------------------------- */
 
 /* Vom Zahnrad-Symbol auf dem Startbildschirm aus erreichbar (siehe
- * startbildschirm.h). Ein Bildschirm mit: Buttons zu den beiden obigen
- * Bildschirmen (WLAN/Zeit), Schalter fuer Signalton, Textfeld fuer die
- * Kalender-Adresse. "Schliessen" liefert EINRICHTUNG_ABGEBROCHEN (der
- * einzige erreichbare Endzustand - Buzzer/Kalender-Aenderungen wirken
- * bereits vorher live/sofort). */
+ * startbildschirm.h). Bewusst schlank gehalten - nur Buttons/Schalter, die
+ * zu den jeweiligen Unterbildschirmen fuehren (WLAN/Zeit/Kalender-Adresse),
+ * kein direkt eingebettetes Textfeld mehr (siehe FALLSTRICKE-Erfahrung:
+ * eine lange ICS-URL sprengte das einzeilige Textfeld). "Schliessen"
+ * liefert EINRICHTUNG_ABGEBROCHEN (der einzige erreichbare Endzustand -
+ * der Buzzer-Schalter wirkt bereits vorher live/sofort). */
 typedef enum {
     EINSTELLUNGEN_AKTION_KEINE = 0,
     EINSTELLUNGEN_AKTION_WLAN,
     EINSTELLUNGEN_AKTION_DATUM,
+    EINSTELLUNGEN_AKTION_KALENDER_URL,
 } einstellungen_aktion_t;
 
 void einrichtung_einstellungen_zeigen(void);
@@ -55,5 +57,13 @@ einrichtung_status_t einrichtung_einstellungen_status(void);
  * startbildschirm_aktion_abfragen(). */
 einstellungen_aktion_t einrichtung_einstellungen_aktion_abfragen(void);
 void einrichtung_einstellungen_aufraeumen(void);
+
+/* Kalender-Adresse aendern: eigener Bildschirm mit breitem, mehrzeiligem
+ * Textfeld (statt einzeilig im Einstellungen-Menue), damit auch eine lange
+ * ICS-URL komplett sichtbar bleibt. "Speichern" persistiert den Override
+ * (siehe einstellungen.h) und liefert EINRICHTUNG_UEBERNOMMEN. */
+void einrichtung_kalenderurl_zeigen(void);
+einrichtung_status_t einrichtung_kalenderurl_status(void);
+void einrichtung_kalenderurl_aufraeumen(void);
 
 #endif

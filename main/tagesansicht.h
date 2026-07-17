@@ -24,4 +24,18 @@ void tagesansicht_tag_aktualisieren(void);
  * ausgeblendet. Wird ebenfalls bereits gesperrt aufgerufen. */
 void tagesansicht_sichtbarkeit_setzen(bool sichtbar);
 
+/* Oeffnet das "Heute"-Fenster programmatisch, genau wie ein Tipp auf den
+ * "Heute"-Button - fuer die antippbare Tabletten/Termine-Uebersicht auf dem
+ * Hauptbildschirm (siehe app_main.c). */
+void tagesansicht_heute_oeffnen(void);
+
+/* true, solange ein Tages- oder Heute-Fenster als Overlay ueber dem
+ * Hauptbildschirm offen ist - waehrend dieser Zeit soll die Anzeige nicht
+ * in den Abend-/Nacht-Modus zurueckfallen, auch wenn die 30s-Beruehrungs-
+ * Wachzeit (app_main.c) laengst abgelaufen ist: Presses auf Elemente
+ * *innerhalb* des Fensters (Schieberegler, Schliessen-Button, ...) bubbeln
+ * nicht zum Hauptbildschirm durch und wuerden die Wachzeit sonst nicht
+ * verlaengern. */
+bool tagesansicht_fenster_offen(void);
+
 #endif

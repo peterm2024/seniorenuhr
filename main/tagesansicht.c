@@ -459,7 +459,7 @@ static void heutefenster_hintergrund_cb(lv_event_t *e)
     lvgl_port_unlock();
 }
 
-static void heute_button_cb(lv_event_t *e)
+static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
 {
     kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
     int anzahl = kalender_anzeige_heutige_eintraege(eintraege, KALENDER_EINTRAEGE_MAX);
@@ -476,7 +476,7 @@ static void heute_button_cb(lv_event_t *e)
     tagesfenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
 
     s_heute_fenster = fenster_grundgeruest_erzeugen("HEUTE", datum, FENSTER_HOEHE_HEUTE, heutefenster_schliessen_cb);
-    aktiven_button_setzen(lv_event_get_target(e));
+    aktiven_button_setzen(aktiver_button);
     lv_obj_add_event_cb(s_heute_fenster, heutefenster_hintergrund_cb, LV_EVENT_PRESSED, NULL);
 
     int32_t y = 100;
@@ -537,6 +537,21 @@ static void heute_button_cb(lv_event_t *e)
 
     s_heute_fenster_timer = lv_timer_create(heutefenster_timer_cb, HEUTEFENSTER_INAKTIV_MS, NULL);
     lvgl_port_unlock();
+}
+
+static void heute_button_cb(lv_event_t *e)
+{
+    heute_oeffnen_intern(lv_event_get_target(e));
+}
+
+void tagesansicht_heute_oeffnen(void)
+{
+    heute_oeffnen_intern(s_tag_buttons[HEUTE_INDEX]);
+}
+
+bool tagesansicht_fenster_offen(void)
+{
+    return s_tages_fenster != NULL || s_heute_fenster != NULL;
 }
 
 /* ---- Aufbau/Beschriftung der Buttons --------------------------------- */
