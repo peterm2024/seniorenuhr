@@ -110,6 +110,12 @@ typedef struct {
 
 static schieber_t s_schieber[KALENDER_EINTRAEGE_MAX];
 
+/* Textlabel neben jedem Schieberegler im Heute-Fenster, indiziert wie
+ * s_schieber (derselbe Index wie kalender_anzeige_tablette_bestaetigen) -
+ * wird beim Loslassen des Schiebereglers live aktualisiert (Haken/Graufaerbung),
+ * ohne auf das naechste Neuoeffnen des Fensters warten zu muessen. */
+static lv_obj_t *s_tabletten_zeile_labels[KALENDER_EINTRAEGE_MAX];
+
 static void tagesfenster_intern_schliessen(void)
 {
     if (s_tages_fenster_timer) {
@@ -221,17 +227,26 @@ static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel_oben, const cha
     return panel;
 }
 
-static void eintrag_zeile_formatieren(const kalender_tag_eintrag_t *e, char *ziel, size_t ziel_groesse)
+/* Abgehakte Tabletten bekommen dieses ASCII-Praefix statt eines Unicode-
+ * Hakens - Montserrat-Bold enthaelt keine Symbolglyphen wie U+2713,
+ * lv_font_conv bricht dafuer ab (siehe tools/fonts/erzeuge_fonts.ps1 und
+ * app_main.c/UEBERSICHT_HAKEN_PRAEFIX). */
+#define TAGESANSICHT_HAKEN_PRAEFIX "[x] "
+
+static void eintrag_zeile_formatieren(const kalender_tag_eintrag_t *e, bool haken, char *ziel, size_t ziel_groesse)
 {
     /* Explizite Praezision (dynamisch aus der Zielgroesse) statt nacktem
      * "%s": ueber einen Zeiger zugegriffene Array-Felder (e->titel)
      * verlieren bei GCCs Format-Truncation-Pruefung ihre bekannte Groesse,
      * wodurch ein sehr grosses Worst-Case-Ergebnis angenommen und
      * -Werror=format-truncation ausgeloest wird. */
+    const char *praefix = haken ? TAGESANSICHT_HAKEN_PRAEFIX : "";
+    int praefix_laenge = (int)strlen(praefix);
     if (e->ganztags)
-        snprintf(ziel, ziel_groesse, "%.*s", (int)ziel_groesse - 1, e->titel);
+        snprintf(ziel, ziel_groesse, "%s%.*s", praefix, (int)ziel_groesse - 1 - praefix_laenge, e->titel);
     else
-        snprintf(ziel, ziel_groesse, "%02d:%02d  %.*s", e->stunde, e->minute, (int)ziel_groesse - 8, e->titel);
+        snprintf(ziel, ziel_groesse, "%s%02d:%02d  %.*s", praefix, e->stunde, e->minute,
+                 (int)ziel_groesse - 8 - praefix_laenge, e->titel);
 }
 
 /* ---- Tages-Fenster (read-only, 15s) --------------------------------- */
@@ -280,14 +295,16 @@ static void tagesfenster_spalte_zeichnen(lv_obj_t *parent, int32_t x, const char
         if (gezeigt >= TAGESFENSTER_ZEILEN_MAX - (gefiltert > TAGESFENSTER_ZEILEN_MAX ? 1 : 0))
             break;
 
+        bool abgehakt = tabletten_spalte && eintraege[i].bestaetigt;
         char inhalt[ZEILE_MAX];
-        eintrag_zeile_formatieren(&eintraege[i], inhalt, sizeof inhalt);
+        eintrag_zeile_formatieren(&eintraege[i], abgehakt, inhalt, sizeof inhalt);
 
         lv_obj_t *label = lv_label_create(parent);
         lv_label_set_text(label, inhalt);
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         bool vergangen = tag_vergangen && !tabletten_spalte;
-        lv_obj_set_style_text_color(label, lv_color_hex(vergangen ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
+        bool gedaempft = vergangen || abgehakt;
+        lv_obj_set_style_text_color(label, lv_color_hex(gedaempft ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
         if (vergangen)
             lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
         lv_obj_set_pos(label, x, y);
@@ -379,6 +396,32 @@ static void schieber_pressing_cb(lv_event_t *e)
     lv_obj_set_x(s->knopf, neu_x);
 }
 
+/* Blendet das "[x] "-Praefix ins zugehoerige Zeilenlabel ein/aus und faerbt
+ * es passend - direkt am Loslassen des Schiebereglers, ohne auf ein
+ * Neuoeffnen des Fensters warten zu muessen. Schneidet/ergaenzt das
+ * Praefix am VORHANDENEN Label-Text, statt den Eintrag erneut abzufragen -
+ * einfacher als eine zweite Kalender-Abfrage nur fuer die Beschriftung. */
+static void tabletten_zeile_aktualisieren(int index, bool bestaetigt)
+{
+    lv_obj_t *label = s_tabletten_zeile_labels[index];
+    if (!label)
+        return;
+
+    const char *praefix = TAGESANSICHT_HAKEN_PRAEFIX;
+    size_t praefix_laenge = strlen(praefix);
+    const char *aktuell = lv_label_get_text(label);
+    bool hat_praefix = strncmp(aktuell, praefix, praefix_laenge) == 0;
+
+    if (bestaetigt && !hat_praefix) {
+        char neu[ZEILE_MAX];
+        snprintf(neu, sizeof neu, "%s%s", praefix, aktuell);
+        lv_label_set_text(label, neu);
+    } else if (!bestaetigt && hat_praefix) {
+        lv_label_set_text(label, aktuell + praefix_laenge);
+    }
+    lv_obj_set_style_text_color(label, lv_color_hex(bestaetigt ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
+}
+
 /* Entscheidet beim Loslassen, ob genug gezogen wurde: nur jenseits der
  * Schwellen wird umgeschaltet, dazwischen schnappt der Knopf zurueck. */
 static void schieber_released_cb(lv_event_t *e)
@@ -392,6 +435,7 @@ static void schieber_released_cb(lv_event_t *e)
         neu_an = false;
     schieber_stellung_anwenden(s, neu_an);
     kalender_anzeige_tablette_bestaetigen(s->index, neu_an);
+    tabletten_zeile_aktualisieren(s->index, neu_an);
 
     lvgl_port_lock(0);
     if (s_heute_fenster_timer)
@@ -487,13 +531,14 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
         tablette_vorhanden = true;
 
         char inhalt[ZEILE_MAX];
-        eintrag_zeile_formatieren(&eintraege[i], inhalt, sizeof inhalt);
+        eintrag_zeile_formatieren(&eintraege[i], eintraege[i].bestaetigt, inhalt, sizeof inhalt);
 
         lv_obj_t *label = lv_label_create(s_heute_fenster);
         lv_label_set_text(label, inhalt);
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(eintraege[i].bestaetigt ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
         lv_obj_set_pos(label, 20, y + 12);
+        s_tabletten_zeile_labels[i] = label;
 
         schieber_erzeugen(s_heute_fenster, y, i, eintraege[i].bestaetigt);
 
@@ -522,7 +567,7 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
             termin_ueberschrift_da = true;
         }
         char inhalt[ZEILE_MAX];
-        eintrag_zeile_formatieren(&eintraege[i], inhalt, sizeof inhalt);
+        eintrag_zeile_formatieren(&eintraege[i], false, inhalt, sizeof inhalt);
         bool vergangen = !eintraege[i].ganztags &&
                           (eintraege[i].stunde * 60 + eintraege[i].minute) < jetzt_minuten;
         lv_obj_t *label = lv_label_create(s_heute_fenster);

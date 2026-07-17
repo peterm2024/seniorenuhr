@@ -24,6 +24,10 @@ if (-not (Test-Path $ttf)) {
 #   0xC4/0xD6/0xDC = AE OE UE   0xE4/0xF6/0xFC = ae oe ue   0xDF = sz
 #   0xB0 = Grad   0x2013 = Gedankenstrich   0x20AC = Euro
 #   0x201E/0x201C/0x201D = Anfuehrungszeichen   0x2019 = Apostroph
+# Kein Haken-Unicode-Zeichen (0x2713 o.ae.) - Montserrat-Bold enthaelt keine
+# solchen Symbolglyphen (lv_font_conv bricht mit "doesn't have any characters
+# included in range" ab). Abgehakte Tabletten werden stattdessen mit einem
+# ASCII-Praefix "[x] " markiert (siehe app_main.c/tagesansicht.c).
 $voll = "0x20-0x7E,0xC4,0xD6,0xDC,0xDF,0xE4,0xF6,0xFC,0xB0,0x2013,0x2019,0x201C,0x201D,0x201E,0x20AC"
 # Fuer die riesige Uhrzeit reichen Ziffern, Doppelpunkt, Punkt, Leerzeichen:
 $ziffern = "0x20,0x2E,0x30-0x3A"

@@ -320,3 +320,11 @@ bool netz_ist_verbunden(void)
 {
     return s_verbunden;
 }
+
+int netz_rssi_dbm(void)
+{
+    wifi_ap_record_t info;
+    if (esp_wifi_sta_get_ap_info(&info) != ESP_OK)
+        return 0;
+    return info.rssi;
+}

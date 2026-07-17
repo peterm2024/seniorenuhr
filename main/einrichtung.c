@@ -402,6 +402,25 @@ void einrichtung_einstellungen_zeigen(void)
     einstellungen_schalter_zeile(s_einstellungen_screen, schalter_y, "Signalton bei Erinnerungen",
                                   einstellungen_buzzer_aktiv(), einstellungen_buzzer_cb);
 
+    /* WLAN-Signalstaerke als reine Info-Zeile (kein Schalter/Button) - fuer
+     * eine Vor-Ort-Diagnose, ob eine schwache Verbindung an der aktuellen
+     * Position die Ursache fuer Verbindungsabbrueche ist, ohne dass dafuer
+     * ein serieller Monitor noetig waere. Nur eine Momentaufnahme beim
+     * Oeffnen dieses Bildschirms, kein Live-Update. */
+    int rssi = netz_rssi_dbm();
+    char signal_text[64];
+    if (rssi == 0) {
+        snprintf(signal_text, sizeof signal_text, "WLAN-Signal: nicht verbunden");
+    } else {
+        const char *guete = rssi >= -67 ? "gut" : (rssi >= -80 ? "schwach" : "sehr schwach");
+        snprintf(signal_text, sizeof signal_text, "WLAN-Signal: %d dBm (%s)", rssi, guete);
+    }
+    lv_obj_t *signal_label = lv_label_create(s_einstellungen_screen);
+    lv_label_set_text(signal_label, signal_text);
+    lv_obj_set_style_text_font(signal_label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(signal_label, lv_color_white(), 0);
+    lv_obj_align(signal_label, LV_ALIGN_TOP_LEFT, 30, schalter_y + 48);
+
     lv_screen_load(s_einstellungen_screen);
     lvgl_port_unlock();
 }

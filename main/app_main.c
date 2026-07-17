@@ -87,9 +87,34 @@ static lv_obj_t *s_wochentag_label;
 static lv_obj_t *s_uhr_label;
 static lv_obj_t *s_status_label;
 static lv_obj_t *s_tabletten_ueberschrift;
-static lv_obj_t *s_tabletten_label;
 static lv_obj_t *s_termine_ueberschrift;
-static lv_obj_t *s_termine_label;
+
+/* Tabletten/Termine-Uebersicht: pro Eintrag ein eigenes Label statt eines
+ * einzigen mehrzeiligen Textblocks - noetig, damit vergangene Termine
+ * durchgestrichen werden koennen (LVGLs Recolor-Markup faerbt nur, eine
+ * Text-Dekoration wie Durchstreichen laesst sich ausschliesslich pro
+ * Objekt setzen, nicht pro Zeile innerhalb eines Labels). Alle Zeilen
+ * haengen als Kinder an einem gemeinsamen, unsichtbaren Container - der
+ * uebernimmt Ein-/Ausblenden fuer den Abend-/Nacht-Modus (siehe
+ * modus_anwenden), ohne dass dafuer jede einzelne Zeile einzeln behandelt
+ * werden muesste. */
+#define UEBERSICHT_ZEILEN_MAX KALENDER_EINTRAEGE_MAX
+#define UEBERSICHT_ZEILE_ABSTAND 34
+#define UEBERSICHT_SPALTE_BREITE 300
+/* Abgehakte Tabletten bekommen dieses ASCII-Praefix statt eines Unicode-
+ * Hakens - Montserrat-Bold (unsere generierte Schriftart) enthaelt keine
+ * Symbolglyphen wie U+2713, lv_font_conv bricht dafuer mit "doesn't have
+ * any characters included in range" ab (siehe tools/fonts/erzeuge_fonts.ps1). */
+#define UEBERSICHT_HAKEN_PRAEFIX "[x] "
+
+typedef struct {
+    lv_obj_t *container;
+    lv_obj_t *zeilen[UEBERSICHT_ZEILEN_MAX];
+    int anzahl;
+} uebersicht_spalte_t;
+
+static uebersicht_spalte_t s_tabletten_spalte;
+static uebersicht_spalte_t s_termine_spalte;
 static lv_obj_t *s_dimm_overlay; /* nur fuer den Abend-Modus verwendet */
 
 /* Bei Beruehrung waehrend Abend/Nacht wechselt die Anzeige fuer diese
@@ -188,28 +213,24 @@ static lv_obj_t *ueberschrift_erzeugen(lv_obj_t *scr, const char *text, int32_t 
     return label;
 }
 
-static lv_obj_t *listen_label_erzeugen(lv_obj_t *scr, int32_t x, int32_t y, int32_t breite)
+/* Unsichtbarer Container fuer die Zeilen-Labels einer Spalte - siehe
+ * uebersicht_spalte_t weiter oben. */
+static lv_obj_t *uebersicht_container_erzeugen(lv_obj_t *scr, int32_t x, int32_t y, int32_t breite)
 {
-    lv_obj_t *label = lv_label_create(scr);
-    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(FARBE_TEXT_HELL), 0);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_pos(label, x, y);
-    lv_obj_set_width(label, breite);
-    lv_label_set_text(label, "...");
-    /* Recolor erlaubt "#RRGGBB Text#"-Faerbung einzelner Zeilen innerhalb
-     * desselben mehrzeiligen Labels - genutzt fuer vergangene Termine und
-     * abgehakte Tabletten (siehe liste_text_aufbauen), ohne dafuer auf
-     * einzelne Label-Objekte pro Eintrag umbauen zu muessen. */
-    lv_label_set_recolor(label, true);
-    return label;
+    lv_obj_t *cont = lv_obj_create(scr);
+    lv_obj_remove_style_all(cont);
+    lv_obj_remove_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(cont, x, y);
+    lv_obj_set_size(cont, breite, LV_SIZE_CONTENT);
+    return cont;
 }
 
-/* Baut den mehrzeiligen Uebersichtstext fuer eine der beiden Spalten
- * (Tabletten/Termine) aus den strukturierten Tageseintraegen. Vergangene
- * Termine sowie bereits abgehakte Tabletten werden gedaempft dargestellt -
- * per Recolor-Markup innerhalb des einen Labels (siehe listen_label_erzeugen),
- * daher hier keine LVGL-Objekte, nur reiner Text. */
+/* Baut eine Fingerabdruck-Zeichenkette fuer eine der beiden Spalten
+ * (Tabletten/Termine) aus den strukturierten Tageseintraegen - dient NUR
+ * dem billigen Aenderungs-Check in uhr_tick() (strcmp gegen den vorherigen
+ * Aufruf), nicht der direkten Anzeige. Die Faerbung wird als Farbcode mit
+ * eincodiert, damit sich auch ein reiner Bestaetigt-/Vergangen-Wechsel
+ * (ohne Textaenderung) zuverlaessig im Fingerabdruck niederschlaegt. */
 static void liste_text_aufbauen(const kalender_tag_eintrag_t *eintraege, int anzahl, bool nur_tabletten,
                                 bool zeit_bekannt, int jetzt_minuten, char *ziel, size_t ziel_groesse)
 {
@@ -249,6 +270,86 @@ static void liste_text_aufbauen(const kalender_tag_eintrag_t *eintraege, int anz
     }
     if (gefunden == 0)
         snprintf(ziel, ziel_groesse, "-");
+}
+
+static void uebersicht_spalte_leeren(uebersicht_spalte_t *spalte)
+{
+    for (int i = 0; i < spalte->anzahl; i++)
+        lv_obj_delete(spalte->zeilen[i]);
+    spalte->anzahl = 0;
+}
+
+/* Zeigt einen einzelnen Platzhaltertext an (z. B. "..." bevor Kalenderdaten
+ * bekannt sind) - ersetzt alle bisherigen Zeilen. */
+static void uebersicht_spalte_platzhalter_setzen(uebersicht_spalte_t *spalte, const char *text)
+{
+    uebersicht_spalte_leeren(spalte);
+    lv_obj_t *label = lv_label_create(spalte->container);
+    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(FARBE_TEXT_HELL), 0);
+    lv_obj_set_pos(label, 0, 0);
+    lv_label_set_text(label, text);
+    uebersicht_tippbar_machen(label);
+    spalte->zeilen[spalte->anzahl++] = label;
+}
+
+/* Loescht alle aktuellen Zeilen-Labels einer Spalte und baut sie aus den
+ * strukturierten Tageseintraegen neu auf - wird nur aufgerufen, wenn sich
+ * der Fingerabdruck (liste_text_aufbauen) tatsaechlich geaendert hat.
+ * Abgehakte Tabletten bekommen das "[x] "-Praefix (siehe
+ * UEBERSICHT_HAKEN_PRAEFIX) plus gedaempfte Farbe; vergangene Termine
+ * werden zusaetzlich durchgestrichen (Peters ausdruecklicher Wunsch nach
+ * dem Demo-Test: Tabletten nur abgehakt, Termine durchgestrichen). */
+static void uebersicht_spalte_neu_aufbauen(uebersicht_spalte_t *spalte, int32_t breite,
+                                            const kalender_tag_eintrag_t *eintraege, int anzahl,
+                                            bool nur_tabletten, bool zeit_bekannt, int jetzt_minuten)
+{
+    uebersicht_spalte_leeren(spalte);
+
+    int32_t y = 0;
+    int gefunden = 0;
+    for (int i = 0; i < anzahl && spalte->anzahl < UEBERSICHT_ZEILEN_MAX; i++) {
+        if (eintraege[i].ist_tablette != nur_tabletten)
+            continue;
+        gefunden++;
+
+        bool abgehakt = nur_tabletten && eintraege[i].bestaetigt;
+        bool vergangen = !nur_tabletten && zeit_bekannt && !eintraege[i].ganztags &&
+                          (eintraege[i].stunde * 60 + eintraege[i].minute) < jetzt_minuten;
+        bool gedaempft = abgehakt || vergangen;
+
+        char inhalt[88];
+        const char *praefix = abgehakt ? UEBERSICHT_HAKEN_PRAEFIX : "";
+        if (eintraege[i].ganztags)
+            snprintf(inhalt, sizeof inhalt, "%s%s", praefix, eintraege[i].titel);
+        else
+            snprintf(inhalt, sizeof inhalt, "%s%02d:%02d  %s", praefix,
+                     eintraege[i].stunde, eintraege[i].minute, eintraege[i].titel);
+
+        lv_obj_t *label = lv_label_create(spalte->container);
+        lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(gedaempft ? FARBE_VERGANGEN : FARBE_TEXT_HELL), 0);
+        if (vergangen)
+            lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(label, breite);
+        lv_obj_set_pos(label, 0, y);
+        lv_label_set_text(label, inhalt);
+        uebersicht_tippbar_machen(label);
+
+        spalte->zeilen[spalte->anzahl++] = label;
+        y += UEBERSICHT_ZEILE_ABSTAND;
+    }
+
+    if (gefunden == 0 && spalte->anzahl < UEBERSICHT_ZEILEN_MAX) {
+        lv_obj_t *label = lv_label_create(spalte->container);
+        lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(FARBE_TEXT_HELL), 0);
+        lv_obj_set_pos(label, 0, 0);
+        lv_label_set_text(label, "-");
+        uebersicht_tippbar_machen(label);
+        spalte->zeilen[spalte->anzahl++] = label;
+    }
 }
 
 /* Kleines Status-Symbol rechts oben: Kreisring mit einem Mini-Glyph
@@ -436,14 +537,12 @@ static void ui_aufbauen(void)
      * damit links die Wochentag-Buttons und rechts der Heute-Button Platz
      * haben (siehe tagesansicht_erstellen unten). */
     s_tabletten_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TABLETTEN HEUTE", 80, 335, 300);
-    s_tabletten_label = listen_label_erzeugen(s_bildschirm, 80, 385, 300);
+    s_tabletten_spalte.container = uebersicht_container_erzeugen(s_bildschirm, 80, 385, UEBERSICHT_SPALTE_BREITE);
     uebersicht_tippbar_machen(s_tabletten_ueberschrift);
-    uebersicht_tippbar_machen(s_tabletten_label);
 
     s_termine_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TERMINE HEUTE", 420, 335, 300);
-    s_termine_label = listen_label_erzeugen(s_bildschirm, 420, 385, 300);
+    s_termine_spalte.container = uebersicht_container_erzeugen(s_bildschirm, 420, 385, UEBERSICHT_SPALTE_BREITE);
     uebersicht_tippbar_machen(s_termine_ueberschrift);
-    uebersicht_tippbar_machen(s_termine_label);
 
     /* Wochentag-Navigation: 7 Buttons links (gestern..+5 Tage) + Heute-
      * Button rechts, oeffnen Tages-/Heute-Fenster mit Terminen/Tabletten. */
@@ -510,17 +609,17 @@ static void modus_anwenden(anzeige_modus_t modus)
 
     if (details_sichtbar) {
         lv_obj_remove_flag(s_tabletten_ueberschrift, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_tabletten_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_tabletten_spalte.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_termine_ueberschrift, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_termine_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_termine_spalte.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_status_wlan.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_status_zeit.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_status_kalender.container, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_tabletten_ueberschrift, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_tabletten_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_tabletten_spalte.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_termine_ueberschrift, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_termine_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_termine_spalte.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_status_wlan.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_status_zeit.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_status_kalender.container, LV_OBJ_FLAG_HIDDEN);
@@ -650,12 +749,15 @@ static void uhr_tick(lv_timer_t *timer)
     char neuer_tabletten_text[KALENDER_TEXT_MAX];
     char neuer_termine_text[KALENDER_TEXT_MAX];
 
-    if (hat_daten) {
-        kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
-        int anzahl = kalender_anzeige_heutige_eintraege(eintraege, KALENDER_EINTRAEGE_MAX);
+    kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
+    int anzahl = 0;
+    bool zeit_bekannt = false;
+    int jetzt_minuten = 0;
 
-        bool zeit_bekannt = zeit_ist_synchron();
-        int jetzt_minuten = 0;
+    if (hat_daten) {
+        anzahl = kalender_anzeige_heutige_eintraege(eintraege, KALENDER_EINTRAEGE_MAX);
+
+        zeit_bekannt = zeit_ist_synchron();
         if (zeit_bekannt) {
             time_t t = time(NULL);
             struct tm lokal_jetzt;
@@ -678,10 +780,20 @@ static void uhr_tick(lv_timer_t *timer)
         return;
 
     lvgl_port_lock(0);
-    if (tabletten_geaendert)
-        lv_label_set_text(s_tabletten_label, neuer_tabletten_text);
-    if (termine_geaendert)
-        lv_label_set_text(s_termine_label, neuer_termine_text);
+    if (tabletten_geaendert) {
+        if (hat_daten)
+            uebersicht_spalte_neu_aufbauen(&s_tabletten_spalte, UEBERSICHT_SPALTE_BREITE,
+                                            eintraege, anzahl, true, zeit_bekannt, jetzt_minuten);
+        else
+            uebersicht_spalte_platzhalter_setzen(&s_tabletten_spalte, "...");
+    }
+    if (termine_geaendert) {
+        if (hat_daten)
+            uebersicht_spalte_neu_aufbauen(&s_termine_spalte, UEBERSICHT_SPALTE_BREITE,
+                                            eintraege, anzahl, false, zeit_bekannt, jetzt_minuten);
+        else
+            uebersicht_spalte_platzhalter_setzen(&s_termine_spalte, "...");
+    }
     lvgl_port_unlock();
 
     snprintf(tabletten_text, sizeof tabletten_text, "%s", neuer_tabletten_text);

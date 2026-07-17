@@ -25,6 +25,11 @@ void netz_start(void);
 /* true, sobald das Board aktuell eine IP-Adresse hat. */
 bool netz_ist_verbunden(void);
 
+/* Aktuelle WLAN-Signalstaerke in dBm (negativ, naeher an 0 = besser), oder
+ * 0 wenn gerade nicht verbunden. Fuer eine Vor-Ort-Diagnose schwacher
+ * Empfangsqualitaet (siehe Einstellungen-Menue in einrichtung.c). */
+int netz_rssi_dbm(void);
+
 /* Pausiert (true) bzw. entpausiert (false) den WLAN-Watchdog (30s ohne
  * Verbindung -> Neustart). Waehrend der Benutzer auf einem
  * Einrichtungsbildschirm Zugangsdaten eintippt, soll ein Verbindungsabbruch

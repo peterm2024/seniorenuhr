@@ -238,9 +238,22 @@ Umweg über Testdaten war nicht mehr nötig.
   überarbeitet (nur noch Buttons/Schalter mit LV_SIZE_CONTENT statt geratener Festbreite, die
   Buttontexte abgeschnitten hatte) und die Kalender-Adresse hat jetzt einen eigenen,
   mehrzeiligen Bildschirm statt eines zu schmalen einzeiligen Textfelds im Menü selbst.
+- ✅ Nachtrag 2 (17.07.2026): abgehakte Tabletten bekommen zusätzlich ein "[x] "-Präfix
+  (Hauptbildschirm-Übersicht, Tages-Fenster, Heute-Fenster — dort live beim Loslassen des
+  Schiebereglers aktualisiert), vergangene Termine sind jetzt auch auf dem Hauptbildschirm
+  durchgestrichen (vorher nur gedämpfte Farbe). Dafür wurde die Hauptbildschirm-Übersicht von
+  einem einzigen mehrzeiligen Recolor-Label auf ein Label pro Eintrag umgebaut, da
+  Durchstreichen nur pro Objekt setzbar ist. Kein Unicode-Häkchen (Font enthält keine
+  Symbolglyphen, siehe tools/fonts/erzeuge_fonts.ps1) — bewusst ASCII "[x] " statt dessen.
+  WLAN-Signalstärke ist jetzt im Einstellungen-Menü ablesbar (`netz_rssi_dbm()`) — Anlass war
+  Peters Vermutung, ein schwaches Signal an seinem Platz könnte Ursache für einen unerklärten
+  Neustart und eine kurzzeitig fehlende WLAN-Verbindung sein; per Boot-Log bestätigt: RSSI lag
+  bei -77 dBm ("schwach"), ein WLAN-Verbindungsversuch schlug einmal fehl, bevor der zweite
+  gelang. Ausserdem: Reset-Grund wird jetzt sofort beim Boot geloggt (siehe Nachtrag 1).
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
-  bestehender WLAN-Verbindung (der aktuelle Watchdog deckt nur WLAN-Verbindungsabbrüche ab)
+  bestehender WLAN-Verbindung (der aktuelle Watchdog deckt nur WLAN-Verbindungsabbrüche ab);
+  evtl. mit demselben schwachen WLAN-Signal am Testplatz zusammenhaengend (siehe Nachtrag 2)
 - **Ziel:** Eine Woche Dauerlauf bei den Eltern ohne Eingriff
 
 ### Phase 6 — Einzug bei den Eltern *(1 Tag + Beobachtung)*
