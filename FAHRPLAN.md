@@ -261,6 +261,16 @@ Umweg über Testdaten war nicht mehr nötig.
   grosse Uhrzeit blinkt dunkelorange, solange sie unbestaetigt ist. Am Geraet verifiziert
   (testweise falsche WLAN-SSID, kompletten 60s-Timeout abgewartet): kein Neustart, Hauptanzeige
   erscheint trotzdem. Details siehe FALLSTRICKE_UND_WORKAROUNDS.md #14.
+- ✅ Nachtrag 4 (17.07.2026): der bei Boot-Timeout uebernommene "letzte bekannte Zeitstand"
+  beruecksichtigt jetzt zusaetzlich die seit dem Einschalten bereits verstrichene Zeit
+  (`esp_timer_get_time()`), statt einfach den alten Zeitstempel unveraendert zu uebernehmen.
+  Ausserdem: der Tabletten-Bestaetigungsstatus (abgehakt/nicht abgehakt) wird jetzt auf der
+  Kalender-Cache-Partition persistiert (`kalender_speicher_bestaetigungen_schreiben/_lesen`) und
+  ueberlebt damit einen unerwarteten Neustart mitten am Tag - ein Ruecksync ins ICS/Google-
+  Calendar wurde verworfen, da die genutzte private ICS-Adresse rein lesend ist und ein
+  Zurueckschreiben die volle Calendar-API samt OAuth2 braeuchte. Details siehe
+  FALLSTRICKE_UND_WORKAROUNDS.md #15. Build/Boot-Log verifiziert; der eigentliche
+  Abhaken-dann-Neustart-Test braucht echte Touch-Bedienung und steht bei Peter noch aus.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz

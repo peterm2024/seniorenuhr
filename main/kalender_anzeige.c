@@ -95,7 +95,13 @@ static void fuer_heute_neu_parsen(void)
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     /* Bestaetigt-Status per Titel-Abgleich aus dem bisherigen Stand
      * uebernehmen - aber nur, wenn es noch derselbe Kalendertag ist. Bei
-     * einem Tageswechsel (neuer_tag) starten alle Tabletten unbestaetigt. */
+     * einem Tageswechsel (neuer_tag) starten alle Tabletten unbestaetigt -
+     * AUSSER es ist der allererste Parse-Durchlauf seit dem Start
+     * (s_letzter_tag_schluessel noch -1): dann koennte ein unerwarteter
+     * Neustart mitten am Tag stattgefunden haben, und bereits genommene
+     * Tabletten sollen nicht wieder als "faellig" erscheinen - dafuer wird
+     * der zuletzt auf Flash gesicherte Stand geladen (siehe
+     * kalender_anzeige_tablette_bestaetigen). */
     if (!neuer_tag) {
         for (int i = 0; i < neue_anzahl; i++) {
             if (!neue_eintraege[i].ist_tablette)
@@ -108,6 +114,23 @@ static void fuer_heute_neu_parsen(void)
                 }
             }
         }
+    } else if (s_letzter_tag_schluessel == -1) {
+        static char s_titel_gespeichert[KALENDER_EINTRAEGE_MAX][ICS_TITEL_MAX];
+        int n_gespeichert = kalender_speicher_bestaetigungen_lesen(schluessel, s_titel_gespeichert,
+                                                                    KALENDER_EINTRAEGE_MAX);
+        for (int i = 0; i < neue_anzahl; i++) {
+            if (!neue_eintraege[i].ist_tablette)
+                continue;
+            for (int b = 0; b < n_gespeichert; b++) {
+                if (strcmp(s_titel_gespeichert[b], neue_eintraege[i].titel) == 0) {
+                    neue_eintraege[i].bestaetigt = true;
+                    break;
+                }
+            }
+        }
+        if (n_gespeichert > 0)
+            ESP_LOGI(TAG, "%d bereits bestaetigte Tablette(n) von Flash uebernommen (nach Neustart)",
+                     n_gespeichert);
     }
     memcpy(s_heute_eintraege, neue_eintraege, sizeof neue_eintraege[0] * (size_t)neue_anzahl);
     s_heute_anzahl = neue_anzahl;
@@ -215,8 +238,24 @@ int kalender_anzeige_heutige_eintraege(kalender_tag_eintrag_t *ziel, int max)
 void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt)
 {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    if (index >= 0 && index < s_heute_anzahl)
+    if (index >= 0 && index < s_heute_anzahl) {
         s_heute_eintraege[index].bestaetigt = bestaetigt;
+
+        /* Sofort auf Flash sichern, damit ein unerwarteter Neustart
+         * (Stromausfall/Panic) eine bereits genommene Tablette nicht
+         * wieder als "faellig" erscheinen laesst (siehe FALLSTRICKE #14 -
+         * der Boot-Neustart-Reflex wurde deswegen schon abgeschaltet,
+         * aber ein Reset kann trotzdem vorkommen). */
+        static char s_titel_bestaetigt[KALENDER_EINTRAEGE_MAX][ICS_TITEL_MAX];
+        int anzahl_bestaetigt = 0;
+        for (int i = 0; i < s_heute_anzahl; i++) {
+            if (s_heute_eintraege[i].ist_tablette && s_heute_eintraege[i].bestaetigt)
+                snprintf(s_titel_bestaetigt[anzahl_bestaetigt++], ICS_TITEL_MAX, "%.*s",
+                         ICS_TITEL_MAX - 1, s_heute_eintraege[i].titel);
+        }
+        kalender_speicher_bestaetigungen_schreiben(s_letzter_tag_schluessel, s_titel_bestaetigt,
+                                                    anzahl_bestaetigt);
+    }
     xSemaphoreGive(s_mutex);
 }
 

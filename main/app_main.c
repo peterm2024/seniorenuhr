@@ -849,7 +849,15 @@ static void uhr_tick(lv_timer_t *timer)
  * zeit_uebernehmen/einstellungen_letzte_anzeige) und als unbestaetigt
  * markiert (durchgestrichenes Status-Symbol, blinkende Uhrzeit - siehe
  * uhr_tick). Eine zeitweise falsche Uhrzeit ist das eindeutig kleinere
- * Uebel gegenueber einer dauerhaft schwarzen Anzeige. */
+ * Uebel gegenueber einer dauerhaft schwarzen Anzeige.
+ *
+ * Der zuletzt angezeigte Stand liegt zu diesem Zeitpunkt schon eine Weile
+ * zurueck (Boot bis hierher + ggf. bereits verstrichene Timeouts fruehe-
+ * rer Phasen). esp_timer_get_time() laeuft seit dem Einschalten ununter-
+ * brochen mit, unabhaengig davon, wie viele Phasen bereits in einen
+ * Timeout gelaufen sind - die seither vergangene Zeit wird daher
+ * addiert, damit die uebernommene Uhrzeit so nah wie moeglich an der
+ * Wahrheit liegt (statt um die gesamte Boot-/Wartezeit nachzugehen). */
 static void phase_timeout_automatisch_fortsetzen(startbildschirm_schritt_t schritt, const char *phase)
 {
     ESP_LOGW(TAG, "Start: Phase '%s' nicht in %ds abgeschlossen - mache automatisch weiter "
@@ -857,8 +865,10 @@ static void phase_timeout_automatisch_fortsetzen(startbildschirm_schritt_t schri
              phase, STARTBILDSCHIRM_PHASE_TIMEOUT_S);
     if (!zeit_ist_synchron()) {
         time_t letzte_anzeige = einstellungen_letzte_anzeige();
-        if (letzte_anzeige != 0)
-            zeit_uebernehmen(letzte_anzeige);
+        if (letzte_anzeige != 0) {
+            time_t seit_boot_s = (time_t)(esp_timer_get_time() / 1000000);
+            zeit_uebernehmen(letzte_anzeige + seit_boot_s);
+        }
     }
     startbildschirm_schritt_fertig(schritt);
 }

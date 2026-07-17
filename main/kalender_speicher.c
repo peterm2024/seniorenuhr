@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -11,6 +12,7 @@ static const char *TAG = "kalender_speicher";
 
 #define BASISPFAD "/speicher"
 #define DATEIPFAD BASISPFAD "/kalender.ics"
+#define BESTAETIGUNGEN_PFAD BASISPFAD "/tabletten.txt"
 
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
@@ -69,4 +71,52 @@ esp_err_t kalender_speicher_lesen(char **puffer, size_t *laenge)
     *puffer = daten;
     *laenge = gelesen;
     return ESP_OK;
+}
+
+esp_err_t kalender_speicher_bestaetigungen_schreiben(int tag_schluessel,
+                                                      const char titel[][ICS_TITEL_MAX],
+                                                      int anzahl)
+{
+    FILE *f = fopen(BESTAETIGUNGEN_PFAD, "wb");
+    if (!f) {
+        ESP_LOGW(TAG, "Konnte Bestaetigungs-Datei nicht zum Schreiben oeffnen");
+        return ESP_FAIL;
+    }
+    fprintf(f, "%d\n", tag_schluessel);
+    for (int i = 0; i < anzahl; i++)
+        fprintf(f, "%s\n", titel[i]);
+    fclose(f);
+    return ESP_OK;
+}
+
+int kalender_speicher_bestaetigungen_lesen(int erwarteter_tag_schluessel,
+                                            char titel_ziel[][ICS_TITEL_MAX],
+                                            int max)
+{
+    FILE *f = fopen(BESTAETIGUNGEN_PFAD, "rb");
+    if (!f)
+        return 0; /* noch nichts gespeichert - kein Fehler */
+
+    char zeile[ICS_TITEL_MAX + 8];
+    if (!fgets(zeile, sizeof zeile, f)) {
+        fclose(f);
+        return 0;
+    }
+    if (atoi(zeile) != erwarteter_tag_schluessel) {
+        fclose(f); /* Bestaetigungen vom Vortag - nicht auf heute anwenden */
+        return 0;
+    }
+
+    int anzahl = 0;
+    while (anzahl < max && fgets(zeile, sizeof zeile, f)) {
+        size_t laenge = strlen(zeile);
+        if (laenge > 0 && zeile[laenge - 1] == '\n')
+            zeile[laenge - 1] = '\0';
+        if (zeile[0] == '\0')
+            continue;
+        snprintf(titel_ziel[anzahl], ICS_TITEL_MAX, "%s", zeile);
+        anzahl++;
+    }
+    fclose(f);
+    return anzahl;
 }
