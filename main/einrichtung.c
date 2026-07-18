@@ -20,12 +20,166 @@ static lv_obj_t *s_wlan_screen;
 static lv_obj_t *s_ssid_ta;
 static lv_obj_t *s_pass_ta;
 static lv_obj_t *s_wlan_keyboard;
+static lv_obj_t *s_wlan_dropdown;
+static lv_timer_t *s_wlan_scan_timer;
+static netz_scan_eintrag_t s_wlan_scan_ergebnisse[NETZ_SCAN_MAX];
+static int s_wlan_scan_anzahl;
 static volatile einrichtung_status_t s_wlan_status = EINRICHTUNG_OFFEN;
 
 static void wlan_textarea_fokus_cb(lv_event_t *e)
 {
     lv_obj_t *ta = lv_event_get_target(e);
     lv_keyboard_set_textarea(s_wlan_keyboard, ta);
+}
+
+/* true, wenn unsere schlanke Schriftart (siehe tools/fonts/erzeuge_fonts.ps1
+ * - ASCII + deutsche Umlaute/Sonderzeichen, kein voller Unicode-Umfang)
+ * diesen Codepoint enthaelt. */
+static bool codepoint_unterstuetzt(uint32_t cp)
+{
+    if (cp >= 0x20 && cp <= 0x7E)
+        return true;
+    switch (cp) {
+    case 0xC4: case 0xD6: case 0xDC: case 0xDF:
+    case 0xE4: case 0xF6: case 0xFC: case 0xB0:
+    case 0x2013: case 0x2019: case 0x201C: case 0x201D:
+    case 0x201E: case 0x20AC:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* Liest genau ein UTF-8-Zeichen ab roh[0] (hoechstens `rest` Bytes lang),
+ * liefert den Codepoint und die dabei verbrauchte Byte-Anzahl (mindestens 1,
+ * auch bei einer ungueltigen/abgeschnittenen Sequenz - dann wird einfach ein
+ * Byte uebersprungen statt die restliche Zeichenkette zu verschieben). */
+static uint32_t utf8_decode(const unsigned char *roh, size_t rest, size_t *verbraucht)
+{
+    unsigned char b0 = roh[0];
+    if (b0 < 0x80) {
+        *verbraucht = 1;
+        return b0;
+    }
+    if ((b0 & 0xE0) == 0xC0 && rest >= 2 && (roh[1] & 0xC0) == 0x80) {
+        *verbraucht = 2;
+        return ((uint32_t)(b0 & 0x1F) << 6) | (roh[1] & 0x3F);
+    }
+    if ((b0 & 0xF0) == 0xE0 && rest >= 3 && (roh[1] & 0xC0) == 0x80 && (roh[2] & 0xC0) == 0x80) {
+        *verbraucht = 3;
+        return ((uint32_t)(b0 & 0x0F) << 12) | ((uint32_t)(roh[1] & 0x3F) << 6) | (roh[2] & 0x3F);
+    }
+    if ((b0 & 0xF8) == 0xF0 && rest >= 4 && (roh[1] & 0xC0) == 0x80 &&
+        (roh[2] & 0xC0) == 0x80 && (roh[3] & 0xC0) == 0x80) {
+        *verbraucht = 4;
+        return ((uint32_t)(b0 & 0x07) << 18) | ((uint32_t)(roh[1] & 0x3F) << 12) |
+               ((uint32_t)(roh[2] & 0x3F) << 6) | (roh[3] & 0x3F);
+    }
+    *verbraucht = 1;
+    return 0xFFFD; /* ungueltige Sequenz - wird sowieso als "?" dargestellt */
+}
+
+/* Fuer die Anzeige in der Dropdown-Liste: Zeichen, die unsere Schriftart
+ * nicht enthaelt (z. B. Emoji oder andere Sprachen in einem Nachbar-WLAN-
+ * Namen), werden durch "?" ersetzt - sonst wuerden sie als kaputt wirkende
+ * Zeichenfolge dargestellt (siehe Rueckmeldung: "das mit den SSIDs klappt
+ * manchmal"). Der gespeicherte Original-SSID (s_wlan_scan_ergebnisse[].ssid)
+ * bleibt unveraendert - beim Verbinden zaehlen die echten Bytes, nicht die
+ * bereinigte Anzeige. Deutsche Umlaute bleiben dabei als echtes Zeichen
+ * erhalten (nicht nur ASCII durchgelassen), da unsere Schriftart sie
+ * unterstuetzt. */
+static void ssid_anzeige_bereinigen(const char *roh, char *ziel, size_t ziel_groesse)
+{
+    size_t laenge = strlen(roh);
+    size_t i = 0, o = 0;
+    while (i < laenge && o + 1 < ziel_groesse) {
+        size_t verbraucht;
+        uint32_t cp = utf8_decode((const unsigned char *)roh + i, laenge - i, &verbraucht);
+        if (codepoint_unterstuetzt(cp)) {
+            if (o + verbraucht + 1 > ziel_groesse)
+                break;
+            memcpy(ziel + o, roh + i, verbraucht);
+            o += verbraucht;
+        } else {
+            ziel[o++] = '?';
+        }
+        i += verbraucht;
+    }
+    ziel[o] = '\0';
+}
+
+/* Auswahl aus der Dropdown-Liste der gefundenen Netzwerke uebernimmt den
+ * SSID-Namen in die normale Textarea - die restliche Logik (Speichern,
+ * Passwort-Eingabe) bleibt dadurch unveraendert, versteckte/nicht gefundene
+ * Netze lassen sich weiterhin per Hand eintippen. Auswahl per Index statt
+ * per String-Vergleich, damit der Platzhaltertext ("Suche Netzwerke..."/
+ * "Keine Netzwerke gefunden") nie versehentlich als SSID uebernommen wird.
+ *
+ * WICHTIG: hier wird die BEREINIGTE Anzeige-Version in die Textarea
+ * geschrieben, nicht die rohen Original-Bytes. Ein Nachbar-Netz kann einen
+ * SSID mit ungueltigen/unvollstaendigen UTF-8-Sequenzen haben (WLAN-SSIDs
+ * sind laut Standard nur ein opaker Byte-String, keine garantiert gueltige
+ * Zeichenkodierung) - landet so etwas roh in einem gerenderten LVGL-Textfeld,
+ * kann LVGLs UTF-8-Dekodierung beim spaeteren Neuzeichnen/Loeschen daran
+ * haengen bleiben (live beobachtet: Board fror beim Schliessen des
+ * Bildschirms komplett ein, nachdem so ein Eintrag ausgewaehlt wurde). Wer
+ * wirklich exakt diesen Byte-fuer-Byte-Namen verbinden will, muss ihn von
+ * Hand eintippen - fuer alle normalen Faelle (eigene/bekannte Netze, immer
+ * reines ASCII) aendert die Bereinigung ohnehin nichts. */
+static void wlan_dropdown_geaendert_cb(lv_event_t *e)
+{
+    lv_obj_t *dd = lv_event_get_target(e);
+    uint16_t index = lv_dropdown_get_selected(dd);
+    if (index < (uint16_t)s_wlan_scan_anzahl) {
+        char bereinigt[sizeof s_wlan_scan_ergebnisse[0].ssid];
+        ssid_anzeige_bereinigen(s_wlan_scan_ergebnisse[index].ssid, bereinigt, sizeof bereinigt);
+        lv_textarea_set_text(s_ssid_ta, bereinigt);
+    }
+}
+
+/* Pollt den im Hintergrund laufenden WLAN-Scan (siehe netz_scan_starten) und
+ * traegt die gefundenen Netze ein, sobald sie bereit sind - loescht sich
+ * danach selbst. */
+static void wlan_scan_tick_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (!netz_scan_fertig())
+        return;
+
+    s_wlan_scan_anzahl = netz_scan_ergebnisse(s_wlan_scan_ergebnisse, NETZ_SCAN_MAX);
+
+    char optionen[NETZ_SCAN_MAX * (sizeof s_wlan_scan_ergebnisse[0].ssid + 1)];
+    if (s_wlan_scan_anzahl == 0) {
+        snprintf(optionen, sizeof optionen, "Keine Netzwerke gefunden");
+    } else {
+        size_t pos = 0;
+        for (int i = 0; i < s_wlan_scan_anzahl; i++) {
+            char bereinigt[sizeof s_wlan_scan_ergebnisse[0].ssid];
+            ssid_anzeige_bereinigen(s_wlan_scan_ergebnisse[i].ssid, bereinigt, sizeof bereinigt);
+            int n = snprintf(optionen + pos, sizeof optionen - pos, "%s%s",
+                              i > 0 ? "\n" : "", bereinigt);
+            if (n < 0 || (size_t)n >= sizeof optionen - pos)
+                break;
+            pos += (size_t)n;
+        }
+    }
+    /* FALLSTRICK: lv_dropdown_set_options() gibt den internen Options-Puffer
+     * frei und legt einen neuen an - das Label der GEOEFFNETEN Liste zeigt
+     * aber per lv_label_set_text_static() (lv_dropdown.c/lv_dropdown_open)
+     * direkt auf den ALTEN Puffer und wird von set_options nicht
+     * aktualisiert. Hat der Benutzer die Liste schon offen, waehrend der
+     * Scan fertig wird ("Suche Netzwerke..." angetippt), zeigte das Label
+     * danach auf freigegebenen Speicher: wirre Zeichen auf dem Bildschirm,
+     * Absturz/Haenger beim Schliessen. Deshalb: offene Liste vor dem
+     * Optionen-Tausch schliessen. (Bewusst KEIN automatisches
+     * Wieder-Oeffnen aus dem Timer heraus - so wenige Widget-Manipulationen
+     * wie moeglich im Timer-Kontext, siehe FALLSTRICKE #16; der Benutzer
+     * tippt die Liste einfach erneut an und sieht dann die Netzwerke.) */
+    if (lv_dropdown_is_open(s_wlan_dropdown))
+        lv_dropdown_close(s_wlan_dropdown);
+    lv_dropdown_set_options(s_wlan_dropdown, optionen);
+
+    lv_timer_pause(s_wlan_scan_timer); /* pausieren statt loeschen, siehe FALLSTRICKE #16 */
 }
 
 static void wlan_speichern_cb(lv_event_t *e)
@@ -59,12 +213,34 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_set_style_text_color(titel, lv_color_white(), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 15);
 
+    /* Dropdown mit den gefundenen Netzwerken - fuellt beim Auswaehlen nur die
+     * SSID-Textarea darunter, ersetzt sie aber nicht: versteckte oder gerade
+     * nicht sichtbare Netze lassen sich weiterhin per Hand eintippen. Der
+     * Scan laeuft im Hintergrund (netz_scan_starten/wlan_scan_tick_cb), die
+     * Liste zeigt bis dahin einen Platzhaltertext. */
+    s_wlan_scan_anzahl = 0;
+    netz_scan_starten();
+
+    s_wlan_dropdown = lv_dropdown_create(s_wlan_screen);
+    lv_dropdown_set_options(s_wlan_dropdown, "Suche Netzwerke...");
+    lv_obj_set_style_text_font(s_wlan_dropdown, &schrift_klein_28, 0);
+    lv_obj_set_size(s_wlan_dropdown, 600, 46);
+    lv_obj_align(s_wlan_dropdown, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_add_event_cb(s_wlan_dropdown, wlan_dropdown_geaendert_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* Timer nur einmal erzeugen, danach pausieren/fortsetzen - kein
+     * delete/create bei Bildschirm-Uebergaengen (siehe FALLSTRICKE #16). */
+    if (s_wlan_scan_timer == NULL)
+        s_wlan_scan_timer = lv_timer_create(wlan_scan_tick_cb, 300, NULL);
+    else
+        lv_timer_resume(s_wlan_scan_timer);
+
     s_ssid_ta = lv_textarea_create(s_wlan_screen);
     lv_textarea_set_one_line(s_ssid_ta, true);
     lv_textarea_set_placeholder_text(s_ssid_ta, "Netzwerkname (SSID)");
     lv_obj_set_style_text_font(s_ssid_ta, &schrift_klein_28, 0);
-    lv_obj_set_size(s_ssid_ta, 600, 50);
-    lv_obj_align(s_ssid_ta, LV_ALIGN_TOP_MID, 0, 65);
+    lv_obj_set_size(s_ssid_ta, 600, 44);
+    lv_obj_align(s_ssid_ta, LV_ALIGN_TOP_MID, 0, 100);
     lv_obj_add_event_cb(s_ssid_ta, wlan_textarea_fokus_cb, LV_EVENT_FOCUSED, NULL);
 
     s_pass_ta = lv_textarea_create(s_wlan_screen);
@@ -72,13 +248,13 @@ void einrichtung_wlan_zeigen(void)
     lv_textarea_set_password_mode(s_pass_ta, true);
     lv_textarea_set_placeholder_text(s_pass_ta, "Passwort");
     lv_obj_set_style_text_font(s_pass_ta, &schrift_klein_28, 0);
-    lv_obj_set_size(s_pass_ta, 600, 50);
-    lv_obj_align(s_pass_ta, LV_ALIGN_TOP_MID, 0, 122);
+    lv_obj_set_size(s_pass_ta, 600, 44);
+    lv_obj_align(s_pass_ta, LV_ALIGN_TOP_MID, 0, 148);
     lv_obj_add_event_cb(s_pass_ta, wlan_textarea_fokus_cb, LV_EVENT_FOCUSED, NULL);
 
     lv_obj_t *btn_speichern = lv_button_create(s_wlan_screen);
-    lv_obj_set_size(btn_speichern, 260, 55);
-    lv_obj_align(btn_speichern, LV_ALIGN_TOP_LEFT, 30, 180);
+    lv_obj_set_size(btn_speichern, 260, 50);
+    lv_obj_align(btn_speichern, LV_ALIGN_TOP_LEFT, 30, 198);
     lv_obj_add_event_cb(btn_speichern, wlan_speichern_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l1 = lv_label_create(btn_speichern);
     lv_label_set_text(l1, "Speichern");
@@ -86,19 +262,19 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_center(l1);
 
     lv_obj_t *btn_abbrechen = lv_button_create(s_wlan_screen);
-    lv_obj_set_size(btn_abbrechen, 200, 55);
-    lv_obj_align(btn_abbrechen, LV_ALIGN_TOP_RIGHT, -30, 180);
+    lv_obj_set_size(btn_abbrechen, 200, 50);
+    lv_obj_align(btn_abbrechen, LV_ALIGN_TOP_RIGHT, -30, 198);
     lv_obj_add_event_cb(btn_abbrechen, wlan_abbrechen_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l2 = lv_label_create(btn_abbrechen);
     lv_label_set_text(l2, "Abbrechen");
     lv_obj_set_style_text_font(l2, &schrift_klein_28, 0);
     lv_obj_center(l2);
 
-    /* Tastaturhoehe so gewaehlt, dass ihre Oberkante (480-235=245) unter den
-     * Buttons endet (180+55=235) - sonst ueberlappen sich Buttons und
+    /* Tastaturhoehe so gewaehlt, dass ihre Oberkante (480-228=252) unter den
+     * Buttons endet (198+50=248) - sonst ueberlappen sich Buttons und
      * Tastatur im unteren Bildschirmdrittel. */
     s_wlan_keyboard = lv_keyboard_create(s_wlan_screen);
-    lv_obj_set_size(s_wlan_keyboard, LV_PCT(100), 235);
+    lv_obj_set_size(s_wlan_keyboard, LV_PCT(100), 228);
     lv_obj_align(s_wlan_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_textarea(s_wlan_keyboard, s_ssid_ta);
 
@@ -114,6 +290,8 @@ einrichtung_status_t einrichtung_wlan_status(void)
 void einrichtung_wlan_aufraeumen(void)
 {
     lvgl_port_lock(0);
+    if (s_wlan_scan_timer)
+        lv_timer_pause(s_wlan_scan_timer); /* pausieren statt loeschen, siehe FALLSTRICKE #16 */
     if (s_wlan_screen) {
         lv_obj_delete(s_wlan_screen);
         s_wlan_screen = NULL;
@@ -288,6 +466,59 @@ void einrichtung_zeit_aufraeumen(void)
 static lv_obj_t *s_einstellungen_screen;
 static volatile einrichtung_status_t s_einstellungen_status = EINRICHTUNG_OFFEN;
 static volatile einstellungen_aktion_t s_einstellungen_aktion = EINSTELLUNGEN_AKTION_KEINE;
+static lv_obj_t *s_signal_label;
+static lv_obj_t *s_signal_bar;
+static lv_timer_t *s_signal_timer;
+
+/* Dbm-Spanne, auf die der Balken 0-100% abbildet - -90 dBm (praktisch
+ * unbrauchbar) bis -30 dBm (denkbar bestmoeglicher Empfang in Router-Naehe). */
+#define SIGNAL_DBM_MIN -90
+#define SIGNAL_DBM_MAX -30
+
+/* Bewusst OHNE Balken-Animation (LV_ANIM_OFF) und nur bei tatsaechlicher
+ * Aenderung neu gesetzt: eine alle paar hundert Millisekunden neu
+ * gestartete lv_anim invalidiert die Anzeige permanent - dauert das
+ * Neuzeichnen dann laenger als die kuerzeste Timer-Periode, kommt
+ * lv_timer_handler() aus seiner Runden-Schleife nie mehr heraus und die
+ * LVGL-Task frisst die CPU komplett auf (Task-Watchdog-Haenger, live per
+ * Core-Dump nachgewiesen: handler_start lag 6s vor dem Absturz). Siehe
+ * FALLSTRICKE_UND_WORKAROUNDS.md #16. */
+static void signal_aktualisieren(void)
+{
+    int rssi = netz_rssi_dbm();
+    char text[64];
+    int pct = 0;
+    lv_color_t farbe;
+    if (rssi == 0) {
+        snprintf(text, sizeof text, "WLAN-Signal: nicht verbunden");
+        farbe = lv_palette_main(LV_PALETTE_GREY);
+    } else {
+        const char *guete = rssi >= -67 ? "gut" : (rssi >= -80 ? "schwach" : "sehr schwach");
+        snprintf(text, sizeof text, "WLAN-Signal: %d dBm (%s)", rssi, guete);
+
+        pct = (rssi - SIGNAL_DBM_MIN) * 100 / (SIGNAL_DBM_MAX - SIGNAL_DBM_MIN);
+        if (pct < 0)
+            pct = 0;
+        if (pct > 100)
+            pct = 100;
+        farbe = rssi >= -67 ? lv_palette_main(LV_PALETTE_GREEN)
+              : rssi >= -80 ? lv_palette_main(LV_PALETTE_ORANGE)
+                            : lv_palette_main(LV_PALETTE_RED);
+    }
+
+    if (pct != lv_bar_get_value(s_signal_bar)) {
+        lv_bar_set_value(s_signal_bar, pct, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(s_signal_bar, farbe, LV_PART_INDICATOR);
+    }
+    if (strcmp(text, lv_label_get_text(s_signal_label)) != 0)
+        lv_label_set_text(s_signal_label, text);
+}
+
+static void signal_tick_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    signal_aktualisieren();
+}
 
 static void einstellungen_wlan_cb(lv_event_t *e)
 {
@@ -362,6 +593,22 @@ void einrichtung_einstellungen_zeigen(void)
     s_einstellungen_status = EINRICHTUNG_OFFEN;
     s_einstellungen_aktion = EINSTELLUNGEN_AKTION_KEINE;
 
+    /* WICHTIG (FALLSTRICKE #16): Bei der Rueckkehr aus einem Unter-
+     * Bildschirm (WLAN/Datum/Kalender-URL) wird diese Funktion erneut
+     * aufgerufen - ein evtl. noch vorhandener alter Menue-Screen MUSS
+     * vorher geloescht werden, sonst leakt jeder Menue-Durchlauf einen
+     * kompletten Screen (~5-10 KB) in den nur 64 KB grossen LVGL-Pool.
+     * Nach einer Handvoll Bedien-Runden war der Pool voll und die
+     * LVGL-Task blieb beim Zeichnen in einer Endlosschleife haengen
+     * (Task-Watchdog). Loeschen ist hier gefahrlos: der alte Menue-Screen
+     * ist in diesem Moment nie der aktive Screen (aktiv ist der gerade
+     * geschlossene Unter-Bildschirm; die Regel "aktiven Screen nie
+     * loeschen" aus FALLSTRICKE #7 bleibt gewahrt). */
+    if (s_einstellungen_screen) {
+        lv_obj_delete(s_einstellungen_screen);
+        s_einstellungen_screen = NULL;
+    }
+
     s_einstellungen_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_einstellungen_screen, lv_color_black(), 0);
     lv_obj_remove_flag(s_einstellungen_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
@@ -402,24 +649,33 @@ void einrichtung_einstellungen_zeigen(void)
     einstellungen_schalter_zeile(s_einstellungen_screen, schalter_y, "Signalton bei Erinnerungen",
                                   einstellungen_buzzer_aktiv(), einstellungen_buzzer_cb);
 
-    /* WLAN-Signalstaerke als reine Info-Zeile (kein Schalter/Button) - fuer
-     * eine Vor-Ort-Diagnose, ob eine schwache Verbindung an der aktuellen
-     * Position die Ursache fuer Verbindungsabbrueche ist, ohne dass dafuer
-     * ein serieller Monitor noetig waere. Nur eine Momentaufnahme beim
-     * Oeffnen dieses Bildschirms, kein Live-Update. */
-    int rssi = netz_rssi_dbm();
-    char signal_text[64];
-    if (rssi == 0) {
-        snprintf(signal_text, sizeof signal_text, "WLAN-Signal: nicht verbunden");
-    } else {
-        const char *guete = rssi >= -67 ? "gut" : (rssi >= -80 ? "schwach" : "sehr schwach");
-        snprintf(signal_text, sizeof signal_text, "WLAN-Signal: %d dBm (%s)", rssi, guete);
-    }
-    lv_obj_t *signal_label = lv_label_create(s_einstellungen_screen);
-    lv_label_set_text(signal_label, signal_text);
-    lv_obj_set_style_text_font(signal_label, &schrift_klein_28, 0);
-    lv_obj_set_style_text_color(signal_label, lv_color_white(), 0);
-    lv_obj_align(signal_label, LV_ALIGN_TOP_LEFT, 30, schalter_y + 48);
+    /* WLAN-Signalstaerke als Text + Balken, regelmaessig aktualisiert
+     * (signal_tick_cb) - fuer eine Vor-Ort-Diagnose, ob eine schwache
+     * Verbindung an der aktuellen Position die Ursache fuer
+     * Verbindungsabbrueche ist, ohne dass dafuer ein serieller Monitor
+     * noetig waere. */
+    s_signal_label = lv_label_create(s_einstellungen_screen);
+    lv_obj_set_style_text_font(s_signal_label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(s_signal_label, lv_color_white(), 0);
+    lv_obj_align(s_signal_label, LV_ALIGN_TOP_LEFT, 30, schalter_y + 48);
+
+    s_signal_bar = lv_bar_create(s_einstellungen_screen);
+    lv_bar_set_range(s_signal_bar, 0, 100);
+    lv_obj_set_size(s_signal_bar, 300, 24);
+    lv_obj_align(s_signal_bar, LV_ALIGN_TOP_LEFT, 30, schalter_y + 88);
+
+    signal_aktualisieren();
+    /* Timer nur EINMAL erzeugen und danach pausieren/fortsetzen statt bei
+     * jedem Menue-Aufbau loeschen und neu anlegen: das staendige
+     * lv_timer_delete/lv_timer_create bei den Bildschirm-Uebergaengen war
+     * an dem in FALLSTRICKE #16 beschriebenen Endlos-Haenger der
+     * LVGL-Task beteiligt (jede Timer-Aenderung startet die Runde in
+     * lv_timer_handler von vorn). Der Callback greift ueber die statischen
+     * Zeiger oben immer auf die Widgets des NEUESTEN Menue-Screens zu. */
+    if (s_signal_timer == NULL)
+        s_signal_timer = lv_timer_create(signal_tick_cb, 500, NULL);
+    else
+        lv_timer_resume(s_signal_timer);
 
     lv_screen_load(s_einstellungen_screen);
     lvgl_port_unlock();
@@ -440,6 +696,8 @@ einstellungen_aktion_t einrichtung_einstellungen_aktion_abfragen(void)
 void einrichtung_einstellungen_aufraeumen(void)
 {
     lvgl_port_lock(0);
+    if (s_signal_timer)
+        lv_timer_pause(s_signal_timer); /* pausieren statt loeschen, siehe _zeigen */
     if (s_einstellungen_screen) {
         lv_obj_delete(s_einstellungen_screen);
         s_einstellungen_screen = NULL;

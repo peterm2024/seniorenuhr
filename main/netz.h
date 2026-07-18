@@ -54,4 +54,32 @@ void netz_watchdog_lockern(void);
  * bei einem NVS-Fehler wird ein Fehlercode geliefert. */
 esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort);
 
+/* Bis zu so viele unterschiedliche Netze liefert ein Scan zurueck (siehe
+ * netz_scan_ergebnisse) - reicht fuer jede realistische Nachbarschaft. */
+#define NETZ_SCAN_MAX 16
+
+typedef struct {
+    char ssid[33];
+    int8_t rssi;
+} netz_scan_eintrag_t;
+
+/* Stoesst einen WLAN-Scan im Hintergrund an (nicht blockierend - das Ergebnis
+ * kommt per WIFI_EVENT_SCAN_DONE, siehe netz_scan_fertig/netz_scan_ergebnisse).
+ * Fuer die "gefundene Netzwerke"-Dropdown-Liste im Einstellungen-Menue
+ * (siehe einrichtung.c) - funktioniert auch waehrend das Geraet bereits mit
+ * einem Netz verbunden ist (kurze Unterbrechung durch Kanalwechsel waehrend
+ * des Scans ist normal und unkritisch). */
+void netz_scan_starten(void);
+
+/* true, sobald das Ergebnis des zuletzt gestarteten Scans bereit ist
+ * (auch bei 0 gefundenen Netzen oder einem fehlgeschlagenen Scan-Start). */
+bool netz_scan_fertig(void);
+
+/* Liefert bis zu `max` gefundene Netze (nach Signalstaerke absteigend
+ * sortiert, Duplikate durch Mesh/Repeater mit gleicher SSID zusammengefasst
+ * auf den staerksten Wert, versteckte Netze ohne Namen ausgelassen).
+ * Rueckgabe: Anzahl geschriebener Eintraege. Nur sinnvoll, nachdem
+ * netz_scan_fertig() true zurueckgegeben hat. */
+int netz_scan_ergebnisse(netz_scan_eintrag_t *ziel, int max);
+
 #endif

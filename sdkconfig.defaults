@@ -58,3 +58,14 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # calendar.google.com
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# Selbstheilung + Ferndiagnose bei haengenden Tasks (siehe FALLSTRICKE #16):
+# Bleibt eine Task (z.B. die LVGL-Task) dauerhaft haengen, loest der
+# Task-Watchdog nach 5s eine Panic mit anschliessendem Neustart aus, statt
+# das Geraet mit eingefrorener Anzeige stehen zu lassen - im Sinne der
+# Projektregel "Anzeige von Zeit/Tabletten hat oberste Prioritaet" ist ein
+# Neustart das kleinere Uebel. Der Core-Dump ueber UART liefert dabei den
+# kompletten Task-Zustand fuer die Fehlersuche (espcoredump.py info_corefile,
+# so wurde die Endlosschleife aus FALLSTRICKE #16 gefunden).
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_COREDUMP_ENABLE_TO_UART=y

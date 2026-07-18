@@ -272,6 +272,22 @@ Umweg über Testdaten war nicht mehr nötig.
   echten Bug (Dateiname zu lang fuer 8.3-Kurznamen bei `CONFIG_FATFS_LFN_NONE`, `fopen` scheiterte
   mit EINVAL) - nach Umbenennung erneut getestet: Peter bestaetigte, der Haken bleibt jetzt nach
   einem Neustart erhalten. Details siehe FALLSTRICKE_UND_WORKAROUNDS.md #15.
+- ✅ Nachtrag 5 (18.07.2026) — WLAN-Dropdown, Signal-Balken und ein hartnaeckiger Einfrier-Bug:
+  Zwei Komfort-Wuensche umgesetzt: der WLAN-Bildschirm zeigt gefundene Netzwerke jetzt als
+  Dropdown-Liste (Scan startet automatisch beim Oeffnen, manuelle Eingabe bleibt als Fallback
+  fuer versteckte Netze), und die WLAN-Signalstaerke im Einstellungen-Menue hat einen live
+  aktualisierten, farbigen Balken. Dabei traten wiederholt komplette Geraete-Einfrierungen auf,
+  deren Ursachenjagd sich ueber mehrere falsche Faehrten zog (kaputte Nachbar-SSIDs, Stack-
+  Overflow der WiFi-Event-Task, Use-after-free im LVGL-Dropdown - alle drei real und behoben,
+  aber keine war der Haenger) und erst per Task-Watchdog-Panic + Core-Dump ueber UART geloest
+  wurde: das Einstellungen-Menue leakte bei jeder Unter-Navigation einen kompletten Screen in
+  den nur 64 KB grossen LVGL-Pool; war der voll, blieb die Zeichen-Pipeline endlos haengen.
+  Details siehe FALLSTRICKE_UND_WORKAROUNDS.md #16. Als dauerhaftes Sicherheitsnetz startet das
+  Geraet bei einem haengenden Task jetzt nach 5s automatisch neu (statt eingefroren zu bleiben -
+  Anzeige hat Prioritaet) und schreibt dabei einen Core-Dump ins serielle Log
+  (sdkconfig.defaults: CONFIG_ESP_TASK_WDT_PANIC + CONFIG_ESP_COREDUMP_ENABLE_TO_UART).
+  Nach dem Fix: 10+ intensive Menue-Runden ohne ein einziges Watchdog-Ereignis, von Peter
+  bestaetigt stabil.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz

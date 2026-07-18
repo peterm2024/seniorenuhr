@@ -57,6 +57,24 @@ static volatile bool s_war_verbunden = false; /* schon je eine IP bekommen? */
 static volatile bool s_watchdog_pausiert = false;
 static volatile int64_t s_watchdog_grenze_us = WATCHDOG_GRENZE_KURZ_US;
 
+/* Ergebnis des zuletzt gestarteten Einstellungen-Scans (siehe
+ * netz_scan_starten) - wird aus dem Event-Handler heraus befuellt (anderer
+ * Task als der lesende UI-Timer), aber erst NACH vollstaendigem Befuellen
+ * wird s_scan_fertig gesetzt, daher reicht hier ein einfaches volatile
+ * Flag ohne Mutex (gleiches Muster wie s_verbunden/s_war_verbunden oben). */
+static netz_scan_eintrag_t s_scan_ergebnisse[NETZ_SCAN_MAX];
+static volatile int s_scan_anzahl = 0;
+static volatile bool s_scan_fertig = false;
+/* true nur waehrend eines von netz_scan_starten() ausgeloesten Scans -
+ * beste_konfiguration_ermitteln() (unten) fuehrt beim Boot ebenfalls einen
+ * eigenen (blockierenden) Scan durch und liest dessen Ergebnisse selbst per
+ * esp_wifi_scan_get_ap_records() aus. Ohne dieses Unterscheidungs-Flag wuerde
+ * der globale WIFI_EVENT_SCAN_DONE-Handler unten AUCH auf diesen Boot-Scan
+ * reagieren und ihm per eigenem esp_wifi_scan_get_ap_records()-Aufruf die
+ * Ergebnisse wegschnappen (die Funktion liefert die interne Ergebnisliste
+ * nur einmal aus) - das fuehrte live zu Verbindungsproblemen beim Booten. */
+static volatile bool s_scan_von_uns = false;
+
 /* 0 = aktuell verbunden (oder noch nie verbunden gewesen); sonst Zeitpunkt
  * (esp_timer_get_time), seit dem ununterbrochen keine Verbindung besteht. */
 static volatile int64_t s_getrennt_seit_us = 0;
@@ -113,6 +131,67 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
         s_war_verbunden = true;
         s_getrennt_seit_us = 0;
         ESP_LOGI(TAG, "WLAN verbunden, IP-Adresse erhalten");
+    } else if (basis == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
+        if (!s_scan_von_uns)
+            return; /* fremder Scan (z. B. beste_konfiguration_ermitteln beim Boot) - nicht anfassen */
+        s_scan_von_uns = false;
+
+        uint16_t gefunden = 0;
+        esp_wifi_scan_get_ap_num(&gefunden);
+        /* static statt lokal: dieser Handler laeuft auf der esp_event-
+         * System-Task, die nur CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=2304
+         * Bytes Stack hat. wifi_ap_record_t ist (mit Country-/HE-AP-Info)
+         * ueber 80 Bytes gross - ein lokales Array von NETZ_SCAN_MAX=16
+         * Eintraegen haette allein ueber 1,3 KB des winzigen Stacks belegt
+         * und ihn gesprengt (live beobachtet: Bildschirm zeigte wirre
+         * Symbole, danach haengte sich das Geraet komplett auf - gleiche
+         * Fehlerklasse wie FALLSTRICKE_UND_WORKAROUNDS.md #10). Der Handler
+         * ist nicht reentrant (WIFI_EVENT_SCAN_DONE kommt erst nach dem
+         * naechsten Scan wieder), ein statischer Puffer ist daher sicher. */
+        static wifi_ap_record_t aps[NETZ_SCAN_MAX];
+        uint16_t tatsaechlich = gefunden < NETZ_SCAN_MAX ? gefunden : NETZ_SCAN_MAX;
+        if (tatsaechlich > 0)
+            esp_wifi_scan_get_ap_records(&tatsaechlich, aps);
+        else
+            tatsaechlich = 0;
+
+        int anzahl = 0;
+        for (int a = 0; a < tatsaechlich && anzahl < NETZ_SCAN_MAX; a++) {
+            if (aps[a].ssid[0] == '\0')
+                continue; /* verstecktes Netz ohne Namen - nur per Hand eingebbar */
+            bool duplikat = false;
+            for (int i = 0; i < anzahl; i++) {
+                if (strcmp(s_scan_ergebnisse[i].ssid, (char *)aps[a].ssid) == 0) {
+                    if ((int8_t)aps[a].rssi > s_scan_ergebnisse[i].rssi)
+                        s_scan_ergebnisse[i].rssi = (int8_t)aps[a].rssi;
+                    duplikat = true;
+                    break;
+                }
+            }
+            if (duplikat)
+                continue;
+            snprintf(s_scan_ergebnisse[anzahl].ssid, sizeof s_scan_ergebnisse[anzahl].ssid,
+                     "%s", (char *)aps[a].ssid);
+            s_scan_ergebnisse[anzahl].rssi = (int8_t)aps[a].rssi;
+            anzahl++;
+        }
+        /* Nach Signalstaerke absteigend sortieren - Bubble-Sort reicht bei
+         * maximal NETZ_SCAN_MAX Eintraegen locker aus. */
+        for (int i = 0; i < anzahl - 1; i++) {
+            for (int j = 0; j < anzahl - 1 - i; j++) {
+                if (s_scan_ergebnisse[j].rssi < s_scan_ergebnisse[j + 1].rssi) {
+                    netz_scan_eintrag_t tausch = s_scan_ergebnisse[j];
+                    s_scan_ergebnisse[j] = s_scan_ergebnisse[j + 1];
+                    s_scan_ergebnisse[j + 1] = tausch;
+                }
+            }
+        }
+        s_scan_anzahl = anzahl;
+        s_scan_fertig = true;
+        ESP_LOGI(TAG, "WLAN-Scan (Einstellungen) fertig: %d Netz(e) gefunden", anzahl);
+        for (int i = 0; i < anzahl; i++)
+            ESP_LOGI(TAG, "  [%d] SSID=\"%s\" RSSI=%d", i, s_scan_ergebnisse[i].ssid,
+                     s_scan_ergebnisse[i].rssi);
     }
 }
 
@@ -350,4 +429,30 @@ int netz_rssi_dbm(void)
     if (esp_wifi_sta_get_ap_info(&info) != ESP_OK)
         return 0;
     return info.rssi;
+}
+
+void netz_scan_starten(void)
+{
+    s_scan_fertig = false;
+    s_scan_anzahl = 0;
+    s_scan_von_uns = true;
+    esp_err_t err = esp_wifi_scan_start(NULL, false); /* nicht blockierend */
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "WLAN-Scan (Einstellungen) konnte nicht gestartet werden: %s",
+                 esp_err_to_name(err));
+        s_scan_von_uns = false;
+        s_scan_fertig = true; /* leeres Ergebnis - die UI soll nicht ewig warten */
+    }
+}
+
+bool netz_scan_fertig(void)
+{
+    return s_scan_fertig;
+}
+
+int netz_scan_ergebnisse(netz_scan_eintrag_t *ziel, int max)
+{
+    int anzahl = s_scan_anzahl < max ? s_scan_anzahl : max;
+    memcpy(ziel, s_scan_ergebnisse, sizeof ziel[0] * (size_t)anzahl);
+    return anzahl;
 }
