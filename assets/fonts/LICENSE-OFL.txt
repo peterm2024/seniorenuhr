@@ -1,7 +1,7 @@
 Die Schriftdateien in diesem Verzeichnis (schrift_*.c) sind mit lv_font_conv
 erzeugte Ableitungen der Schrift "Montserrat" (Schnitt: Bold) und stehen als
 solche unter der SIL Open Font License 1.1. Der uebrige Quellcode des Projekts
-steht unter der MIT-Lizenz (siehe LICENSE im Projektstamm).
+steht unter der GNU General Public License v3 (siehe LICENSE im Projektstamm).
 
 Quelle: https://github.com/JulietaUla/Montserrat
 

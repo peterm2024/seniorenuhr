@@ -18,9 +18,29 @@ Projektstand, Architektur und Bauplan: siehe **[FAHRPLAN.md](FAHRPLAN.md)**.
 - Tabletten = wiederkehrende Kalendereinträge mit Präfix `TABLETTE:`
 - OTA-Updates für Wartung aus der Ferne, komplett lautlos
 
+## Wichtiger Hinweis: kein Medizinprodukt, keine Garantie
+
+Dieses Projekt ist ein **privates Hobbyprojekt** — eine Kalender-Uhr mit
+Erinnerungsanzeige. Es ist **kein Medizinprodukt** im Sinne der
+EU-Medizinprodukteverordnung (MDR), hat keine medizinische Zweckbestimmung und
+ersetzt weder Pflege noch ärztliche Betreuung noch geprüfte
+Medikamenten-Erinnerungssysteme.
+
+Die Anzeige kann jederzeit ausfallen (Stromausfall, WLAN-Störung,
+Softwarefehler o. Ä.). **Verlasst euch bei kritischen Medikamenten niemals
+allein auf dieses Gerät** — sichert die Einnahme immer zusätzlich ab
+(z. B. Dosierbox, Anruf, Pflegedienst).
+
+Die Nutzung erfolgt auf eigene Gefahr. Gewährleistung und Haftung sind im
+rechtlich zulässigen Umfang ausgeschlossen (siehe Abschnitte 15–17 der
+GPLv3-Lizenz).
+
 ## Lizenz
 
-Der Quellcode dieses Projekts steht unter der **MIT-Lizenz** (siehe [LICENSE](LICENSE)).
+Der Quellcode dieses Projekts steht unter der **GNU General Public License v3**
+(siehe [LICENSE](LICENSE)). Das heißt: Jeder darf ihn frei nutzen, verändern und
+weitergeben — wer ihn aber (auch verändert oder in Geräten) weitergibt, muss den
+Quellcode unter denselben Bedingungen offenlegen. Copyright (c) 2026 peterm2024.
 
 Ausnahme: die Schriftdateien in `assets/fonts/` sind aus der Schrift
 [Montserrat](https://github.com/JulietaUla/Montserrat) generiert und stehen unter der
