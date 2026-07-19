@@ -13,6 +13,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -79,6 +80,56 @@ static volatile bool s_scan_von_uns = false;
  * (esp_timer_get_time), seit dem ununterbrochen keine Verbindung besteht. */
 static volatile int64_t s_getrennt_seit_us = 0;
 
+/* Neuverbindungs-Scan im Laufbetrieb: Der Reconnect nach einem Abbruch
+ * probiert stur immer wieder das ZULETZT verbundene Netz - ein erneuter
+ * Scan ueber alle gespeicherten Profile passierte bisher nur beim Boot
+ * (beste_konfiguration_ermitteln). Live beobachtet: nach einem Hotspot-Test
+ * ("Peters iPhone" gespeichert und verbunden, dann Hotspot aus) blieb das
+ * Geraet dauerhaft offline, obwohl das Heimnetz die ganze Zeit sichtbar
+ * war - erst ein Stromziehen half. Deshalb: bleibt die Verbindung im
+ * Laufbetrieb laenger als NEUSCAN_NACH_US weg, laeuft die Boot-Auswahl
+ * (Scan ueber alle Profile, bestes sichtbares Netz) erneut - in einer
+ * eigenen kleinen Task, denn der blockierende Scan darf weder auf der
+ * esp_timer- noch auf der winzigen esp_event-Task laufen (2304 Bytes,
+ * siehe Kommentar im Scan-Done-Handler). Nur im gelockerten Betrieb
+ * (nach dem ersten Erreichen des Hauptbildschirms) - waehrend des Bootens
+ * uebernehmen der 60s-Countdown bzw. der scharfe 30s-Watchdog. */
+#define NEUSCAN_NACH_US (60LL * 1000000)
+static volatile bool s_neuscan_laeuft = false;
+static int64_t s_naechster_neuscan_us = 0; /* nur von der esp_timer-Task benutzt */
+
+static void beste_konfiguration_ermitteln(wifi_config_t *cfg, const char **quelle_aus);
+
+static void neuverbindung_task(void *arg)
+{
+    (void)arg;
+    /* Einen evtl. gerade laufenden Verbindungsversuch abbrechen - waehrend
+     * des Verbindens wuerde esp_wifi_scan_start fehlschlagen. Das dabei
+     * ausgeloeste STA_DISCONNECTED-Ereignis startet wegen s_neuscan_laeuft
+     * keinen neuen Versuch (siehe ereignis_handler). */
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    wifi_config_t cfg;
+    const char *quelle;
+    beste_konfiguration_ermitteln(&cfg, &quelle);
+    cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    cfg.sta.pmf_cfg.capable = true;
+    cfg.sta.pmf_cfg.required = false;
+    esp_wifi_set_config(WIFI_IF_STA, &cfg);
+
+    ESP_LOGI(TAG, "Neuverbindung nach Scan mit: %s", quelle);
+    esp_err_t err = esp_wifi_connect();
+    if (err != ESP_OK)
+        ESP_LOGW(TAG, "Neuverbindung konnte nicht gestartet werden: %s (naechster Versuch "
+                      "beim naechsten Neuscan)", esp_err_to_name(err));
+    /* Erst NACH dem connect-Aufruf freigeben: schlaegt die Verbindung fehl,
+     * kommt STA_DISCONNECTED und der normale Reconnect-Kreislauf (und damit
+     * auch der naechste Neuscan in 60s) laeuft wieder. */
+    s_neuscan_laeuft = false;
+    vTaskDelete(NULL);
+}
+
 static void wifi_watchdog_callback(void *arg)
 {
     (void)arg;
@@ -87,9 +138,25 @@ static void wifi_watchdog_callback(void *arg)
     int64_t getrennt_seit = s_getrennt_seit_us;
     if (getrennt_seit == 0)
         return;
-    if (esp_timer_get_time() - getrennt_seit > s_watchdog_grenze_us) {
+    int64_t offline_us = esp_timer_get_time() - getrennt_seit;
+    if (offline_us > s_watchdog_grenze_us) {
         ESP_LOGE(TAG, "Seit laengerer Zeit ohne WLAN-Verbindung - Neustart");
         esp_restart();
+    }
+
+    /* Laufbetrieb-Neuscan (siehe Kommentar bei NEUSCAN_NACH_US): fruehestens
+     * alle 60s einen anstossen, und nie zwei gleichzeitig. */
+    if (s_watchdog_grenze_us == WATCHDOG_GRENZE_LANG_US &&
+        offline_us > NEUSCAN_NACH_US && !s_neuscan_laeuft &&
+        esp_timer_get_time() >= s_naechster_neuscan_us) {
+        s_naechster_neuscan_us = esp_timer_get_time() + NEUSCAN_NACH_US;
+        s_neuscan_laeuft = true;
+        ESP_LOGW(TAG, "Seit %llds ohne WLAN - suche per Scan nach dem besten bekannten Netz",
+                 offline_us / 1000000);
+        if (xTaskCreate(neuverbindung_task, "wifi_neuscan", 4096, NULL, 5, NULL) != pdPASS) {
+            s_neuscan_laeuft = false; /* kein Speicher - naechster Versuch in 60s */
+            ESP_LOGE(TAG, "Neuverbindungs-Task konnte nicht gestartet werden");
+        }
     }
 }
 
@@ -99,6 +166,16 @@ static void wifi_watchdog_callback(void *arg)
 void netz_watchdog_lockern(void)
 {
     s_watchdog_grenze_us = WATCHDOG_GRENZE_LANG_US;
+    /* Lief der Boot komplett OHNE Verbindung durch (Offline-Fallback),
+     * ist s_getrennt_seit_us noch 0 (wird sonst nur nach einem Abbruch
+     * einer bestehenden Verbindung gesetzt - waehrend des Bootens bewusst
+     * nicht, sonst Neustart-Schleife, siehe FALLSTRICKE #14). Ab jetzt
+     * soll die Offline-Zeit aber zaehlen, damit auch in diesem Fall der
+     * periodische Neuverbindungs-Scan (neuverbindung_task) anspringt -
+     * z. B. unterwegs gebootet und danach zurueck in Reichweite des
+     * Heimnetzes gekommen. */
+    if (!s_verbunden && s_getrennt_seit_us == 0)
+        s_getrennt_seit_us = esp_timer_get_time();
     ESP_LOGI(TAG, "WLAN-Watchdog gelockert: Neustart erst nach 1 Woche ohne Verbindung");
 }
 
@@ -124,6 +201,13 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
         s_verbunden = false;
         if (s_war_verbunden && s_getrennt_seit_us == 0)
             s_getrennt_seit_us = esp_timer_get_time();
+        /* Waehrend des Neuverbindungs-Scans (neuverbindung_task) keinen
+         * neuen Verbindungsversuch starten - ein laufender Verbindungs-
+         * aufbau wuerde dessen Scan zum Fehlschlagen bringen. Die Task
+         * selbst ruft am Ende esp_wifi_connect() auf und haelt damit den
+         * Reconnect-Kreislauf am Leben. */
+        if (s_neuscan_laeuft)
+            return;
         ESP_LOGW(TAG, "WLAN-Verbindung verloren, versuche erneut...");
         esp_wifi_connect();
     } else if (basis == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {

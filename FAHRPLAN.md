@@ -302,6 +302,18 @@ Umweg über Testdaten war nicht mehr nötig.
   laengere Verweildauer pro Kanal (300ms statt 120ms), Dropdown-Optionen nur bei tatsaechlicher
   Aenderung angefasst. Live verifiziert: Hotspot in jeder Scan-Runde gefunden, Speichern +
   Verbinden klappt (Boot-Log: "connected with Peters iPhone").
+- ✅ Nachtrag 8 (19.07.2026) — WLAN-Neuscan im Laufbetrieb: der Reconnect nach einem Abbruch
+  probierte bisher stur immer nur das zuletzt verbundene Netz; die Scan-basierte Profilauswahl
+  lief nur beim Boot. Folge (live beobachtet): nach einem Hotspot-Test blieb das Geraet dauerhaft
+  offline, obwohl das Heimnetz sichtbar war - erst Stromziehen half. Jetzt: bleibt die Verbindung
+  im Laufbetrieb >60s weg, laeuft die Boot-Auswahl (bestes sichtbares bekanntes Netz) in einer
+  eigenen kleinen Task erneut, alle 60s bis zum Erfolg. Gilt auch nach einem komplett offline
+  durchgelaufenen Boot (unterwegs gestartet, dann heimgekommen). Waehrend des Bootens bewusst
+  unveraendert (60s-Countdown/30s-Watchdog, keine Neustart-Schleifen-Gefahr). Live verifiziert:
+  Hotspot aus -> nach 63s Neuscan -> ohne Neustart zurueck ins Heimnetz (68s Gesamtdauer).
+  Ausserdem behoben: wirre Zeichen ("'_?0 Frueh") nach dem Zurueckschieben des Tabletten-
+  Schiebers - lv_label_set_text bekam einen Zeiger in den eigenen Label-Puffer (siehe
+  FALLSTRICKE #17).
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz
