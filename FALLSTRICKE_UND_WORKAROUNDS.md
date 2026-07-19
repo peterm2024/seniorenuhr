@@ -167,3 +167,13 @@ Dieses Dokument dokumentiert die technischen Hürden, die während der Entwicklu
 - Bei "Screen neu aufbauen statt zurueckkehren"-Navigationsmustern IMMER pruefen, wer den vorherigen Screen loescht — ein Leak faellt bei 64 KB Pool erst nach mehreren Runden auf und aeussert sich dann NICHT als Fehlermeldung, sondern als eingefrorenes Geraet an scheinbar zufaelliger Stelle.
 - LVGLs OOM-Verhalten ist kein sauberer Absturz: fehlgeschlagene Draw-Allokationen koennen in Endlosschleifen der Render-Pipeline enden.
 - Task-WDT-Panic + UART-Core-Dump ist fuer schwer reproduzierbare Haenger um Groessenordnungen ergiebiger als jede Log-Instrumentierung — direkt zu Beginn aktivieren, nicht erst nach mehreren Raterunden.
+
+## 17. Wirre Zeichen im Tabletten-Label nach dem Zurueckschieben des Schiebers
+
+**Problem:** Tabletten-Schieber im "Heute"-Fenster auf "genommen" und direkt wieder zurueck — die Zeile zeigte danach Muell wie `'_?0 Frueh` statt `06:30 Frueh`.
+
+**Ursache:** `tabletten_zeile_aktualisieren()` (tagesansicht.c) entfernte das `[x] `-Praefix per `lv_label_set_text(label, aktuell + praefix_laenge)`, wobei `aktuell` aus `lv_label_get_text(label)` stammt — also ein Zeiger IN DEN EIGENEN Textpuffer des Labels. `lv_label_set_text` realloziert zuerst genau diesen Puffer und kopiert DANACH aus der Quelle; nach dem realloc zeigt die Quelle auf freigegebenen/verschobenen Speicher. Der Einschalt-Pfad (Praefix ergaenzen) war korrekt, weil er zuerst in einen lokalen Puffer formatierte — deshalb trat der Fehler nur beim Entfernen auf.
+
+**Loesung:** Vor dem `lv_label_set_text` immer erst in einen lokalen Puffer kopieren, wenn die Quelle aus demselben Widget stammt.
+
+**Lehre:** Gleiche Fehlerklasse wie der Dropdown-Fallstrick aus #16 (Punkt 3): LVGL-Setter duerfen NIE mit Zeigern gefuettert werden, die in den internen Puffer desselben Widgets zeigen — die Setter bauen diese Puffer waehrend des Aufrufs um. Bei jedem `lv_..._set_...(widget, quelle)` fragen: Wo zeigt `quelle` hin?

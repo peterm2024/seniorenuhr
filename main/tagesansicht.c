@@ -417,7 +417,17 @@ static void tabletten_zeile_aktualisieren(int index, bool bestaetigt)
         snprintf(neu, sizeof neu, "%s%s", praefix, aktuell);
         lv_label_set_text(label, neu);
     } else if (!bestaetigt && hat_praefix) {
-        lv_label_set_text(label, aktuell + praefix_laenge);
+        /* NIEMALS einen Zeiger in den eigenen Label-Puffer an
+         * lv_label_set_text uebergeben: die Funktion realloziert zuerst
+         * genau diesen Puffer und kopiert dann aus der (damit ggf. schon
+         * freigegebenen/verschobenen) Quelle - Ergebnis waren wirre
+         * Zeichen wie "'_?0 Frueh" nach dem Zurueckschieben des
+         * Tabletten-Schiebers. Erst in einen lokalen Puffer kopieren
+         * (gleiche Fehlerklasse wie der Dropdown-Fallstrick in
+         * einrichtung.c/wlan_scan_tick_cb). */
+        char neu[ZEILE_MAX];
+        snprintf(neu, sizeof neu, "%s", aktuell + praefix_laenge);
+        lv_label_set_text(label, neu);
     }
     lv_obj_set_style_text_color(label, lv_color_hex(bestaetigt ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
 }
