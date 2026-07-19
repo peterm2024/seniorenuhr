@@ -294,6 +294,14 @@ Umweg über Testdaten war nicht mehr nötig.
   direkt zur Hauptanzeige statt 60s-Countdowns abzuwarten (Anlass: Biergarten-Vorfuehrung an
   der Powerbank). Die Demo-Zeit wird bewusst NICHT als "zuletzt angezeigt" persistiert, damit
   der Boot-Fallback zuhause nie mit dem Fantasie-Datum startet.
+- ✅ Nachtrag 7 (19.07.2026) — WLAN-Scan findet iPhone-Hotspots zuverlaessig: der WLAN-Bildschirm
+  scannte bisher genau EINMAL beim Oeffnen; iPhone-Hotspots kuendigen sich im Leerlauf aber nur
+  sparsam an und fehlten deshalb oft dauerhaft in der Liste ("Peters iPhone" stand laut PC-Scan
+  auf Kanal 6 mit 95% Signal und wurde trotzdem meist verpasst). Jetzt: Dauerscan alle ~2s
+  solange der Bildschirm offen ist (Ergebnisse werden vereinigt, einmal gesehen bleibt),
+  laengere Verweildauer pro Kanal (300ms statt 120ms), Dropdown-Optionen nur bei tatsaechlicher
+  Aenderung angefasst. Live verifiziert: Hotspot in jeder Scan-Runde gefunden, Speichern +
+  Verbinden klappt (Boot-Log: "connected with Peters iPhone").
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz

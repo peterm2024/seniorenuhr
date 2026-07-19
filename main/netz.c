@@ -436,7 +436,17 @@ void netz_scan_starten(void)
     s_scan_fertig = false;
     s_scan_anzahl = 0;
     s_scan_von_uns = true;
-    esp_err_t err = esp_wifi_scan_start(NULL, false); /* nicht blockierend */
+    /* Laengere Verweildauer pro Kanal als der Standard (120ms): iPhone-
+     * Hotspots beaconen im Leerlauf nur sparsam und antworten auf Probe-
+     * Requests oft traege - mit dem Standardwert wurde "Peters iPhone"
+     * regelmaessig uebersehen, obwohl es auf Kanal 6 mit vollem Signal
+     * sichtbar war (per PC-Scan verifiziert). ~300ms x 13 Kanaele ergibt
+     * rund 4s pro Scan-Runde - unkritisch, da der Scan asynchron laeuft
+     * und die UI ihn nur pollt (wlan_scan_tick_cb). */
+    wifi_scan_config_t cfg = {
+        .scan_time = { .active = { .min = 0, .max = 300 } },
+    };
+    esp_err_t err = esp_wifi_scan_start(&cfg, false); /* nicht blockierend */
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "WLAN-Scan (Einstellungen) konnte nicht gestartet werden: %s",
                  esp_err_to_name(err));

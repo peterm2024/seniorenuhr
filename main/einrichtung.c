@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "esp_lvgl_port.h"
+#include "esp_timer.h"
 
 LV_FONT_DECLARE(schrift_mittel_40);
 LV_FONT_DECLARE(schrift_klein_28);
@@ -137,20 +138,57 @@ static void wlan_dropdown_geaendert_cb(lv_event_t *e)
     }
 }
 
+/* Zuletzt gesetzter Options-Text des Dropdowns - verhindert, dass der
+ * Dauerscan (siehe wlan_scan_tick_cb) die Optionen bei unveraendertem
+ * Ergebnis immer wieder neu setzt (und dabei eine gerade geoeffnete Liste
+ * grundlos zuklappt). Wird beim Bildschirm-Aufbau geleert. */
+static char s_wlan_letzte_optionen[NETZ_SCAN_MAX * 34];
+
 /* Pollt den im Hintergrund laufenden WLAN-Scan (siehe netz_scan_starten) und
- * traegt die gefundenen Netze ein, sobald sie bereit sind - loescht sich
- * danach selbst. */
+ * scannt danach fortlaufend weiter, solange der Bildschirm offen ist:
+ * iPhone-Hotspots kuendigen sich im Leerlauf nur sparsam an und werden von
+ * einem einzelnen Durchlauf oft verpasst (live beobachtet: "Peters iPhone"
+ * stand auf Kanal 6 mit 95% Signal und tauchte trotzdem erst nach sehr
+ * langer Zeit auf). Die Ergebnisse werden ueber die Runden vereinigt -
+ * einmal gesehen bleibt ein Netz in der Liste, und bestehende Eintraege
+ * behalten ihren Index (wlan_dropdown_geaendert_cb schlaegt darueber die
+ * unbereinigte SSID nach), Neufunde kommen hinten dazu. */
 static void wlan_scan_tick_cb(lv_timer_t *timer)
 {
     (void)timer;
     if (!netz_scan_fertig())
         return;
 
-    s_wlan_scan_anzahl = netz_scan_ergebnisse(s_wlan_scan_ergebnisse, NETZ_SCAN_MAX);
+    netz_scan_eintrag_t neu[NETZ_SCAN_MAX];
+    int neu_anzahl = netz_scan_ergebnisse(neu, NETZ_SCAN_MAX);
+    for (int i = 0; i < neu_anzahl; i++) {
+        bool bekannt = false;
+        for (int j = 0; j < s_wlan_scan_anzahl; j++) {
+            if (strcmp(neu[i].ssid, s_wlan_scan_ergebnisse[j].ssid) == 0) {
+                s_wlan_scan_ergebnisse[j].rssi = neu[i].rssi;
+                bekannt = true;
+                break;
+            }
+        }
+        if (!bekannt && s_wlan_scan_anzahl < NETZ_SCAN_MAX)
+            s_wlan_scan_ergebnisse[s_wlan_scan_anzahl++] = neu[i];
+    }
+
+    /* Naechste Runde anstossen - fruehestens alle 2s, damit ein sofort
+     * fehlschlagender Scan-Start (z. B. waehrend eines parallelen
+     * Verbindungsaufbaus liefert esp_wifi_scan_start einen Fehler und
+     * netz_scan_fertig bleibt sofort true) nicht im 300ms-Takt Warnungen
+     * ins Log spammt. */
+    static int64_t s_naechster_scan_us;
+    int64_t jetzt_us = esp_timer_get_time();
+    if (jetzt_us >= s_naechster_scan_us) {
+        s_naechster_scan_us = jetzt_us + 2 * 1000000;
+        netz_scan_starten();
+    }
 
     char optionen[NETZ_SCAN_MAX * (sizeof s_wlan_scan_ergebnisse[0].ssid + 1)];
     if (s_wlan_scan_anzahl == 0) {
-        snprintf(optionen, sizeof optionen, "Keine Netzwerke gefunden");
+        snprintf(optionen, sizeof optionen, "Suche Netzwerke...");
     } else {
         size_t pos = 0;
         for (int i = 0; i < s_wlan_scan_anzahl; i++) {
@@ -174,12 +212,20 @@ static void wlan_scan_tick_cb(lv_timer_t *timer)
      * Optionen-Tausch schliessen. (Bewusst KEIN automatisches
      * Wieder-Oeffnen aus dem Timer heraus - so wenige Widget-Manipulationen
      * wie moeglich im Timer-Kontext, siehe FALLSTRICKE #16; der Benutzer
-     * tippt die Liste einfach erneut an und sieht dann die Netzwerke.) */
-    if (lv_dropdown_is_open(s_wlan_dropdown))
-        lv_dropdown_close(s_wlan_dropdown);
-    lv_dropdown_set_options(s_wlan_dropdown, optionen);
-
-    lv_timer_pause(s_wlan_scan_timer); /* pausieren statt loeschen, siehe FALLSTRICKE #16 */
+     * tippt die Liste einfach erneut an und sieht dann die Netzwerke.)
+     *
+     * Optionen nur bei tatsaechlicher Aenderung setzen - der Dauerscan
+     * liefert meist dasselbe Ergebnis wie die Runde davor, und ein
+     * unnoetiger Optionen-Tausch wuerde eine gerade offene Liste jedes Mal
+     * zuklappen. Der Timer laeuft bewusst weiter (kein lv_timer_pause mehr):
+     * einrichtung_wlan_aufraeumen() pausiert ihn beim Schliessen des
+     * Bildschirms. */
+    if (strcmp(optionen, s_wlan_letzte_optionen) != 0) {
+        if (lv_dropdown_is_open(s_wlan_dropdown))
+            lv_dropdown_close(s_wlan_dropdown);
+        lv_dropdown_set_options(s_wlan_dropdown, optionen);
+        snprintf(s_wlan_letzte_optionen, sizeof s_wlan_letzte_optionen, "%s", optionen);
+    }
 }
 
 static void wlan_speichern_cb(lv_event_t *e)
@@ -219,6 +265,7 @@ void einrichtung_wlan_zeigen(void)
      * Scan laeuft im Hintergrund (netz_scan_starten/wlan_scan_tick_cb), die
      * Liste zeigt bis dahin einen Platzhaltertext. */
     s_wlan_scan_anzahl = 0;
+    s_wlan_letzte_optionen[0] = '\0'; /* frischer Bildschirm = frische Liste */
     netz_scan_starten();
 
     s_wlan_dropdown = lv_dropdown_create(s_wlan_screen);
