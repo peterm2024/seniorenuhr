@@ -48,6 +48,12 @@ typedef enum {
     EINSTELLUNGEN_AKTION_WLAN,
     EINSTELLUNGEN_AKTION_DATUM,
     EINSTELLUNGEN_AKTION_KALENDER_URL,
+    /* Vorfuehrung ohne WLAN (z. B. unterwegs an der Powerbank): setzt die
+     * Uhrzeit auf einen festen Demo-Zeitstempel und ueberspringt alle noch
+     * offenen Boot-Phasen - direkt zur Hauptanzeige, ohne 60s-Countdowns
+     * abwarten oder das Datum von Hand einstellen zu muessen (siehe
+     * app_main.c). */
+    EINSTELLUNGEN_AKTION_DEMO,
 } einstellungen_aktion_t;
 
 void einrichtung_einstellungen_zeigen(void);

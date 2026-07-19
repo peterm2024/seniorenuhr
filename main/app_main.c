@@ -637,6 +637,12 @@ static void modus_anwenden(anzeige_modus_t modus)
     lvgl_port_unlock();
 }
 
+/* Einmal true (Demo-Modus im Einstellungen-Menue gewaehlt), ueberspringen
+ * alle noch offenen Boot-Phasen ihren Countdown sofort - die Uhrzeit steht
+ * dann schon auf dem festen Demo-Zeitstempel, Kalenderdaten kommen
+ * hoechstens aus dem Cache (siehe einstellungen_bildschirm_verarbeiten). */
+static bool s_demo_modus = false;
+
 /* Wird jede Sekunde von LVGL aufgerufen (siehe app_main). */
 static void uhr_tick(lv_timer_t *timer)
 {
@@ -653,7 +659,14 @@ static void uhr_tick(lv_timer_t *timer)
         time_t jetzt = time(NULL);
         struct tm lokal;
         localtime_r(&jetzt, &lokal);
-        einstellungen_letzte_anzeige_setzen(jetzt);
+        /* Die fest verdrahtete Demo-Zeit nicht als "zuletzt angezeigt"
+         * persistieren - sonst wuerde der Boot-Fallback (siehe
+         * phase_timeout_automatisch_fortsetzen) nach einer Vorfuehrung
+         * beim naechsten WLAN-Ausfall mit dem Fantasie-Datum starten.
+         * Sobald NTP die Zeit doch noch bestaetigt (zeit_ist_manuell_gesetzt
+         * wird dann false), ist die Sperre hinfaellig. */
+        if (!s_demo_modus || !zeit_ist_manuell_gesetzt())
+            einstellungen_letzte_anzeige_setzen(jetzt);
 
         snprintf(uhrzeit, sizeof uhrzeit, "%02d:%02d", lokal.tm_hour, lokal.tm_min);
         wochentag = zeit_wochentag_gross(&lokal);
@@ -916,8 +929,22 @@ static phase_ergebnis_t phase_abwarten(startbildschirm_schritt_t schritt, beding
  * Ende kehrt die Funktion (ueber eine neu aufgebaute Menue-Instanz) dorthin
  * zurueck - genau wie schon fuer "WLAN wechseln"/"Offline" auf dem
  * Startbildschirm selbst (siehe phase_verarbeiten), inklusive derselben
- * Reihenfolge "neuen Screen erst laden, dann alten erst loeschen". */
-static void einstellungen_bildschirm_verarbeiten(void)
+ * Reihenfolge "neuen Screen erst laden, dann alten erst loeschen".
+ *
+ * Rueckgabe true, wenn der Benutzer den Demo-Modus gewaehlt hat - die
+ * Uhrzeit steht dann bereits auf dem festen Demo-Zeitstempel und der
+ * Aufrufer soll alle noch offenen Boot-Phasen ueberspringen. */
+
+/* Fester Zeitstempel fuer den Demo-Modus (Peters Wahl): Samstagabend kurz
+ * vor der 18-Uhr-Tablette, damit eine Vorfuehrung ohne WLAN deterministisch
+ * ablaeuft und binnen einer Minute "live" eine Tablette faellig wird. */
+#define DEMO_TAG 18
+#define DEMO_MONAT 7
+#define DEMO_JAHR 2026
+#define DEMO_STUNDE 17
+#define DEMO_MINUTE 59
+
+static bool einstellungen_bildschirm_verarbeiten(void)
 {
     einrichtung_einstellungen_zeigen();
     for (;;) {
@@ -926,6 +953,12 @@ static void einstellungen_bildschirm_verarbeiten(void)
             break;
 
         switch (einrichtung_einstellungen_aktion_abfragen()) {
+        case EINSTELLUNGEN_AKTION_DEMO:
+            ESP_LOGI(TAG, "Start: Demo-Modus gewaehlt - Uhrzeit auf %02d.%02d.%d %02d:%02d gesetzt, "
+                          "restliche Boot-Phasen werden uebersprungen",
+                     DEMO_TAG, DEMO_MONAT, DEMO_JAHR, DEMO_STUNDE, DEMO_MINUTE);
+            zeit_manuell_setzen(DEMO_TAG, DEMO_MONAT, DEMO_JAHR, DEMO_STUNDE, DEMO_MINUTE);
+            return true;
         case EINSTELLUNGEN_AKTION_WLAN: {
             einrichtung_wlan_zeigen();
             einrichtung_status_t wlan_status;
@@ -964,6 +997,7 @@ static void einstellungen_bildschirm_verarbeiten(void)
     /* Aufraeumen bewusst NICHT hier - der Aufrufer laedt zuerst den
      * Startbildschirm wieder als aktiven Screen, bevor dieser (dann
      * inaktive) Screen geloescht wird (siehe phase_verarbeiten). */
+    return false;
 }
 
 /* Wartet auf eine Boot-Phase und kuemmert sich um die Eingriffsmoeglich-
@@ -979,6 +1013,11 @@ static void einstellungen_bildschirm_verarbeiten(void)
 static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *name, bedingung_fn bedingung)
 {
     for (;;) {
+        if (s_demo_modus) {
+            startbildschirm_schritt_fertig(schritt);
+            return;
+        }
+
         phase_ergebnis_t ergebnis = phase_abwarten(schritt, bedingung);
 
         if (ergebnis == PHASE_FERTIG) {
@@ -992,11 +1031,11 @@ static void phase_verarbeiten(startbildschirm_schritt_t schritt, const char *nam
 
         if (ergebnis == PHASE_EINSTELLUNGEN) {
             netz_watchdog_pausieren(true);
-            einstellungen_bildschirm_verarbeiten();
+            s_demo_modus = einstellungen_bildschirm_verarbeiten();
             startbildschirm_reaktivieren();
             einrichtung_einstellungen_aufraeumen();
             netz_watchdog_pausieren(false);
-            continue; /* Phase erneut abwarten */
+            continue; /* Phase erneut abwarten (bzw. im Demo-Modus sofort ueberspringen) */
         }
 
         if (ergebnis == PHASE_WLAN_WECHSELN) {

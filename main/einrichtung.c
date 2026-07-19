@@ -538,6 +538,12 @@ static void einstellungen_kalenderurl_cb(lv_event_t *e)
     s_einstellungen_aktion = EINSTELLUNGEN_AKTION_KALENDER_URL;
 }
 
+static void einstellungen_demo_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_DEMO;
+}
+
 static void einstellungen_schliessen_cb(lv_event_t *e)
 {
     (void)e;
@@ -639,6 +645,7 @@ void einrichtung_einstellungen_zeigen(void)
     einstellungen_nav_button_erzeugen(reihe, "WLAN wechseln", einstellungen_wlan_cb);
     einstellungen_nav_button_erzeugen(reihe, "Datum, Uhrzeit einstellen", einstellungen_datum_cb);
     einstellungen_nav_button_erzeugen(reihe, "Kalender-Adresse aendern", einstellungen_kalenderurl_cb);
+    einstellungen_nav_button_erzeugen(reihe, "Demo-Modus", einstellungen_demo_cb);
 
     /* Tatsaechliche Hoehe der Reihe erst nach dem Layout-Durchlauf bekannt
      * (haengt davon ab, ob die drei Buttons in eine oder zwei Zeilen

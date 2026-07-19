@@ -288,6 +288,12 @@ Umweg über Testdaten war nicht mehr nötig.
   (sdkconfig.defaults: CONFIG_ESP_TASK_WDT_PANIC + CONFIG_ESP_COREDUMP_ENABLE_TO_UART).
   Nach dem Fix: 10+ intensive Menue-Runden ohne ein einziges Watchdog-Ereignis, von Peter
   bestaetigt stabil.
+- ✅ Nachtrag 6 (19.07.2026) — Demo-Modus fuer Vorfuehrungen ohne WLAN: neuer Button im
+  Einstellungen-Menue (Zahnrad ist ab der ersten Sekunde erreichbar), setzt die Uhrzeit auf den
+  festen Demo-Zeitstempel 18.07.2026 17:59 und ueberspringt alle noch offenen Boot-Phasen -
+  direkt zur Hauptanzeige statt 60s-Countdowns abzuwarten (Anlass: Biergarten-Vorfuehrung an
+  der Powerbank). Die Demo-Zeit wird bewusst NICHT als "zuletzt angezeigt" persistiert, damit
+  der Boot-Fallback zuhause nie mit dem Fantasie-Datum startet.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz
