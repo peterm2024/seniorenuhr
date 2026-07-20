@@ -314,6 +314,19 @@ Umweg über Testdaten war nicht mehr nötig.
   Ausserdem behoben: wirre Zeichen ("'_?0 Frueh") nach dem Zurueckschieben des Tabletten-
   Schiebers - lv_label_set_text bekam einen Zeiger in den eigenen Label-Puffer (siehe
   FALLSTRICKE #17).
+- ✅ Nachtrag 9 (19.07.2026) — Kalender-Adresse per Browser aendern (Web-Konfigurationsseite):
+  bisherige Wege waren entweder ein USB-Kabel zum Computer oder muehsames Abtippen der langen,
+  kryptischen Google-Calendar-URL auf dem Touchscreen. Neu: sobald WLAN besteht, laeuft ein
+  kleiner eingebauter Webserver (esp_http_server) mit einer einzigen Seite - "/" zeigt ein
+  Formular mit der aktuellen Kalender-Adresse, "/speichern" persistiert eine neue (leer =
+  zurueck auf secrets.h-Standard). Erreichbar per IP-Adresse oder ueber den registrierten
+  mDNS-Namen "seniorenuhr.local" (funktioniert von Handys/Mac i.d.R. sofort, Windows braucht
+  dafuer zusaetzlich Bonjour - dort einfach die IP-Adresse nutzen). Dabei ein Stack-Overflow im
+  httpd-Handler gefunden und behoben (siehe FALLSTRICKE #18). Ausserdem beim Testen bemerkt:
+  das Geraet lief noch auf einem versehentlich eingerichteten isolierten Gaeste-WLAN
+  ("Heimnetz G") - auf das normale Hauptnetz umgezogen, seitdem im selben Subnetz wie alle
+  anderen Heimgeraete erreichbar. Live per curl verifiziert: GET zeigt aktuelle URL, POST
+  speichert neue Adresse und faellt bei leerem Wert korrekt auf den secrets.h-Standard zurueck.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz

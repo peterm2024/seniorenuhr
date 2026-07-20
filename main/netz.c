@@ -1,5 +1,6 @@
 #include "netz.h"
 #include "secrets.h"
+#include "webkonfig.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -215,6 +216,12 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
         s_war_verbunden = true;
         s_getrennt_seit_us = 0;
         ESP_LOGI(TAG, "WLAN verbunden, IP-Adresse erhalten");
+        /* Bei jeder (Wieder-)Verbindung aufgerufen - webkonfig_start() ist
+         * intern gegen Mehrfachstart abgesichert, startet also nur beim
+         * allerersten Erfolg wirklich. Hier statt in app_main(), damit die
+         * Web-Konfiguration auch dann verfuegbar wird, wenn die erste
+         * Verbindung erst per Laufbetrieb-Neuscan (s.o.) zustande kommt. */
+        webkonfig_start();
     } else if (basis == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
         if (!s_scan_von_uns)
             return; /* fremder Scan (z. B. beste_konfiguration_ermitteln beim Boot) - nicht anfassen */

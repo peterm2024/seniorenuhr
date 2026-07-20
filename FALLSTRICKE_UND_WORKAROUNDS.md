@@ -177,3 +177,13 @@ Dieses Dokument dokumentiert die technischen Hürden, die während der Entwicklu
 **Loesung:** Vor dem `lv_label_set_text` immer erst in einen lokalen Puffer kopieren, wenn die Quelle aus demselben Widget stammt.
 
 **Lehre:** Gleiche Fehlerklasse wie der Dropdown-Fallstrick aus #16 (Punkt 3): LVGL-Setter duerfen NIE mit Zeigern gefuettert werden, die in den internen Puffer desselben Widgets zeigen — die Setter bauen diese Puffer waehrend des Aufrufs um. Bei jedem `lv_..._set_...(widget, quelle)` fragen: Wo zeigt `quelle` hin?
+
+## 18. Stack-Overflow im neuen Web-Konfigurationsserver (httpd) beim ersten Seitenaufruf
+
+**Problem:** Der neue `esp_http_server`-basierte Webserver (webkonfig.c, Kalender-Adresse per Browser aendern) stuerzte beim allerersten `GET /`-Aufruf sofort ab: `***ERROR*** A stack overflow in task ... has been detected`, danach Neustart (Panic).
+
+**Ursache:** `start_get_handler()` legt mehrere lokale Puffer an (URL, HTML-escapte Kopie, komplette Seite - zusammen ca. 4,3 KB), auf dem `httpd`-Standard-Task-Stack von nur 4096 Byte (`HTTPD_DEFAULT_CONFIG()`). Allein diese lokalen Variablen fuellten den Stack schon fast komplett, dazu kommt httpd's eigener Verbrauch fuers Parsen der HTTP-Anfrage obendrauf.
+
+**Loesung:** `httpd_config_t.stack_size` beim Serverstart auf 8192 gesetzt.
+
+**Lehre:** Dieselbe Fehlerklasse wie der WLAN-Scan-Stack-Overflow in netz.c (siehe #10 bzw. die Kommentare dort zu `wifi_ap_record_t aps[16]`): Jeder neue Task/Handler mit groesseren lokalen Puffern (String-Aufbau, Formularverarbeitung, HTML-Erzeugung o.ae.) braucht eine bewusste Ueberpruefung der Stackgroesse, nicht nur den jeweiligen Default. Vor dem ersten Live-Test kurz ueberschlagen: Summe der groessten lokalen Arrays vs. konfigurierte Stackgroesse.
