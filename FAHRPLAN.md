@@ -332,7 +332,9 @@ Umweg über Testdaten war nicht mehr nötig.
 - Fotos/Geburtstage einblenden, Wetter
 - DS3231-RTC-Modul, Helligkeitssensor
 - Zweites Gerät (z. B. Schlafzimmer)
-- **Akustische Erinnerung per Buzzer** (15.07.2026, noch nicht umgesetzt — fehlende Bauteile):
+- **Akustische Erinnerung per Buzzer** (15.07.2026, noch nicht umgesetzt — fehlende Bauteile;
+  19.07.2026: Alternative mit Lautsprecher+Verstärker durchgerechnet, aber wegen AliExpress-
+  Gesamtkosten verworfen — es bleibt vorerst beim einfachen Buzzer):
   Peter hat einen übrigen aktiven Magnet-Buzzer (Mainboard-Ersatzteil, 2 Adern, Polung "+"
   markiert) von einem Mainboard übrig. Anschluss geplant am "Sensor AD"-Header (J8) des
   Waveshare-Boards → GPIO6, laut Schaltplan der einzige dort exklusiv herausgeführte, sonst
@@ -343,6 +345,12 @@ Umweg über Testdaten war nicht mehr nötig.
   eigenen Oszillator). Steht im Widerspruch zur bisherigen "komplett stumm"-Entscheidung
   (Abschnitt 4). Die Ein/Aus-Einstellung dafür existiert bereits vorbereitet im neuen
   Einstellungen-Menü (siehe Phase 5) — wirkt erst, sobald der Buzzer tatsächlich verbaut ist.
+  **Mögliche spätere Alternative:** Lautsprecher statt Buzzer für einen weicheren Ton/eine
+  Melodie statt schrillem Piepen — PAM8403-Mini-Verstärkermodul (Class D, 2×3W) + 8-Ohm-
+  Lautsprecher (z. B. "8ohm 3W speaker 40mm"), am selben Sensor-AD-Header angeschlossen
+  (GPIO6 dann als LEDC-PWM-Tonausgang statt reinem An/Aus, 3V3/GND vom Header — Verstärker
+  müsste einen weiten Versorgungsbereich bis mind. 3,3V unterstützen). Zurückgestellt wegen
+  AliExpress-Gesamtkosten der Zusatzteile (Stand 19.07.2026).
 
 ---
 
