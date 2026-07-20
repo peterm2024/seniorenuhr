@@ -719,6 +719,30 @@ void einrichtung_einstellungen_zeigen(void)
     lv_obj_align(s_signal_bar, LV_ALIGN_TOP_LEFT, 30, schalter_y + 88);
 
     signal_aktualisieren();
+
+    /* Hinweis auf die Web-Konfiguration (webkonfig.c) - loest das muehsame
+     * Abtippen der langen Kalender-URL auf dem Touchscreen ab. Bei jedem
+     * Aufbau neu ermittelt statt per Timer - die IP-Adresse aendert sich
+     * waehrend einer laufenden Sitzung praktisch nie. */
+    char ip_text[16];
+    netz_ip_text(ip_text, sizeof ip_text);
+    char hinweis_text[160];
+    if (ip_text[0])
+        snprintf(hinweis_text, sizeof hinweis_text,
+                 "Kalender-Adresse per Browser aendern:\n"
+                 "Handy: http://seniorenuhr.local/\n"
+                 "Windows-PC: http://%s/", ip_text);
+    else
+        snprintf(hinweis_text, sizeof hinweis_text,
+                 "Kalender-Adresse per Browser aendern - verfuegbar, sobald WLAN verbunden ist.");
+
+    lv_obj_t *hinweis = lv_label_create(s_einstellungen_screen);
+    lv_label_set_text(hinweis, hinweis_text);
+    lv_label_set_long_mode(hinweis, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hinweis, 740);
+    lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(hinweis, lv_color_hex(0xa0a0a0), 0);
+    lv_obj_align(hinweis, LV_ALIGN_TOP_LEFT, 30, schalter_y + 124);
     /* Timer nur EINMAL erzeugen und danach pausieren/fortsetzen statt bei
      * jedem Menue-Aufbau loeschen und neu anlegen: das staendige
      * lv_timer_delete/lv_timer_create bei den Bildschirm-Uebergaengen war

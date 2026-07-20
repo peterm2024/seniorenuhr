@@ -5,6 +5,7 @@
 #define NETZ_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include "esp_err.h"
 
 /*
@@ -29,6 +30,12 @@ bool netz_ist_verbunden(void);
  * 0 wenn gerade nicht verbunden. Fuer eine Vor-Ort-Diagnose schwacher
  * Empfangsqualitaet (siehe Einstellungen-Menue in einrichtung.c). */
 int netz_rssi_dbm(void);
+
+/* Schreibt die aktuelle IPv4-Adresse als Text (z. B. "192.168.1.42") nach
+ * puffer, oder einen leeren String, falls gerade keine WLAN-Verbindung
+ * besteht. puffer_groesse sollte mindestens 16 Byte betragen. Fuer den
+ * Hinweis auf die Web-Konfiguration im Einstellungen-Menue (einrichtung.c). */
+void netz_ip_text(char *puffer, size_t puffer_groesse);
 
 /* Pausiert (true) bzw. entpausiert (false) den WLAN-Watchdog (30s ohne
  * Verbindung -> Neustart). Waehrend der Benutzer auf einem

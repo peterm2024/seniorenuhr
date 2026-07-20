@@ -54,6 +54,7 @@ static const char *TAG = "netz";
 #define WATCHDOG_GRENZE_LANG_US (7LL * 24 * 3600 * 1000000LL)
 #define WATCHDOG_PRUEF_INTERVALL_US (5LL * 1000000)
 
+static esp_netif_t *s_sta_netif;
 static volatile bool s_verbunden = false;
 static volatile bool s_war_verbunden = false; /* schon je eine IP bekommen? */
 static volatile bool s_watchdog_pausiert = false;
@@ -473,7 +474,7 @@ void netz_start(void)
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
+    s_sta_netif = esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&init_cfg));
@@ -520,6 +521,16 @@ int netz_rssi_dbm(void)
     if (esp_wifi_sta_get_ap_info(&info) != ESP_OK)
         return 0;
     return info.rssi;
+}
+
+void netz_ip_text(char *puffer, size_t puffer_groesse)
+{
+    puffer[0] = '\0';
+    if (!s_verbunden || !s_sta_netif)
+        return;
+    esp_netif_ip_info_t info;
+    if (esp_netif_get_ip_info(s_sta_netif, &info) == ESP_OK)
+        snprintf(puffer, puffer_groesse, IPSTR, IP2STR(&info.ip));
 }
 
 void netz_scan_starten(void)
