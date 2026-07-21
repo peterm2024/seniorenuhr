@@ -10,12 +10,24 @@ automatisch/regelmaessig.
 
 ## Namenskonvention
 
-`<bildschirm>_<datum-jjjj-mm-tt>.png`, z. B. `hauptanzeige_2026-07-21.png`.
-Das Werkzeug liefert BMP (unkomprimiert); vor dem Ablegen hier nach PNG
-konvertieren (deutlich kleiner, z. B. per Python/Pillow: `Image.open(...).save(...)`).
+Pro Aufnahme zwei Dateien (beide vom `tools/screenshot_dekodieren.py` automatisch
+aus der BMP-Rohaufnahme erzeugt, sofern Pillow installiert ist):
+
+- `<bildschirm>_<datum-jjjj-mm-tt>.png` — 1:1 Pixel-Rohdaten (800x480)
+- `<bildschirm>_<datum-jjjj-mm-tt>_proportional.png` — auf die REALEN
+  Bildschirm-Proportionen gestreckt (852x480)
+
+Hintergrund: das 7"-Waveshare-Panel hat keine quadratischen Pixel (Peters
+Nachmessung: 153,5mm x 86,5mm, Seitenverhaeltnis 16:9, waehrend die 800x480-
+Ansteuerung nur 5:3 liefert - jedes Pixel ist real ca. 6,5% breiter als hoch).
+Die Rohdaten-Version wirkt deshalb auf einem normalen Monitor leicht
+"gestaucht"; die "_proportional"-Version ist nur fuers Betrachten/die Doku
+entsprechend gestreckt, keine zweite echte Aufnahme - beide Varianten bleiben
+erhalten.
 
 ## Aktueller Stand
 
-- `hauptanzeige_2026-07-21.png` — Hauptanzeige (Nacht-Modus), erste erfolgreiche
-  Aufnahme nach Behebung aller Darstellungsfehler im Screenshot-Werkzeug
-  (siehe FALLSTRICKE_UND_WORKAROUNDS.md #19)
+- `hauptanzeige_2026-07-21.png` / `..._proportional.png` — Hauptanzeige
+  (Nacht-Modus), erste erfolgreiche Aufnahme nach Behebung aller
+  Darstellungsfehler im Screenshot-Werkzeug (siehe
+  FALLSTRICKE_UND_WORKAROUNDS.md #19)
