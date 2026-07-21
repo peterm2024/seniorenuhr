@@ -327,6 +327,16 @@ Umweg über Testdaten war nicht mehr nötig.
   ("Heimnetz G") - auf das normale Hauptnetz umgezogen, seitdem im selben Subnetz wie alle
   anderen Heimgeraete erreichbar. Live per curl verifiziert: GET zeigt aktuelle URL, POST
   speichert neue Adresse und faellt bei leerem Wert korrekt auf den secrets.h-Standard zurueck.
+- ✅ Nachtrag 10 (21.07.2026) — Bildschirmfoto-Entwicklungswerkzeug (nur fuer die Doku, kein
+  Laufzeit-Feature): ein Button unten mittig (liegt per lv_layer_top() automatisch ueber JEDEM
+  Bildschirm) nimmt ein Foto der gerade aktiven Anzeige auf und gibt es als Base64-BMP ueber die
+  serielle USB-Verbindung aus (Empfang/Dekodierung per kleinem Python-Skript). Ein erster Anlauf
+  ueber den Web-Konfigurationsserver (HTTP) scheiterte an extrem langsamer WLAN-Uebertragung
+  (~1,8 KB/s, vermutlich PSRAM/WLAN-Bus-Konkurrenz) und wurde komplett verworfen - da das Feature
+  ohnehin nur waehrend der Entwicklung gebraucht wird, war die serielle Verbindung der einfachere
+  und robustere Weg. Dabei zwei Task-Watchdog-Neustarts und ein "Geisterbild" durch nicht
+  genullten Puffer gefunden und behoben (siehe FALLSTRICKE #19). Vor dem Einzug bei den Eltern
+  wieder aus app_main.c entfernen.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz

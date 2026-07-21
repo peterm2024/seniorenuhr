@@ -69,3 +69,15 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 # so wurde die Endlosschleife aus FALLSTRICKE #16 gefunden).
 CONFIG_ESP_TASK_WDT_PANIC=y
 CONFIG_ESP_COREDUMP_ENABLE_TO_UART=y
+
+# Bildschirmfoto per BOOT-Taste (screenshot_debug.c) - reines Entwicklungs-
+# werkzeug fuer die Doku, Ausgabe als Base64-BMP ueber die serielle
+# Verbindung (kein Laufzeit-/Netzwerk-Feature - ein fruehrer HTTP-Ansatz
+# scheiterte an extrem langsamer Uebertragung, vermutlich PSRAM/WLAN-Bus-
+# Konkurrenz beim gleichzeitigen Lesen des ~1-MB-Puffers und WLAN-Versand).
+# Der Pixel-Puffer wird bewusst NICHT ueber lv_malloc() geholt (der bewusst
+# kleine, feste 64-KB-Pool siehe FALLSTRICKE #16 waere dafuer viel zu klein),
+# sondern manuell per heap_caps_malloc(...SPIRAM) direkt in einen selbst
+# gebauten lv_draw_buf_t gereicht - CONFIG_LV_MEM_SIZE_KILOBYTES bleibt
+# daher unveraendert bei 64.
+CONFIG_LV_USE_SNAPSHOT=y

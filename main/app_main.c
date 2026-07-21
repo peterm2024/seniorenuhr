@@ -22,6 +22,7 @@
 #include "freertos/task.h"
 #include "kalender_anzeige.h"
 #include "netz.h"
+#include "screenshot_debug.h"
 #include "startbildschirm.h"
 #include "tagesansicht.h"
 #include "zeit.h"
@@ -1101,6 +1102,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(anzeige_start());
     ESP_LOGI(TAG, "Start: Display bereit");
+    screenshot_debug_start(); /* Entwicklungswerkzeug: BOOT-Taste -> Screenshot ueber seriell */
     ui_aufbauen();            /* baut auf einem eigenen, noch verborgenen Screen */
     ESP_LOGI(TAG, "Start: Hauptbildschirm aufgebaut (noch verborgen)");
     startbildschirm_erstellen(); /* zeigt sich auf dem aktuell aktiven Default-Screen */
