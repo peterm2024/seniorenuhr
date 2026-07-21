@@ -10,8 +10,12 @@ automatisch/regelmaessig.
 
 ## Namenskonvention
 
-`<bildschirm>_<datum-jjjj-mm-tt>.bmp`, z. B. `hauptanzeige_2026-07-21.bmp`.
+`<bildschirm>_<datum-jjjj-mm-tt>.png`, z. B. `hauptanzeige_2026-07-21.png`.
+Das Werkzeug liefert BMP (unkomprimiert); vor dem Ablegen hier nach PNG
+konvertieren (deutlich kleiner, z. B. per Python/Pillow: `Image.open(...).save(...)`).
 
 ## Aktueller Stand
 
-*(noch keine Aufnahmen abgelegt)*
+- `hauptanzeige_2026-07-21.png` — Hauptanzeige (Nacht-Modus), erste erfolgreiche
+  Aufnahme nach Behebung aller Darstellungsfehler im Screenshot-Werkzeug
+  (siehe FALLSTRICKE_UND_WORKAROUNDS.md #19)

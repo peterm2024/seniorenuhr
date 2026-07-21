@@ -8,6 +8,14 @@
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
 
+/* PRIVATE LVGL-Header - bewusst fuer diesen reinen Entwicklungs-Zweck
+ * genutzt (siehe Kommentar bei screenshot_vollstaendig_rendern unten).
+ * Nicht Teil der offiziellen API, koennte sich mit einer neuen LVGL-Version
+ * aendern - unkritisch, da dieses ganze Modul vor dem Einzug bei Peters
+ * Eltern wieder aus app_main.c entfernt wird. */
+#include "core/lv_refr_private.h"
+#include "display/lv_display_private.h"
+
 #define BMP_HEADER_GROESSE 54
 
 static const char *TAG = "screenshot_debug";
@@ -18,35 +26,75 @@ static lv_obj_t *s_label;
  * siehe screenshot_task) und waere damit erneut antippbar. */
 static volatile bool s_laeuft = false;
 
+/* Ersetzt lv_snapshot_take_to_draw_buf() durch ein eigenes, IMMER
+ * vollstaendiges Neuzeichnen (entspricht dessen "top_obj == obj"-Zweig,
+ * siehe lv_snapshot.c). Grund: lv_snapshot_take_to_draw_buf() versucht per
+ * lv_refr_get_top_obj() eine Teil-Optimierung ("nur das Noetigste neu
+ * zeichnen") - die geht davon aus, dass der Zielpuffer bereits den
+ * vorherigen Frame enthaelt (wie beim echten Bildschirm-Refresh) und
+ * ueberspringt deshalb Geschwister-Objekte VOR dem gefundenen "top object".
+ * Bei einem frischen, leeren Snapshot-Puffer fuehrte das live dazu, dass
+ * einige Wochentag-Buttons an einer voellig falschen Position (verschoben
+ * zum rechten statt am linken Bildschirmrand) landeten. Nutzt bewusst zwei
+ * private LVGL-Funktionen (siehe Includes oben) - fuer dieses reine
+ * Entwicklungswerkzeug vertretbar. */
+static void screenshot_vollstaendig_rendern(lv_obj_t *screen, lv_draw_buf_t *draw_buf)
+{
+    lv_layer_t layer;
+    lv_layer_init(&layer);
+
+    lv_area_t voller_bereich = { 0, 0, (int32_t)draw_buf->header.w - 1, (int32_t)draw_buf->header.h - 1 };
+    layer.draw_buf = draw_buf;
+    layer.buf_area = voller_bereich;
+    layer.color_format = LV_COLOR_FORMAT_RGB888;
+    layer._clip_area = voller_bereich;
+    layer.phy_clip_area = voller_bereich;
+
+    lv_draw_unit_send_event(NULL, LV_EVENT_CHILD_CREATED, &layer);
+
+    lv_display_t *disp_alt = lv_refr_get_disp_refreshing();
+    lv_display_t *disp_neu = lv_obj_get_display(screen);
+    lv_layer_t *layer_alt = disp_neu->layer_head;
+    disp_neu->layer_head = &layer;
+    lv_refr_set_disp_refreshing(disp_neu);
+
+    lv_obj_redraw(&layer, screen);
+
+    layer.all_tasks_added = true;
+    while (layer.draw_task_head) {
+        lv_draw_dispatch_wait_for_request();
+        lv_draw_dispatch();
+    }
+
+    disp_neu->layer_head = layer_alt;
+    lv_refr_set_disp_refreshing(disp_alt);
+
+    lv_draw_unit_send_event(NULL, LV_EVENT_SCREEN_LOAD_START, &layer);
+    lv_draw_unit_send_event(NULL, LV_EVENT_CHILD_DELETED, &layer);
+}
+
 /* Baut aus "screen" ein 24bpp-BMP (Kopf + Pixeldaten in einem
  * zusammenhaengenden PSRAM-Puffer, Reserve am Anfang fuer den Kopf).
  * Rueckgabe: Zeiger auf den Puffer (vom Aufrufer per heap_caps_free()
  * freizugeben) oder NULL bei Fehler; *datei_groesse_aus liefert die
- * tatsaechliche Groesse (Kopf + Bilddaten, OHNE den ungenutzten Rest des
- * grosszuegig bemessenen Puffers).
+ * tatsaechliche Groesse.
  *
- * Grosszuegiger Sicherheitsrand (+64px) statt der privaten "ext draw
- * size"-API - unsere Screens haben keine ueber die Objektgrenze
- * hinausragenden Schatten.
- *
- * Nutzt bewusst lv_snapshot_take_to_draw_buf() mit einem SELBST allozierten
- * PSRAM-Puffer statt der bequemeren lv_snapshot_take(): letztere holt ihren
- * Speicher ueber lv_malloc(), das hier aber auf den bewusst kleinen, festen
- * 64-KB-LVGL-Pool begrenzt ist (siehe FALLSTRICKE #16, sdkconfig.defaults
+ * Puffer wird SELBST per heap_caps_malloc(...SPIRAM) alloziert statt ueber
+ * die bequemere lv_snapshot_take(): letztere holt ihren Speicher ueber
+ * lv_malloc(), das hier aber auf den bewusst kleinen, festen 64-KB-LVGL-
+ * Pool begrenzt ist (siehe FALLSTRICKE #16, sdkconfig.defaults
  * CONFIG_LV_MEM_SIZE_KILOBYTES=64) - ein Screenshot-Puffer fuer 800x480
  * braucht dagegen gut 1 MB. */
 static uint8_t *screenshot_aufnehmen(lv_obj_t *screen, uint32_t *datei_groesse_aus)
 {
     lvgl_port_lock(0);
     lv_obj_update_layout(screen);
-    int32_t obj_w = lv_obj_get_width(screen);
-    int32_t obj_h = lv_obj_get_height(screen);
+    uint32_t w = (uint32_t)lv_obj_get_width(screen);
+    uint32_t h = (uint32_t)lv_obj_get_height(screen);
     lvgl_port_unlock();
 
-    uint32_t alloc_w = (uint32_t)obj_w + 64;
-    uint32_t alloc_h = (uint32_t)obj_h + 64;
-    uint32_t alloc_stride = lv_draw_buf_width_to_stride(alloc_w, LV_COLOR_FORMAT_RGB888);
-    size_t puffer_groesse = (size_t)alloc_stride * (size_t)alloc_h;
+    uint32_t stride = lv_draw_buf_width_to_stride(w, LV_COLOR_FORMAT_RGB888);
+    size_t puffer_groesse = (size_t)stride * (size_t)h;
 
     uint8_t *gesamt_puffer = heap_caps_malloc(BMP_HEADER_GROESSE + puffer_groesse, MALLOC_CAP_SPIRAM);
     if (!gesamt_puffer) {
@@ -55,50 +103,23 @@ static uint8_t *screenshot_aufnehmen(lv_obj_t *screen, uint32_t *datei_groesse_a
         return NULL;
     }
     uint8_t *pixel_puffer = gesamt_puffer + BMP_HEADER_GROESSE;
-    /* lv_snapshot_take_to_draw_buf() loescht den Puffer nur, wenn intern
-     * KEIN "top object" gefunden wird (siehe lv_snapshot.c) - sonst bleibt
-     * der Inhalt des frisch von heap_caps_malloc() geholten (NICHT
-     * genullten) PSRAM-Puffers teilweise stehen und schimmert durch
-     * kantengeglaettete/halbtransparente Bereiche (grosse Uhrzeit-Ziffern,
-     * Ueberschriften) als Geisterbild/Farbsaum durch - live beobachtet.
-     * Vorsorglich selbst auf Schwarz setzen. */
-    memset(pixel_puffer, 0, puffer_groesse);
+    memset(pixel_puffer, 0, puffer_groesse); /* sauberer schwarzer Hintergrund */
 
     lv_draw_buf_t draw_buf = {0};
     draw_buf.header.magic = LV_IMAGE_HEADER_MAGIC;
     draw_buf.header.cf = LV_COLOR_FORMAT_RGB888;
-    draw_buf.header.w = alloc_w;
-    draw_buf.header.h = alloc_h;
-    draw_buf.header.stride = alloc_stride;
+    draw_buf.header.w = w;
+    draw_buf.header.h = h;
+    draw_buf.header.stride = stride;
     draw_buf.data = pixel_puffer;
     draw_buf.data_size = puffer_groesse;
 
     lvgl_port_lock(0);
-    lv_result_t ergebnis = lv_snapshot_take_to_draw_buf(screen, LV_COLOR_FORMAT_RGB888, &draw_buf);
+    screenshot_vollstaendig_rendern(screen, &draw_buf);
     lvgl_port_unlock();
 
-    if (ergebnis != LV_RESULT_OK) {
-        ESP_LOGW(TAG, "Screenshot fehlgeschlagen (lv_snapshot_take_to_draw_buf)");
-        heap_caps_free(gesamt_puffer);
-        return NULL;
-    }
-
-    uint32_t w = draw_buf.header.w;
-    uint32_t h = draw_buf.header.h;
-    uint32_t stride = draw_buf.header.stride;
     uint32_t zeilen_bytes = w * 3;
     uint32_t bild_groesse = zeilen_bytes * h;
-    ESP_LOGI(TAG, "w=%u h=%u stride=%u zeilen_bytes=%u", (unsigned)w, (unsigned)h,
-             (unsigned)stride, (unsigned)zeilen_bytes);
-
-    /* Falls LVGL Zeilen-Padding verwendet hat (stride > zeilen_bytes - fuer
-     * unsere feste Bildschirmbreite in der Praxis nie der Fall): Zeilen
-     * luecken-frei zusammenschieben, damit ein einziger zusammenhaengender
-     * Bereich base64-kodiert werden kann. */
-    if (stride != zeilen_bytes) {
-        for (uint32_t zeile = 1; zeile < h; zeile++)
-            memmove(pixel_puffer + zeile * zeilen_bytes, pixel_puffer + zeile * stride, zeilen_bytes);
-    }
 
     uint8_t *kopf = gesamt_puffer;
     memset(kopf, 0, BMP_HEADER_GROESSE);

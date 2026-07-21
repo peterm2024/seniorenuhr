@@ -335,8 +335,14 @@ Umweg über Testdaten war nicht mehr nötig.
   (~1,8 KB/s, vermutlich PSRAM/WLAN-Bus-Konkurrenz) und wurde komplett verworfen - da das Feature
   ohnehin nur waehrend der Entwicklung gebraucht wird, war die serielle Verbindung der einfachere
   und robustere Weg. Dabei zwei Task-Watchdog-Neustarts und ein "Geisterbild" durch nicht
-  genullten Puffer gefunden und behoben (siehe FALLSTRICKE #19). Vor dem Einzug bei den Eltern
-  wieder aus app_main.c entfernen.
+  genullten Puffer gefunden und behoben (siehe FALLSTRICKE #19). Danach noch ein vierter Fehler
+  gefunden (per Quellcode-Vergleich zweifelsfrei bestaetigt, nicht nur "so gesehen"): einige
+  Wochentag-Buttons erschienen am falschen (rechten statt linken) Bildschirmrand, weil LVGLs
+  eingebaute Snapshot-Funktion eine fuer echte Bildschirm-Refreshs gedachte Teil-Redraw-
+  Optimierung nutzt, die bei einem frischen, leeren Puffer nicht passt - durch eine eigene,
+  immer vollstaendig neu zeichnende Ersatzfunktion behoben (FALLSTRICKE #19, Fallstrick D). Alle
+  sieben Wochentag-Buttons stehen jetzt nachweislich korrekt in einer Spalte am linken Rand.
+  Vor dem Einzug bei den Eltern wieder aus app_main.c entfernen.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
   bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz
