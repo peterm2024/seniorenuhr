@@ -343,10 +343,21 @@ Umweg über Testdaten war nicht mehr nötig.
   immer vollstaendig neu zeichnende Ersatzfunktion behoben (FALLSTRICKE #19, Fallstrick D). Alle
   sieben Wochentag-Buttons stehen jetzt nachweislich korrekt in einer Spalte am linken Rand.
   Vor dem Einzug bei den Eltern wieder aus app_main.c entfernen.
+- ✅ Nachtrag 11 (21.07.2026) — Kalender-Sync dauerhaft tot (durchgestrichenes Symbol auf dem
+  Doku-Screenshot bemerkt): Kalender-Downloads scheiterten seit einigen Features (Web-Konfig,
+  mDNS, WLAN-Neuscan-Task, Screenshot-Werkzeug) ausnahmslos, live im Log als
+  `mbedtls_ssl_setup returned -0x7F00` (Speicher-Allokationsfehler) erkannt. Ursache: mbedTLS
+  war per `CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC` (ESP-IDF-Standard) darauf festgelegt, seine
+  ueber 20 KB grossen SSL-Puffer zwingend aus dem knappen internen SRAM (~200 KB) statt aus dem
+  fast ungenutzten 8-MB-PSRAM zu holen - die zusaetzlichen Tasks/Stacks der neueren Features
+  liessen dafuer keinen Platz mehr. Behoben durch `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y`
+  (sdkconfig.defaults). Live verifiziert: Download klappt seitdem zuverlaessig (siehe
+  FALLSTRICKE #20).
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
-- ⬜ Beobachtet, aber noch nicht behoben: gelegentliche NTP-/Kalender-Verbindungsfehler trotz
-  bestehender WLAN-Verbindung; evtl. mit demselben schwachen WLAN-Signal am Testplatz
-  zusammenhaengend (siehe Nachtrag 2) - durch Nachtrag 3 aber ohnehin nicht mehr
+- ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
+  einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
+  (`MBEDTLS_ERR_SSL_CONN_EOF` waehrend des TLS-Handshakes) - heilt sich ueber die bestehende
+  30s-Wiederholung zuverlaessig von selbst, durch Nachtrag 3 ohnehin nicht mehr
   neustart-kritisch, da die Anzeige davon unabhaengig laeuft
 - **Ziel:** Eine Woche Dauerlauf bei den Eltern ohne Eingriff
 

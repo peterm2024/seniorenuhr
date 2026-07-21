@@ -59,6 +59,16 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 
+# mbedTLS-Puffer (SSL-In/Out ~20KB, siehe CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN)
+# aus dem 8-MB-PSRAM statt aus dem knappen internen ~200-KB-SRAM holen.
+# Live beobachtet: nach Hinzunahme von Web-Konfigurationsserver, mDNS,
+# WLAN-Laufbetrieb-Neuscan-Task und Screenshot-Werkzeug reichte der interne
+# Speicher fuer den TLS-Handshake nicht mehr - JEDER Kalender-Download
+# scheiterte dauerhaft mit "mbedtls_ssl_setup returned -0x7F00"
+# (MBEDTLS_ERR_SSL_ALLOC_FAILED), das durchgestrichene Kalender-Symbol blieb
+# fuer immer stehen. Default war CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+
 # Selbstheilung + Ferndiagnose bei haengenden Tasks (siehe FALLSTRICKE #16):
 # Bleibt eine Task (z.B. die LVGL-Task) dauerhaft haengen, loest der
 # Task-Watchdog nach 5s eine Panic mit anschliessendem Neustart aus, statt
