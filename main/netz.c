@@ -82,6 +82,17 @@ static volatile bool s_scan_von_uns = false;
  * (esp_timer_get_time), seit dem ununterbrochen keine Verbindung besteht. */
 static volatile int64_t s_getrennt_seit_us = 0;
 
+/* true, solange der WLAN-Einrichtungsbildschirm offen ist (siehe
+ * netz_verbindungsversuche_pausieren): Der Reconnect-Kreislauf (jedes
+ * STA_DISCONNECTED startet sofort den naechsten esp_wifi_connect) haelt das
+ * Funkmodul sonst dauerhaft in einem Verbindungsversuch, und JEDER
+ * esp_wifi_scan_start aus dem Einrichtungsbildschirm scheitert mit
+ * ESP_ERR_WIFI_STATE - die Netzwerkliste bleibt leer. Zu Hause fiel das nie
+ * auf (Heimnetz sichtbar -> verbunden -> kein Reconnect aktiv); beim
+ * Aufstellen bei den Eltern (kein gespeichertes Netz sichtbar) fand die
+ * Suche deshalb keine einzige SSID. */
+static volatile bool s_verbindungsversuche_pausiert = false;
+
 /* Neuverbindungs-Scan im Laufbetrieb: Der Reconnect nach einem Abbruch
  * probiert stur immer wieder das ZULETZT verbundene Netz - ein erneuter
  * Scan ueber alle gespeicherten Profile passierte bisher nur beim Boot
@@ -150,6 +161,7 @@ static void wifi_watchdog_callback(void *arg)
      * alle 60s einen anstossen, und nie zwei gleichzeitig. */
     if (s_watchdog_grenze_us == WATCHDOG_GRENZE_LANG_US &&
         offline_us > NEUSCAN_NACH_US && !s_neuscan_laeuft &&
+        !s_verbindungsversuche_pausiert &&
         esp_timer_get_time() >= s_naechster_neuscan_us) {
         s_naechster_neuscan_us = esp_timer_get_time() + NEUSCAN_NACH_US;
         s_neuscan_laeuft = true;
@@ -195,6 +207,28 @@ void netz_watchdog_pausieren(bool pausieren)
         s_getrennt_seit_us = esp_timer_get_time();
 }
 
+/* Haelt den Reconnect-Kreislauf an, solange der WLAN-Einrichtungsbildschirm
+ * offen ist - sonst blockiert der Dauer-Verbindungsversuch jeden Scan (siehe
+ * Kommentar bei s_verbindungsversuche_pausiert). Beim Pausieren wird ein
+ * gerade laufender Verbindungsversuch aktiv abgebrochen (gleiches Muster wie
+ * neuverbindung_task), damit der erste Scan nicht erst dessen Timeout
+ * abwarten muss; eine BESTEHENDE Verbindung bleibt unangetastet (verbunden
+ * darf das Funkmodul ohnehin scannen). Beim Fortsetzen wird der Kreislauf
+ * wieder angeworfen, falls keine Verbindung besteht. */
+void netz_verbindungsversuche_pausieren(bool pausieren)
+{
+    s_verbindungsversuche_pausiert = pausieren;
+    if (pausieren) {
+        if (!s_verbunden) {
+            ESP_LOGI(TAG, "Verbindungsversuche pausiert (Einrichtungsbildschirm offen)");
+            esp_wifi_disconnect();
+        }
+    } else if (!s_verbunden) {
+        ESP_LOGI(TAG, "Verbindungsversuche fortgesetzt");
+        esp_wifi_connect();
+    }
+}
+
 static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void *daten)
 {
     (void)arg; (void)daten;
@@ -207,8 +241,10 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
          * neuen Verbindungsversuch starten - ein laufender Verbindungs-
          * aufbau wuerde dessen Scan zum Fehlschlagen bringen. Die Task
          * selbst ruft am Ende esp_wifi_connect() auf und haelt damit den
-         * Reconnect-Kreislauf am Leben. */
-        if (s_neuscan_laeuft)
+         * Reconnect-Kreislauf am Leben. Gleiches gilt fuer den offenen
+         * WLAN-Einrichtungsbildschirm (siehe s_verbindungsversuche_pausiert)
+         * - dessen Ende wirft den Kreislauf selbst wieder an. */
+        if (s_neuscan_laeuft || s_verbindungsversuche_pausiert)
             return;
         ESP_LOGW(TAG, "WLAN-Verbindung verloren, versuche erneut...");
         esp_wifi_connect();
@@ -489,6 +525,14 @@ void netz_start(void)
      * mehr auf WIFI_EVENT_STA_START, das wuerde die Scan-Auswahl umgehen). */
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    /* Laenderkennung Deutschland: Ohne diese Angabe laeuft der Treiber im
+     * "World Safe Mode" (Kennung "01") und scannt nur die Kanaele 1-11
+     * vollwertig - deutsche Router duerfen aber auch auf Kanal 12/13 senden
+     * und werden dann bei der Netzwerksuche uebersehen. Das Geraet steht
+     * fest in Deutschland. Der zweite Parameter (true) laesst den Treiber
+     * die Kennung nach dem Verbinden per 802.11d vom Router uebernehmen. */
+    ESP_ERROR_CHECK(esp_wifi_set_country_code("DE", true));
 
     wifi_config_t wifi_cfg;
     const char *quelle;

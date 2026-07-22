@@ -375,6 +375,17 @@ Umweg über Testdaten war nicht mehr nötig.
   betroffen (bleibt auch auf dem Eltern-Geraet verfuegbar, Peters Wunsch). Board 1 mit dem vollen
   Dev-Stand geflasht, Board 2 mit dem Produktions-Build (Screenshot-Button per Boot-Log als
   entfernt bestaetigt). Damit beginnt faktisch Phase 6 (erstes Test-Geraet bei den Eltern).
+- ✅ Nachtrag 14 (22.07.2026) — WLAN-Suche fand beim Aufstellen bei den Eltern keine SSID:
+  Board 2 wurde zu den Eltern gebracht, aber die Netzwerkliste im WLAN-Bildschirm blieb dort
+  komplett leer. Ursache: ohne sichtbares bekanntes Netz haelt der Reconnect-Kreislauf das
+  Funkmodul dauerhaft in einem Verbindungsversuch, und jeder Scan scheitert mit
+  `ESP_ERR_WIFI_STATE` - zu Hause nie aufgefallen, weil dort immer ein bekanntes Netz verbunden
+  war. Behoben durch `netz_verbindungsversuche_pausieren()` (Reconnect ruht, solange der
+  WLAN-Bildschirm offen ist); zusaetzlich Laenderkennung DE gesetzt, damit auch Kanal 12/13
+  gescannt werden (World-Safe-Mode-Standard kann nur 1-11 vollwertig). Auf Board 1 mit
+  nachgestelltem Eltern-Szenario (Fantasie-SSID, geloeschtes NVS) reproduziert und den Fix
+  live verifiziert (Details FALLSTRICKE #21). Board 2 braucht dafuer einen Neuflash vor Ort
+  (Produktions-Build, siehe Nachtrag 13) - OTA gibt es noch nicht.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal

@@ -222,3 +222,51 @@ Dieses Dokument dokumentiert die technischen Hürden, die während der Entwicklu
 **Loesung:** In `sdkconfig.defaults` (und passend in `sdkconfig`) `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y` statt `CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC` gesetzt - verschiebt dieselben Puffer per `MALLOC_CAP_SPIRAM` ins PSRAM. Live verifiziert: Download gelang danach zuverlaessig (ein paar vereinzelte `MBEDTLS_ERR_SSL_CONN_EOF`-Fehlschlaege bei schwachem Signal blieben, heilen sich aber ueber die bestehende 30s-Wiederholung von selbst - das ist das schon laenger bekannte, unkritische Problem aus FAHRPLAN.md).
 
 **Lehre:** Bei einem ESP32 mit PSRAM gilt dieselbe Grundregel wie schon fuer den Screenshot-Puffer (#19) oder LVGLs `lv_malloc()`-Pool: grosse, selten aber "auf einen Schlag" gebrauchte Puffer (TLS-Handshake, Snapshot, HTTP-Bodies) gehoeren ins PSRAM, der knappe interne SRAM bleibt sonst schnell die tatsaechliche Obergrenze fuer gleichzeitig laufende Features - auch wenn jedes einzelne Feature fuer sich harmlos wirkt. Ein Fehler, der bei JEDEM Versuch identisch auftritt (nicht nur gelegentlich), deutet eher auf eine strukturelle Ressourcengrenze hin als auf ein Netzwerk-/Signalproblem - ein Blick ins Log klaert das in Sekunden, bevor man in die falsche Richtung (WLAN-Signal, Server, URL) weitersucht.
+
+## 21. WLAN-Netzwerksuche fand beim Aufstellen bei den Eltern keine einzige SSID
+
+**Problem:** Beim Aufstellen des Geraets bei den Eltern blieb die Netzwerkliste
+im WLAN-Einrichtungsbildschirm dauerhaft leer ("Suche Netzwerke...") - keine
+einzige SSID, auch keine Nachbarnetze. Bei allen Tests zu Hause hatte dieselbe
+Suche immer zuverlaessig funktioniert.
+
+**Ursache:** Der Reconnect-Kreislauf blockierte jeden Scan. Ist kein gespeichertes
+Netz in Reichweite (genau die Situation beim ersten Aufstellen an einem neuen Ort),
+startet der `WIFI_EVENT_STA_DISCONNECTED`-Handler in `netz.c` nach jedem
+fehlgeschlagenen Verbindungsversuch sofort bedingungslos den naechsten
+`esp_wifi_connect()` - das Funkmodul steckt damit praktisch DAUERHAFT in einem
+Verbindungsversuch (live gemessen: alle 2,4s ein neuer). Waehrend eines laufenden
+Verbindungsaufbaus schlaegt `esp_wifi_scan_start()` aber grundsaetzlich mit
+`ESP_ERR_WIFI_STATE` fehl - jeder der alle 2s wiederholten Scans des
+Einrichtungsbildschirms scheiterte sofort, die Liste blieb leer. Zu Hause konnte
+das nie auffallen: dort war immer ein gespeichertes Netz sichtbar, das Geraet also
+verbunden, und ein verbundenes Funkmodul darf scannen. Der Effekt war sogar schon
+einmal halb entdeckt worden: ein Kommentar in `wlan_scan_tick_cb` (einrichtung.c)
+erwaehnte das Scan-Scheitern bei parallelem Verbindungsaufbau explizit - behandelt
+wurde damals aber nur der Log-Spam (2s-Drossel), nicht die Ursache.
+
+**Loesung:** Neue Funktion `netz_verbindungsversuche_pausieren(bool)` in netz.c:
+`einrichtung_wlan_zeigen()` haelt damit den Reconnect-Kreislauf an (ein gerade
+laufender Verbindungsversuch wird per `esp_wifi_disconnect()` aktiv abgebrochen,
+eine BESTEHENDE Verbindung bleibt unangetastet), `einrichtung_wlan_aufraeumen()`
+wirft ihn wieder an. Der Laufbetrieb-Neuscan (60s-Watchdog) pausiert mit.
+Reproduziert und verifiziert auf Board 1 (Fantasie-SSID + geloeschtes NVS =
+Eltern-Szenario): vor dem Oeffnen des Bildschirms lief die Reconnect-Schleife,
+nach dem Antippen von "WLAN wechseln" kam "Verbindungsversuche pausiert" und die
+Scans fanden sofort Netze (vorher: null).
+
+**Zusaetzlich (zweite, unabhaengige Luecke):** Ohne explizite Laenderkennung
+laeuft der WLAN-Treiber im "World Safe Mode" (Kennung "01") und scannt nur die
+Kanaele 1-11 vollwertig - deutsche Router duerfen aber auch auf Kanal 12/13
+senden und wuerden uebersehen. Deshalb in `netz_start()` jetzt
+`esp_wifi_set_country_code("DE", true)` gesetzt (true = Kennung nach dem
+Verbinden per 802.11d vom Router uebernehmen).
+
+**Lehre:** Ein Feature, das nur in einer bestimmten Umgebungssituation gebraucht
+wird (WLAN-Suche -> vor allem dann, wenn KEIN bekanntes Netz da ist), muss genau
+in dieser Situation getestet werden - nicht nur in der Entwicklungsumgebung, wo
+die Situation nie eintritt. Der Testaufbau dafuer war simpel (Fantasie-SSID in
+secrets.h + NVS loeschen) und haette den Fehler vor dem Aufstellen gefunden.
+Ausserdem: Wenn ein Code-Kommentar einen Fehlerfall bereits benennt ("Scan
+schlaegt waehrend Verbindungsaufbau fehl"), lohnt die Frage, ob er nur ein
+Symptom daempft oder die eigentliche Ursache unbehandelt laesst.

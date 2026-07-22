@@ -266,6 +266,11 @@ void einrichtung_wlan_zeigen(void)
      * Liste zeigt bis dahin einen Platzhaltertext. */
     s_wlan_scan_anzahl = 0;
     s_wlan_letzte_optionen[0] = '\0'; /* frischer Bildschirm = frische Liste */
+    /* Reconnect-Kreislauf anhalten, BEVOR der erste Scan startet - ohne
+     * sichtbares bekanntes Netz haengt das Funkmodul sonst dauerhaft in
+     * einem Verbindungsversuch und jeder Scan schlaegt fehl, die Liste
+     * bliebe leer (siehe netz_verbindungsversuche_pausieren in netz.h). */
+    netz_verbindungsversuche_pausieren(true);
     netz_scan_starten();
 
     s_wlan_dropdown = lv_dropdown_create(s_wlan_screen);
@@ -336,6 +341,7 @@ einrichtung_status_t einrichtung_wlan_status(void)
 
 void einrichtung_wlan_aufraeumen(void)
 {
+    netz_verbindungsversuche_pausieren(false); /* Gegenstueck zu einrichtung_wlan_zeigen */
     lvgl_port_lock(0);
     if (s_wlan_scan_timer)
         lv_timer_pause(s_wlan_scan_timer); /* pausieren statt loeschen, siehe FALLSTRICKE #16 */

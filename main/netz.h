@@ -44,6 +44,15 @@ void netz_ip_text(char *puffer, size_t puffer_groesse);
  * ausloesen (siehe app_main.c). */
 void netz_watchdog_pausieren(bool pausieren);
 
+/* Pausiert (true) bzw. entpausiert (false) die automatischen
+ * Verbindungsversuche. MUSS gesetzt sein, solange der WLAN-
+ * Einrichtungsbildschirm offen ist: Ist kein bekanntes Netz in Reichweite,
+ * steckt das Funkmodul sonst dauerhaft in einem Verbindungsversuch und jeder
+ * Scan der Netzwerksuche schlaegt mit ESP_ERR_WIFI_STATE fehl - die Liste
+ * bleibt leer (so beim Aufstellen bei den Eltern passiert). Wird von
+ * einrichtung_wlan_zeigen()/einrichtung_wlan_aufraeumen() gerufen. */
+void netz_verbindungsversuche_pausieren(bool pausieren);
+
 /* Lockert die Neustart-Schwelle des Watchdogs von 30s auf 1 Woche - einmal
  * von app_main() aufgerufen, sobald der Hauptbildschirm zum ersten Mal
  * erreicht ist (WLAN/Zeit/Kalender einmal erfolgreich durchgelaufen). Die
