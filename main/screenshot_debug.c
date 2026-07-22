@@ -43,12 +43,31 @@ static void screenshot_vollstaendig_rendern(lv_obj_t *screen, lv_draw_buf_t *dra
     lv_layer_t layer;
     lv_layer_init(&layer);
 
-    lv_area_t voller_bereich = { 0, 0, (int32_t)draw_buf->header.w - 1, (int32_t)draw_buf->header.h - 1 };
+    /* Den Puffer an der tatsaechlichen linken oberen Ecke des Screens
+     * verankern (NICHT hart auf {0,0}), genauso wie es lv_snapshot.c macht.
+     * Sitzt der Screen exakt bei (0,0) - der Normalfall im Ruhezustand -
+     * ist das identisch zu {0,0,w-1,h-1}. Steht der Screen aber
+     * voruebergehend verschoben (live beobachtet: waehrend des Bootens war
+     * der Startbildschirm um 121px versetzt, vermutlich ein transienter
+     * Layout-/Transitionszustand), zeichnete die alte {0,0}-Variante ALLE
+     * Objekte um genau diesen Versatz daneben - auf dem echten Display
+     * unsichtbar (dessen Refresh rechnet korrekt), nur im Screenshot. Durch
+     * Ausrichten von buf_area/clip an den Screen-Koordinaten landen die
+     * Kinder immer relativ zum Screen-Ursprung korrekt im Bild. */
+    lv_area_t screen_bereich;
+    lv_obj_get_coords(screen, &screen_bereich);
+    /* Die ext_draw_size (ueberstehende Schatten/Umrisse) lassen wir bewusst
+     * weg - ein Screen hat keine, und die noetige Funktion ist ausserhalb
+     * von LVGL nicht oeffentlich deklariert. */
+
     layer.draw_buf = draw_buf;
-    layer.buf_area = voller_bereich;
+    layer.buf_area.x1 = screen_bereich.x1;
+    layer.buf_area.y1 = screen_bereich.y1;
+    layer.buf_area.x2 = screen_bereich.x1 + (int32_t)draw_buf->header.w - 1;
+    layer.buf_area.y2 = screen_bereich.y1 + (int32_t)draw_buf->header.h - 1;
     layer.color_format = LV_COLOR_FORMAT_RGB888;
-    layer._clip_area = voller_bereich;
-    layer.phy_clip_area = voller_bereich;
+    layer._clip_area = screen_bereich;
+    layer.phy_clip_area = screen_bereich;
 
     lv_draw_unit_send_event(NULL, LV_EVENT_CHILD_CREATED, &layer);
 
