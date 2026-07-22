@@ -20,3 +20,6 @@ secrets.h
 
 # lokal heruntergeladener Kalender (enthaelt private Termine)
 kalender.ics
+
+# Python-Bytecode (z.B. vom Testen des Screenshot-Dekodier-Skripts)
+__pycache__/
