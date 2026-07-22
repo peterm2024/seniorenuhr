@@ -36,3 +36,8 @@ erhalten.
   mit Countdown-Ring, Kalender-Schritt steht noch aus). Aufgenommen auf dem
   zweiten Board nach Behebung des 121px-Versatzes (FALLSTRICKE #19,
   Fallstrick E)
+- `tagesansicht_2026-07-22.png` / `..._proportional.png` — Tagesansicht-Dialog
+  ("Heute", 22. Juli 2026) mit den drei Tabletten-Erinnerungen Frueh/Mittag/
+  Abend als Kippschalter, Mittag bereits abgehakt. Aufgenommen auf Board 1
+  (Entwicklungsboard) - erste Aufnahme mit der neuen Referenzmarken-
+  Selbstkontrolle (kein Versatz erkannt, siehe FALLSTRICKE #19, Fallstrick E)
