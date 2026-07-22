@@ -353,6 +353,18 @@ Umweg über Testdaten war nicht mehr nötig.
   liessen dafuer keinen Platz mehr. Behoben durch `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y`
   (sdkconfig.defaults). Live verifiziert: Download klappt seitdem zuverlaessig (siehe
   FALLSTRICKE #20).
+- ✅ Nachtrag 12 (21.07.2026) — Zweites Board in Betrieb genommen und Screenshot-Werkzeug
+  gehaertet: Das baugleiche zweite ESP32-S3-Board flasht/bootet identisch (Display, Touch, WLAN,
+  Kalender-Sync alle in Ordnung). Beim Testen fiel ein reiner Aufnahme-Fehler auf: ein Boot-
+  Screenshot des Startbildschirms zeigte ALLES um 121px nach links verschoben (auf dem echten
+  Display korrekt, nur im Bild). Ursache: die Snapshot-Funktion verankerte den Render-Puffer hart
+  bei (0,0) statt an den echten Screen-Koordinaten - behoben (FALLSTRICKE #19, Fallstrick E).
+  Zusaetzlich Peters Idee einer Versatz-Selbstkontrolle umgesetzt: beim Aufnehmen wird eine
+  schmale Magenta-Referenzlinie an eine feste Spalte mitgerendert; das Dekodier-Skript prueft ihre
+  Ankunftsposition, meldet/korrigiert einen etwaigen Versatz (Render ODER serielle Uebertragung)
+  und rechnet die Marke danach wieder heraus. End-to-End live verifiziert (Marke bei x=10, kein
+  Versatz, im fertigen Bild rueckstandslos entfernt). Doku-Screenshots des Startbildschirms
+  ergaenzt (docs/screenshots/).
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal

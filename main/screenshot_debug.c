@@ -18,6 +18,20 @@
 
 #define BMP_HEADER_GROESSE 54
 
+/* Referenzmarke zur Versatz-Selbstkontrolle (Peters Idee): eine schmale
+ * vertikale Linie in einer im UI sonst nie verwendeten Signalfarbe wird NUR
+ * fuer die Aufnahme kurz als Kind des Screens hinzugefuegt - sie durchlaeuft
+ * damit denselben Render-Weg wie alle anderen Objekte. Findet das
+ * Dekodier-Skript (tools/screenshot_dekodieren.py) sie nicht an ihrer
+ * Soll-Spalte wieder, hat ein Versatz stattgefunden (Render ODER serielle
+ * Uebertragung), und der gemessene Abstand verraet ihn exakt; das Skript
+ * rechnet die Marke danach wieder heraus. Da sie unter dem LVGL-Lock
+ * hinzugefuegt und noch vor dem Freigeben wieder geloescht wird, sieht der
+ * echte Display-Refresh sie nie (kein Aufblitzen auf dem Geraet). */
+#define REFERENZ_MARKE_X 10
+#define REFERENZ_MARKE_BREITE 2
+#define REFERENZ_MARKE_FARBE 0xFF00FF /* Magenta - im UI (Blau/Grau/Weiss/Gelb/Schwarz) nirgends verwendet */
+
 static const char *TAG = "screenshot_debug";
 static lv_obj_t *s_button;
 static lv_obj_t *s_label;
@@ -134,7 +148,22 @@ static uint8_t *screenshot_aufnehmen(lv_obj_t *screen, uint32_t *datei_groesse_a
     draw_buf.data_size = puffer_groesse;
 
     lvgl_port_lock(0);
+    /* Referenzmarke temporaer als oberstes Kind hinzufuegen (siehe Kommentar
+     * bei REFERENZ_MARKE_X oben) - noch VOR dem Rendern, damit sie mit im
+     * Bild landet, und direkt DANACH wieder loeschen, noch unter demselben
+     * Lock, damit der echte Display-Refresh sie nie zu sehen bekommt. */
+    lv_obj_t *referenz_marke = lv_obj_create(screen);
+    lv_obj_remove_style_all(referenz_marke);
+    lv_obj_set_size(referenz_marke, REFERENZ_MARKE_BREITE, (int32_t)h);
+    lv_obj_set_pos(referenz_marke, REFERENZ_MARKE_X, 0);
+    lv_obj_set_style_bg_color(referenz_marke, lv_color_hex(REFERENZ_MARKE_FARBE), 0);
+    lv_obj_set_style_bg_opa(referenz_marke, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(referenz_marke, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_update_layout(screen);
+
     screenshot_vollstaendig_rendern(screen, &draw_buf);
+
+    lv_obj_delete(referenz_marke);
     lvgl_port_unlock();
 
     uint32_t zeilen_bytes = w * 3;

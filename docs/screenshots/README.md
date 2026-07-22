@@ -31,3 +31,8 @@ erhalten.
   (Nacht-Modus), erste erfolgreiche Aufnahme nach Behebung aller
   Darstellungsfehler im Screenshot-Werkzeug (siehe
   FALLSTRICKE_UND_WORKAROUNDS.md #19)
+- `startbildschirm_2026-07-21.png` / `..._proportional.png` — Startbildschirm
+  waehrend des Bootens (WLAN verbunden, Uhrzeit-Synchronisation laeuft gerade
+  mit Countdown-Ring, Kalender-Schritt steht noch aus). Aufgenommen auf dem
+  zweiten Board nach Behebung des 121px-Versatzes (FALLSTRICKE #19,
+  Fallstrick E)
