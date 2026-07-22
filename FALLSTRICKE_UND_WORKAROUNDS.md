@@ -296,3 +296,29 @@ verdrahten - stattdessen `lv_obj_update_layout()` + `lv_obj_get_height()` nutzen
 nachfolgende Elemente relativ dazu positionieren. Gilt fuer jedes neue UI-Element mit
 variabler/unsicherer Textlaenge (Namen, IP-Adressen, Statusmeldungen), nicht nur fuer dieses
 eine Fenster.
+
+## 23. Label nach Umpositionierung unsichtbar: lv_obj_set_pos aendert NICHT das Style-Align
+
+**Problem:** Beim Gross/Klein-Tausch der neuen Analoguhr (FAHRPLAN Nachtrag 17) sollte die
+Digitaluhr klein an einen festen Punkt rechts wandern - stattdessen war sie nach dem Tausch
+komplett unsichtbar. Ein erster Reparaturversuch (Position auf den sichtbaren Bereich
+"klemmen") half nichts.
+
+**Ursache:** Das Digitaluhr-Label war beim Aufbau mit `lv_obj_align(label, LV_ALIGN_TOP_MID,
+0, 95)` positioniert worden. In LVGL 9 setzt `lv_obj_align()` ZWEI getrennte Dinge: das
+Style-Align (hier TOP_MID) und die x/y-Offsets. Ein spaeteres `lv_obj_set_pos(label, x, y)`
+aendert NUR die Offsets - das Align bleibt TOP_MID. Die vermeintlich "absoluten" Koordinaten
+(z. B. x=655) wurden dadurch als Versatz von der oberen BildschirmMITTE interpretiert: linke
+Labelkante bei 400+655, weit ausserhalb der 800px. Auch die Klemmung rechnete mit falschen
+Annahmen und aenderte daran nichts.
+
+**Loesung:** Vor dem absoluten Positionieren das Align explizit zuruecksetzen:
+`lv_obj_set_align(label, LV_ALIGN_TOP_LEFT)` (der Default), erst danach `lv_obj_set_pos()`.
+Der Rueckweg (gross) nutzt weiterhin `lv_obj_align()`, das Align und Offsets gemeinsam setzt.
+
+**Lehre:** Sobald ein LVGL-Objekt einmal per `lv_obj_align()` mit etwas anderem als
+TOP_LEFT ausgerichtet wurde, ist `lv_obj_set_pos()` fuer dieses Objekt KEINE absolute
+Positionierung mehr. Bei jedem Objekt, das zwischen "ausgerichtet" (align) und "frei
+positioniert" (set_pos) wechselt, muss der Wechsel das Align explizit mitfuehren. Typisches
+Symptom: Objekt "verschwindet" nach einer Umpositionierung, obwohl die berechneten
+Koordinaten auf dem Papier stimmen.

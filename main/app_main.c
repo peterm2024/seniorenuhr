@@ -8,6 +8,7 @@
  * angezeigt statt einer falschen Uhrzeit oder leerer Listen (siehe
  * FAHRPLAN.md).
  */
+#include <math.h>
 #include <string.h>
 #include <time.h>
 
@@ -65,6 +66,46 @@
 #define STATUS_ICON_GROESSE 34
 #define STATUS_ICON_MAX_TEILE 4
 
+/* Analoge Zusatzuhr (Peters Idee): per Tipp lassen sich Digital- und
+ * Analoganzeige tauschen - eine ist immer "gross" (Bildschirmmitte, wie
+ * bisher die Digitaluhr), die andere "klein" (rechter Bereich, zwischen den
+ * Status-Symbolen oben und der Tabletten/Termine-Uebersicht unten). Beide
+ * Darstellungen bleiben dabei immer sichtbar, nur Groesse/Position tauschen -
+ * das haelt den "--:--"-Hinweis bei unbekannter Zeit immer sichtbar, egal
+ * welche Ansicht gerade klein ist. Start (nach jedem Neustart): Digital
+ * gross, wie bisher - Peters Wunsch, kein persistenter Zustand noetig.
+ *
+ * Beide Anzeigen bleiben direkte Kinder von s_bildschirm (kein eigener
+ * Slot-Container!) - ein erster Versuch mit einem 170px breiten Container
+ * fuer die Digitaluhr schnitt deren Text sichtbar ab: bei schrift_uhr_128
+ * braucht schon "00:00" weit mehr als 170px Breite, waehrend ein Container
+ * Kinder standardmaessig an seiner eigenen Kante abschneidet. Positions-
+ * berechnung erfolgt deshalb direkt in Bildschirmkoordinaten (Centerpunkt),
+ * nie ueber die Breite/Groesse eines begrenzenden Elternobjekts. */
+#define ANALOG_UHR_TICKS 12
+/* 160 statt urspruenglich 200: der Platz zwischen Wochentag-Schriftzug oben
+ * und Tageszeit/Datum-Zeile unten betraegt nur ~190px - mit 200px klebte
+ * der Kreis an beiden Schriftzuegen ("wirkt sehr gedrungen", Peter). */
+#define UHR_ANALOG_DURCHMESSER_GROSS 160
+#define UHR_ANALOG_DURCHMESSER_KLEIN 90
+#define UHR_SLOT_GROSS_CX 400
+#define UHR_SLOT_GROSS_CY 180
+#define UHR_SLOT_KLEIN_CX 710
+#define UHR_SLOT_KLEIN_CY 175
+#define UHR_PI 3.14159265358979323846f
+
+typedef struct {
+    lv_obj_t *container;
+    lv_obj_t *ring;
+    lv_obj_t *ticks[ANALOG_UHR_TICKS];
+    lv_point_precise_t tick_punkte[ANALOG_UHR_TICKS][2];
+    lv_obj_t *stundenzeiger;
+    lv_obj_t *minutenzeiger;
+    lv_point_precise_t stunden_punkte[2];
+    lv_point_precise_t minuten_punkte[2];
+    int32_t durchmesser;
+} analog_uhr_t;
+
 LV_FONT_DECLARE(schrift_uhr_128);
 LV_FONT_DECLARE(schrift_gross_72);
 LV_FONT_DECLARE(schrift_mittel_40);
@@ -100,6 +141,13 @@ static lv_obj_t *s_bildschirm;
 static lv_obj_t *s_wochentag_label;
 static lv_obj_t *s_uhr_label;
 static lv_obj_t *s_status_label;
+static analog_uhr_t s_analog_uhr;
+static bool s_uhr_analog_ist_gross = false; /* Start: Digital gross (Peters Wunsch) */
+/* Letzte per NTP bekannte Uhrzeit - fuer analog_uhr_zeiger_aktualisieren()
+ * unmittelbar nach einem Tausch (siehe uhr_tausch_cb), auch wenn sich die
+ * Minute seit dem letzten Tick nicht geaendert hat. -1 = noch unbekannt. */
+static int s_zeit_stunde = -1;
+static int s_zeit_minute = -1;
 static lv_obj_t *s_tabletten_ueberschrift;
 static lv_obj_t *s_termine_ueberschrift;
 
@@ -543,6 +591,179 @@ static void status_glyph_kalender_erzeugen(status_icon_t *icon)
     status_icon_teil_hinzufuegen(icon, kopf);
 }
 
+/* Baut Ring, 12 Stundenstriche und beide Zeiger als Kinder von `parent`
+ * (einem der beiden Uhr-Slots) auf. Positionen/Groessen kommen erst danach
+ * ueber analog_uhr_layout_anwenden() - hier nur die Objekte selbst. */
+static void analog_uhr_erzeugen(analog_uhr_t *uhr, lv_obj_t *parent)
+{
+    uhr->container = lv_obj_create(parent);
+    lv_obj_remove_style_all(uhr->container);
+    lv_obj_remove_flag(uhr->container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(uhr->container, LV_OBJ_FLAG_CLICKABLE);
+
+    uhr->ring = lv_obj_create(uhr->container);
+    lv_obj_remove_style_all(uhr->ring);
+    lv_obj_set_style_radius(uhr->ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(uhr->ring, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(uhr->ring, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(uhr->ring, LV_OBJ_FLAG_SCROLLABLE);
+
+    for (int i = 0; i < ANALOG_UHR_TICKS; i++) {
+        lv_obj_t *strich = lv_line_create(uhr->container);
+        lv_obj_set_style_line_rounded(strich, true, 0);
+        lv_obj_remove_flag(strich, LV_OBJ_FLAG_CLICKABLE);
+        uhr->ticks[i] = strich;
+    }
+
+    uhr->stundenzeiger = lv_line_create(uhr->container);
+    lv_obj_set_style_line_rounded(uhr->stundenzeiger, true, 0);
+    lv_obj_remove_flag(uhr->stundenzeiger, LV_OBJ_FLAG_CLICKABLE);
+
+    uhr->minutenzeiger = lv_line_create(uhr->container);
+    lv_obj_set_style_line_rounded(uhr->minutenzeiger, true, 0);
+    lv_obj_remove_flag(uhr->minutenzeiger, LV_OBJ_FLAG_CLICKABLE);
+}
+
+/* Setzt Farbe von Ring/Strichen/Zeigern - dieselbe Farbe wie die Digitaluhr
+ * im jeweiligen Tag-/Abend-/Nacht-Modus (siehe modus_anwenden). */
+static void analog_uhr_farbe_setzen(analog_uhr_t *uhr, lv_color_t farbe)
+{
+    lv_obj_set_style_border_color(uhr->ring, farbe, 0);
+    for (int i = 0; i < ANALOG_UHR_TICKS; i++)
+        lv_obj_set_style_line_color(uhr->ticks[i], farbe, 0);
+    lv_obj_set_style_line_color(uhr->stundenzeiger, farbe, 0);
+    lv_obj_set_style_line_color(uhr->minutenzeiger, farbe, 0);
+}
+
+/* Passt Groesse/Position/Strichstaerken an einen der beiden Uhr-Plaetze
+ * (gross/klein, per Mittelpunkt cx/cy in Bildschirmkoordinaten) an - wird
+ * bei jedem Tausch aufgerufen. Positioniert die 12 Stundenstriche neu (ihre
+ * Position haengt nur vom Durchmesser ab, nicht von der Uhrzeit - die
+ * Zeiger selbst aktualisiert separat analog_uhr_zeiger_aktualisieren()). */
+static void analog_uhr_layout_anwenden(analog_uhr_t *uhr, int32_t durchmesser, int32_t cx, int32_t cy)
+{
+    uhr->durchmesser = durchmesser;
+    bool gross = durchmesser >= UHR_ANALOG_DURCHMESSER_GROSS;
+
+    lv_obj_set_size(uhr->container, durchmesser, durchmesser);
+    lv_obj_set_pos(uhr->container, cx - durchmesser / 2, cy - durchmesser / 2);
+
+    lv_obj_set_size(uhr->ring, durchmesser, durchmesser);
+    lv_obj_set_pos(uhr->ring, 0, 0);
+    lv_obj_set_style_border_width(uhr->ring, gross ? 4 : 2, 0);
+
+    lv_obj_set_style_line_width(uhr->stundenzeiger, gross ? 7 : 4, 0);
+    lv_obj_set_style_line_width(uhr->minutenzeiger, gross ? 5 : 3, 0);
+    for (int i = 0; i < ANALOG_UHR_TICKS; i++)
+        lv_obj_set_style_line_width(uhr->ticks[i], gross ? 3 : 2, 0);
+
+    int32_t mitte = durchmesser / 2;
+    int32_t aussen = mitte - (gross ? 6 : 4);
+    int32_t innen = aussen - (gross ? 16 : 9);
+    for (int i = 0; i < ANALOG_UHR_TICKS; i++) {
+        float winkel = (float)i * (2.0f * UHR_PI / ANALOG_UHR_TICKS);
+        float s = sinf(winkel), c = cosf(winkel);
+        uhr->tick_punkte[i][0].x = mitte + (int32_t)(s * innen);
+        uhr->tick_punkte[i][0].y = mitte - (int32_t)(c * innen);
+        uhr->tick_punkte[i][1].x = mitte + (int32_t)(s * aussen);
+        uhr->tick_punkte[i][1].y = mitte - (int32_t)(c * aussen);
+        lv_line_set_points(uhr->ticks[i], uhr->tick_punkte[i], 2);
+    }
+}
+
+/* Richtet Stunden-/Minutenzeiger auf die uebergebene Uhrzeit aus - fuer den
+ * aktuell gueltigen Durchmesser (siehe analog_uhr_layout_anwenden). Wird
+ * einmal pro Minute (uhr_tick) sowie sofort nach jedem Tausch aufgerufen,
+ * NIE jede Sekunde (Peters Wunsch: kein Sekundenzeiger, ruhiges Bild). */
+static void analog_uhr_zeiger_aktualisieren(analog_uhr_t *uhr, int stunde, int minute)
+{
+    if (stunde < 0)
+        return; /* Uhrzeit noch nicht bekannt - Zeiger unveraendert lassen */
+
+    int32_t mitte = uhr->durchmesser / 2;
+    float winkel_minute = (float)minute * (2.0f * UHR_PI / 60.0f);
+    float winkel_stunde = ((float)(stunde % 12) + (float)minute / 60.0f) * (2.0f * UHR_PI / 12.0f);
+
+    int32_t laenge_minute = mitte - mitte / 6;
+    int32_t laenge_stunde = mitte - mitte / 2;
+
+    uhr->minuten_punkte[0].x = mitte;
+    uhr->minuten_punkte[0].y = mitte;
+    uhr->minuten_punkte[1].x = mitte + (int32_t)(sinf(winkel_minute) * (float)laenge_minute);
+    uhr->minuten_punkte[1].y = mitte - (int32_t)(cosf(winkel_minute) * (float)laenge_minute);
+    lv_line_set_points(uhr->minutenzeiger, uhr->minuten_punkte, 2);
+
+    uhr->stunden_punkte[0].x = mitte;
+    uhr->stunden_punkte[0].y = mitte;
+    uhr->stunden_punkte[1].x = mitte + (int32_t)(sinf(winkel_stunde) * (float)laenge_stunde);
+    uhr->stunden_punkte[1].y = mitte - (int32_t)(cosf(winkel_stunde) * (float)laenge_stunde);
+    lv_line_set_points(uhr->stundenzeiger, uhr->stunden_punkte, 2);
+}
+
+/* Zentriert ein (bereits mit Text/Font versehenes) Label um den Punkt
+ * cx/cy - fuer die Digitaluhr im "klein"-Platz, wo (anders als beim
+ * schrift-breiten "gross"-Platz per LV_ALIGN_TOP_MID) die tatsaechliche,
+ * variable Textbreite beruecksichtigt werden muss. Klemmt das Ergebnis
+ * zusaetzlich auf den sichtbaren Bereich (0..800): "00:38" bei
+ * schrift_mittel_40 ist breiter als zunaechst angenommen und ragte beim
+ * naeher an den Rand geschobenen Slot ueber die 800px hinaus - dort
+ * einfach unsichtbar, da der Bildschirm keine weiteren Pixel hat. Damit
+ * muss die genaue Glyphenbreite nicht mehr vorab geschaetzt werden. */
+static void label_an_punkt_zentrieren(lv_obj_t *label, int32_t cx, int32_t cy)
+{
+    /* WICHTIG: das Label traegt vom "gross"-Platz noch LV_ALIGN_TOP_MID als
+     * Style-Align - lv_obj_set_pos() aendert in LVGL 9 nur die Offsets,
+     * NICHT das Align. Ohne Ruecksetzen wuerden die hier berechneten
+     * "absoluten" Koordinaten als Versatz von der oberen BildschirmMITTE
+     * interpretiert und schoben das Label komplett aus dem sichtbaren
+     * Bereich (live so passiert: nach dem Tausch war die kleine
+     * Digitalanzeige schlicht unsichtbar). */
+    lv_obj_set_align(label, LV_ALIGN_TOP_LEFT);
+    lv_obj_update_layout(label);
+    int32_t breite = lv_obj_get_width(label);
+    int32_t x = cx - breite / 2;
+    if (x < 4)
+        x = 4;
+    if (x + breite > 796)
+        x = 796 - breite;
+    lv_obj_set_pos(label, x, cy - lv_obj_get_height(label) / 2);
+}
+
+/* Bringt Digitaluhr-Label und Analoguhr an die jeweils richtige Position
+ * (gross/klein) - Gegenstueck ist immer am jeweils anderen Platz. Die
+ * Digitaluhr behaelt im "gross"-Fall bewusst ihre urspruengliche, auf die
+ * volle Bildschirmbreite bezogene Zentrierung (LV_ALIGN_TOP_MID) statt
+ * eines festen Punktes - das war schon immer robust gegenueber wechselnder
+ * Textbreite (z. B. schmalere "1" vs. breitere "0"). */
+static void uhr_tausch_anwenden(void)
+{
+    if (s_uhr_analog_ist_gross) {
+        analog_uhr_layout_anwenden(&s_analog_uhr, UHR_ANALOG_DURCHMESSER_GROSS,
+                                    UHR_SLOT_GROSS_CX, UHR_SLOT_GROSS_CY);
+        lv_obj_set_style_text_font(s_uhr_label, &schrift_mittel_40, 0);
+        label_an_punkt_zentrieren(s_uhr_label, UHR_SLOT_KLEIN_CX, UHR_SLOT_KLEIN_CY);
+    } else {
+        analog_uhr_layout_anwenden(&s_analog_uhr, UHR_ANALOG_DURCHMESSER_KLEIN,
+                                    UHR_SLOT_KLEIN_CX, UHR_SLOT_KLEIN_CY);
+        lv_obj_set_style_text_font(s_uhr_label, &schrift_uhr_128, 0);
+        lv_obj_align(s_uhr_label, LV_ALIGN_TOP_MID, 0, 95);
+    }
+    analog_uhr_zeiger_aktualisieren(&s_analog_uhr, s_zeit_stunde, s_zeit_minute);
+}
+
+/* Tipp auf die Digitaluhr ODER die Analoguhr tauscht, welche der beiden
+ * gerade gross (Bildschirmmitte) bzw. klein (rechter Bereich) dargestellt
+ * wird - Peters Idee, je nach Vorliebe umschaltbar. Kein Persistieren in den
+ * Einstellungen: nach jedem Neustart startet wieder Digital gross. */
+static void uhr_tausch_cb(lv_event_t *e)
+{
+    (void)e;
+    lvgl_port_lock(0);
+    s_uhr_analog_ist_gross = !s_uhr_analog_ist_gross;
+    uhr_tausch_anwenden();
+    lvgl_port_unlock();
+}
+
 #define STATUS_FENSTER_ANZEIGEDAUER_MS 8000
 
 /* Schreibt "vor Xh Ym"/"vor Ymin"/"vor Zs" bzw. "noch nie" nach ziel -
@@ -700,6 +921,14 @@ static void ui_aufbauen(void)
     lv_obj_set_style_text_font(s_uhr_label, &schrift_uhr_128, 0);
     lv_obj_set_style_text_color(s_uhr_label, lv_color_hex(FARBE_TEXT_HELL), 0);
     lv_obj_align(s_uhr_label, LV_ALIGN_TOP_MID, 0, 95);
+    lv_obj_add_flag(s_uhr_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_uhr_label, uhr_tausch_cb, LV_EVENT_CLICKED, NULL);
+
+    /* Analoge Zusatzuhr (Peters Idee), startet klein rechts - direktes Kind
+     * von s_bildschirm, siehe Erklaerung bei ANALOG_UHR_TICKS oben. */
+    analog_uhr_erzeugen(&s_analog_uhr, s_bildschirm);
+    analog_uhr_layout_anwenden(&s_analog_uhr, UHR_ANALOG_DURCHMESSER_KLEIN, UHR_SLOT_KLEIN_CX, UHR_SLOT_KLEIN_CY);
+    lv_obj_add_event_cb(s_analog_uhr.container, uhr_tausch_cb, LV_EVENT_CLICKED, NULL);
 
     s_status_label = lv_label_create(s_bildschirm);
     lv_label_set_text(s_status_label, "Verbinde mit WLAN...");
@@ -787,6 +1016,7 @@ static void modus_anwenden(anzeige_modus_t modus)
     lv_obj_set_style_bg_color(s_bildschirm, lv_color_hex(hintergrund), 0);
     lv_obj_set_style_text_color(s_wochentag_label, lv_color_hex(textfarbe_akzent), 0);
     lv_obj_set_style_text_color(s_uhr_label, lv_color_hex(textfarbe_hell), 0);
+    analog_uhr_farbe_setzen(&s_analog_uhr, lv_color_hex(textfarbe_hell));
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(textfarbe_status), 0);
     lv_obj_set_style_bg_opa(s_dimm_overlay, overlay_deckkraft, 0);
 
@@ -848,6 +1078,8 @@ static void uhr_tick(lv_timer_t *timer)
             einstellungen_letzte_anzeige_setzen(jetzt);
 
         snprintf(uhrzeit, sizeof uhrzeit, "%02d:%02d", lokal.tm_hour, lokal.tm_min);
+        s_zeit_stunde = lokal.tm_hour;
+        s_zeit_minute = lokal.tm_min;
         wochentag = zeit_wochentag_gross(&lokal);
         zeit_datum_text(&lokal, datum, sizeof datum);
 
@@ -875,8 +1107,12 @@ static void uhr_tick(lv_timer_t *timer)
 
     if (uhrzeit_geaendert || wochentag_geaendert || status_geaendert) {
         lvgl_port_lock(0);
-        if (uhrzeit_geaendert)
+        if (uhrzeit_geaendert) {
             lv_label_set_text(s_uhr_label, uhrzeit);
+            /* Nur einmal pro Minute (Peters Wunsch: kein Sekundenzeiger) -
+             * uhrzeit aendert sich als "HH:MM"-Text ohnehin nur dann. */
+            analog_uhr_zeiger_aktualisieren(&s_analog_uhr, s_zeit_stunde, s_zeit_minute);
+        }
         if (wochentag_geaendert)
             lv_label_set_text(s_wochentag_label, wochentag);
         if (status_geaendert)

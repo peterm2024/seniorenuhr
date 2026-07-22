@@ -415,6 +415,20 @@ Umweg über Testdaten war nicht mehr nötig.
   `lv_obj_update_layout()` ihre tatsaechliche Hoehe zurueck, die naechste beginnt entsprechend
   tiefer. Per Screenshot dreifach verifiziert (roh, erste Korrektur noch ueberlappend, finale
   Fassung sauber gestapelt).
+- ✅ Nachtrag 17 (23.07.2026) — Analoge Zusatzuhr mit Gross/Klein-Tausch (Peters Idee):
+  rechts neben der grossen Digitaluhr sitzt jetzt eine kleine Analoguhr (nur Kreis, 12
+  Stundenstriche, Stunden-/Minutenzeiger - bewusst kein Sekundenzeiger und keine Ziffern,
+  aktualisiert einmal pro Minute). Ein Tipp auf eine der beiden Uhren tauscht, welche gross
+  in der Bildschirmmitte und welche klein rechts am Rand steht - je nach Vorliebe des
+  Betrachters. Nach jedem Neustart startet bewusst wieder Digital gross (Peters Wunsch,
+  nichts persistiert). Zeigergeometrie per sinf/cosf, Zeiger/Striche skalieren mit dem
+  Durchmesser (gross 160px / klein 90px; 160 statt anfangs 200, weil der Kreis sonst an
+  Wochentag- und Datumszeile klebte). Drei Anlaeufe bis zum sauberen Layout, alle per
+  Screenshot verifiziert: (1) Digitaluhr von einem 170px-Slot-Container abgeschnitten ->
+  Slots verworfen, beide Anzeigen direkte Screen-Kinder; (2) kleine Digitalanzeige nach dem
+  Tausch unsichtbar -> LVGL-Align-Falle, siehe FALLSTRICKE #23; (3) Abstand/Position nach
+  Peters Rueckmeldung nachjustiert (Analoguhr-Platz an den rechten Rand, dann Durchmesser
+  verkleinert). Live von Peter abgenommen.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
@@ -430,9 +444,6 @@ Umweg über Testdaten war nicht mehr nötig.
 - ✅ **Ziel:** Läuft im Wohnzimmer, Peter pflegt Termine vom eigenen Handy aus
 
 ### Später / Ideen (bewusst nicht am Anfang)
-- Analoge Zusatzuhr rechts neben der Digitaluhr (nur Kreis+Zeiger, keine Ziffern) - antippbarer
-  Bereich, der Digital- und Analoganzeige tauscht (groß in der Mitte / klein als Zweitanzeige
-  rechts), je nach Vorliebe
 - Benachrichtigung an Peter (Push/Mail o. ä.), wenn eine Tablette laenger als X nicht abgehakt
   wurde - die lokale Farb-Eskalation am Geraet selbst gibt es seit Nachtrag 15, das hier waere
   der Schritt zu einer Fernbenachrichtigung nach draussen
