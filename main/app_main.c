@@ -27,6 +27,16 @@
 #include "tagesansicht.h"
 #include "zeit.h"
 
+/* Entwicklungswerkzeuge, die nur auf dem Entwicklungsboard laufen sollen,
+ * nicht auf dem Geraet bei den Eltern. Fuer einen Produktions-Build (das
+ * Geraet, das rausgeht) auf 0 setzen und neu bauen - dann faellt der
+ * Screenshot-Button weg und der ungenutzte screenshot_debug-Code wird vom
+ * Linker (gc-sections) ganz aus dem Binary geworfen. Aktuell steuert der
+ * Schalter nur den Screenshot-Button. NICHT betroffen: der Demo-Modus im
+ * Einstellungsmenue - der bleibt bewusst auch auf dem Eltern-Geraet
+ * verfuegbar (Peters Wunsch). */
+#define ENTWICKLUNGSWERKZEUGE 1
+
 #define BERUEHRUNG_WACHZEIT_US (30LL * 1000000)
 
 /* Mindestabstand zwischen zwei Deckkraft-Aenderungen waehrend der Einblend-
@@ -1102,7 +1112,9 @@ void app_main(void)
 
     ESP_ERROR_CHECK(anzeige_start());
     ESP_LOGI(TAG, "Start: Display bereit");
-    screenshot_debug_start(); /* Entwicklungswerkzeug: BOOT-Taste -> Screenshot ueber seriell */
+#if ENTWICKLUNGSWERKZEUGE
+    screenshot_debug_start(); /* Entwicklungswerkzeug: Touch-Button unten Mitte -> Screenshot ueber seriell */
+#endif
     ui_aufbauen();            /* baut auf einem eigenen, noch verborgenen Screen */
     ESP_LOGI(TAG, "Start: Hauptbildschirm aufgebaut (noch verborgen)");
     startbildschirm_erstellen(); /* zeigt sich auf dem aktuell aktiven Default-Screen */

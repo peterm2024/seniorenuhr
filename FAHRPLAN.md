@@ -365,6 +365,16 @@ Umweg über Testdaten war nicht mehr nötig.
   und rechnet die Marke danach wieder heraus. End-to-End live verifiziert (Marke bei x=10, kein
   Versatz, im fertigen Bild rueckstandslos entfernt). Doku-Screenshots des Startbildschirms
   ergaenzt (docs/screenshots/).
+- ✅ Nachtrag 13 (21.07.2026) — Rollenteilung der beiden Boards + Produktions-Build-Schalter:
+  Board 1 (an COM3) bleibt das Entwicklungsboard, Board 2 (an COM5) geht zum Testen an Peters
+  Eltern. Damit Entwicklungswerkzeuge (aktuell nur der Screenshot-Button) nicht auf dem
+  Eltern-Geraet landen, gibt es jetzt den Compile-Schalter `ENTWICKLUNGSWERKZEUGE` in app_main.c:
+  Standard 1 (Entwicklungsboard, Screenshot-Button aktiv), fuer einen Produktions-Build auf 0
+  setzen und neu bauen - dann faellt der Button weg und der ungenutzte screenshot_debug-Code wird
+  vom Linker ganz aus dem Binary geworfen. Der Demo-Modus im Einstellungsmenue ist bewusst NICHT
+  betroffen (bleibt auch auf dem Eltern-Geraet verfuegbar, Peters Wunsch). Board 1 mit dem vollen
+  Dev-Stand geflasht, Board 2 mit dem Produktions-Build (Screenshot-Button per Boot-Log als
+  entfernt bestaetigt). Damit beginnt faktisch Phase 6 (erstes Test-Geraet bei den Eltern).
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
