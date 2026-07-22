@@ -85,12 +85,10 @@ oder der IP-Adresse des Geräts.
 | Komponente | Anmerkung |
 |---|---|
 | [Waveshare ESP32-S3-Touch-LCD-7](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-7) | 7-Zoll-RGB-Display 800 × 480, kapazitiver Touch (GT911) |
-| Flash/PSRAM | 8 MB / 8 MB (N8R8) — die Produktseite nennt 16 MB Flash, verbaut sind 8 |
+| Flash/PSRAM | 8 MB / 8 MB (N8R8) |
 | Netzteil | USB-C, mindestens 2 A, Dauerbetrieb |
 
 Der microSD-Slot bleibt ungenutzt; alles Persistente liegt im internen Flash.
-Eine falsch konfigurierte Flash-Größe führt zu einer Assert-Schleife beim Boot —
-`sdkconfig.defaults` ist bereits auf die tatsächlichen 8 MB eingestellt.
 
 ## Aufbau der Firmware
 
