@@ -418,6 +418,8 @@ typedef struct {
 static status_icon_t s_status_wlan;
 static status_icon_t s_status_zeit;
 static status_icon_t s_status_kalender;
+static lv_obj_t *s_status_fenster;
+static lv_timer_t *s_status_fenster_timer;
 
 static void status_icon_teil_hinzufuegen(status_icon_t *icon, lv_obj_t *obj)
 {
@@ -541,6 +543,137 @@ static void status_glyph_kalender_erzeugen(status_icon_t *icon)
     status_icon_teil_hinzufuegen(icon, kopf);
 }
 
+#define STATUS_FENSTER_ANZEIGEDAUER_MS 8000
+
+/* Schreibt "vor Xh Ym"/"vor Ymin"/"vor Zs" bzw. "noch nie" nach ziel -
+ * fuers Status-Detail-Fenster (Peters Idee: Tipp auf die Status-Symbole
+ * zeigt Klartext-Details zu WLAN/Zeit/Kalender). */
+static void seit_text_formatieren(time_t zeitpunkt, char *ziel, size_t ziel_groesse)
+{
+    if (zeitpunkt == 0) {
+        snprintf(ziel, ziel_groesse, "noch nie");
+        return;
+    }
+    long sekunden = (long)difftime(time(NULL), zeitpunkt);
+    if (sekunden < 0)
+        sekunden = 0;
+    if (sekunden < 60)
+        snprintf(ziel, ziel_groesse, "vor %lds", sekunden);
+    else if (sekunden < 3600)
+        snprintf(ziel, ziel_groesse, "vor %ldmin", sekunden / 60);
+    else
+        snprintf(ziel, ziel_groesse, "vor %ldh %ldmin", sekunden / 3600, (sekunden / 60) % 60);
+}
+
+static void status_fenster_intern_schliessen(void)
+{
+    if (s_status_fenster_timer) {
+        lv_timer_delete(s_status_fenster_timer);
+        s_status_fenster_timer = NULL;
+    }
+    if (s_status_fenster) {
+        lv_obj_delete(s_status_fenster);
+        s_status_fenster = NULL;
+    }
+}
+
+static void status_fenster_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    lvgl_port_lock(0);
+    status_fenster_intern_schliessen();
+    lvgl_port_unlock();
+}
+
+/* Erzeugt eine (moeglicherweise mehrzeilige) Status-Zeile bei y und liefert
+ * die naechste freie Y-Position dahinter zurueck. Bei diesem grossen Font
+ * (schrift_klein_28) bricht schon ein mittellanger Satz auf 2-3 Zeilen um -
+ * die tatsaechliche Hoehe erst NACH lv_obj_update_layout() abzufragen (statt
+ * eine feste Zeilenzahl zu raten) verhindert zuverlaessig ein Ueberlappen
+ * mit der naechsten Zeile, unabhaengig vom genauen Umbruchpunkt. */
+static int32_t status_zeile_erzeugen(lv_obj_t *parent, int32_t y, const char *text, bool ok)
+{
+    lv_obj_t *label = lv_label_create(parent);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, 400);
+    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(ok ? FARBE_TEXT_HELL : FARBE_WARNUNG), 0);
+    lv_label_set_text(label, text);
+    lv_obj_set_pos(label, 24, y);
+    lv_obj_update_layout(label);
+    return y + lv_obj_get_height(label) + 16;
+}
+
+/* Tipp auf die Status-Symbole (WLAN/Zeit/Kalender rechts oben) oeffnet fuer
+ * ein paar Sekunden ein Klartext-Fenster mit denselben "ok"-Kriterien wie
+ * die Symbole selbst (siehe wlan_ok/zeit_ok/kalender_ok in uhr_tick). Stimmt
+ * beim Kalender etwas nicht, wird gleich ein sofortiger Resync-Versuch
+ * angestossen - fuer WLAN/NTP ist das unnoetig, die versuchen im
+ * Hintergrund ohnehin schon fortlaufend automatisch die Wiederverbindung. */
+static void status_detail_oeffnen_cb(lv_event_t *e)
+{
+    (void)e;
+
+    bool wlan_ok = netz_ist_verbunden();
+    bool zeit_ok = zeit_ist_synchron() && !zeit_ist_manuell_gesetzt();
+    bool kalender_ok = kalender_anzeige_version() != 0 && kalender_anzeige_frisch();
+
+    char ssid[33], ip[16];
+    netz_ssid_text(ssid, sizeof ssid);
+    netz_ip_text(ip, sizeof ip);
+
+    char seit_zeit[32], seit_kalender[32];
+    seit_text_formatieren(einstellungen_letzte_sync(), seit_zeit, sizeof seit_zeit);
+    seit_text_formatieren(einstellungen_letzter_kalender_sync(), seit_kalender, sizeof seit_kalender);
+
+    char zeile_wlan[96], zeile_zeit[96], zeile_kalender[96];
+    if (wlan_ok)
+        snprintf(zeile_wlan, sizeof zeile_wlan, "WLAN: %s (%d dBm)\nIP %s", ssid, netz_rssi_dbm(), ip);
+    else
+        snprintf(zeile_wlan, sizeof zeile_wlan, "WLAN: nicht verbunden");
+
+    if (zeit_ok)
+        snprintf(zeile_zeit, sizeof zeile_zeit, "Uhrzeit: synchronisiert (%s)", seit_zeit);
+    else
+        snprintf(zeile_zeit, sizeof zeile_zeit, "Uhrzeit: nicht bestaetigt\n(letzter Sync %s)", seit_zeit);
+
+    if (kalender_ok)
+        snprintf(zeile_kalender, sizeof zeile_kalender, "Kalender: aktuell (%s)", seit_kalender);
+    else
+        snprintf(zeile_kalender, sizeof zeile_kalender, "Kalender: veraltet\n(letzter Sync %s)", seit_kalender);
+
+    if (!kalender_ok)
+        kalender_anzeige_jetzt_pruefen();
+
+    lvgl_port_lock(0);
+    status_fenster_intern_schliessen();
+
+    s_status_fenster = lv_obj_create(s_bildschirm);
+    lv_obj_set_style_bg_color(s_status_fenster, lv_color_hex(0x0d1f3d), 0);
+    lv_obj_set_style_bg_opa(s_status_fenster, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s_status_fenster, lv_color_hex(FARBE_AKZENT), 0);
+    lv_obj_set_style_border_width(s_status_fenster, 2, 0);
+    lv_obj_set_style_radius(s_status_fenster, 12, 0);
+    lv_obj_remove_flag(s_status_fenster, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(s_status_fenster, 448, 400);
+    lv_obj_align(s_status_fenster, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t *titel = lv_label_create(s_status_fenster);
+    lv_label_set_text(titel, "STATUS");
+    lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
+    lv_obj_set_style_text_color(titel, lv_color_hex(FARBE_AKZENT), 0);
+    lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 15);
+
+    int32_t y = 85;
+    y = status_zeile_erzeugen(s_status_fenster, y, zeile_wlan, wlan_ok);
+    y = status_zeile_erzeugen(s_status_fenster, y, zeile_zeit, zeit_ok);
+    status_zeile_erzeugen(s_status_fenster, y, zeile_kalender, kalender_ok);
+
+    s_status_fenster_timer = lv_timer_create(status_fenster_timer_cb, STATUS_FENSTER_ANZEIGEDAUER_MS, NULL);
+    lv_timer_set_repeat_count(s_status_fenster_timer, 1);
+    lvgl_port_unlock();
+}
+
 static void ui_aufbauen(void)
 {
     lvgl_port_lock(0);
@@ -603,6 +736,19 @@ static void ui_aufbauen(void)
     status_icon_erzeugen(&s_status_kalender, s_bildschirm, 750);
     status_glyph_kalender_erzeugen(&s_status_kalender);
     status_icon_durchstrich_erzeugen(&s_status_kalender);
+
+    /* Unsichtbare, grosszuegige Tippflaeche ueber allen drei Status-
+     * Symbolen (Peters Idee) - oeffnet das Status-Detail-Fenster. Bewusst
+     * deutlich groesser als die 34px-Symbole selbst (seniorengerechtes,
+     * leicht zu treffendes Ziel), reicht bis zur rechten/oberen Bildschirmkante,
+     * wo sonst nichts anderes liegt. */
+    lv_obj_t *status_tippflaeche = lv_obj_create(s_bildschirm);
+    lv_obj_remove_style_all(status_tippflaeche);
+    lv_obj_set_pos(status_tippflaeche, 620, 0);
+    lv_obj_set_size(status_tippflaeche, 800 - 620, 64);
+    lv_obj_add_flag(status_tippflaeche, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(status_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(status_tippflaeche, status_detail_oeffnen_cb, LV_EVENT_CLICKED, NULL);
 
     /* Abend-Dimmung: ein schwarzes Rechteck ueber allem anderen. Fuer
      * Nacht wird stattdessen direkt mit Hintergrund-/Textfarben

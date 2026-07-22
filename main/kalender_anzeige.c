@@ -1,4 +1,5 @@
 #include "kalender_anzeige.h"
+#include "einstellungen.h"
 #include "kalender_holen.h"
 #include "kalender_speicher.h"
 #include "netz.h"
@@ -33,6 +34,13 @@ static volatile uint32_t s_version = 0;
  * gelungen ist - im Unterschied zu s_version, die auch schon beim reinen
  * Neu-Parsen einer gecachten Datei (z. B. im Offline-Betrieb) steigt. */
 static volatile bool s_frisch = false;
+
+/* Zeitpunkt (esp_timer_get_time) des naechsten geplanten Abrufversuchs -
+ * modulweit statt lokal in task_funktion(), damit kalender_anzeige_jetzt_pruefen()
+ * von aussen einen sofortigen Versuch erzwingen kann (Status-Detail-Fenster,
+ * siehe app_main.c). Volatile: geschrieben von der Kalender-Task, gelesen/
+ * geschrieben aus dem LVGL-Task heraus. */
+static volatile int64_t s_naechster_abruf_us = 0;
 
 /* Rohtext des zuletzt bekannten Kalenders (Cache oder frischer Download) —
  * wird bei Mitternacht erneut geparst, ohne dafuer neu herunterladen zu
@@ -167,12 +175,12 @@ static void task_funktion(void *arg)
         s_ics_laenge = gecacht_laenge;
     }
 
-    int64_t naechster_abruf_us = 0; /* sofort beim ersten Durchlauf versuchen */
+    s_naechster_abruf_us = 0; /* sofort beim ersten Durchlauf versuchen */
 
     for (;;) {
         int64_t jetzt_us = esp_timer_get_time();
 
-        if (netz_ist_verbunden() && jetzt_us >= naechster_abruf_us) {
+        if (netz_ist_verbunden() && jetzt_us >= s_naechster_abruf_us) {
             char *puffer = NULL;
             size_t laenge = 0;
             esp_err_t err = kalender_holen(&puffer, &laenge);
@@ -180,14 +188,15 @@ static void task_funktion(void *arg)
                 ESP_LOGI(TAG, "Kalender heruntergeladen (%u Bytes)", (unsigned)laenge);
                 neuen_kalender_uebernehmen(puffer, laenge);
                 s_frisch = true;
-                naechster_abruf_us = jetzt_us + ABRUF_INTERVALL_US;
+                einstellungen_letzter_kalender_sync_setzen(time(NULL));
+                s_naechster_abruf_us = jetzt_us + ABRUF_INTERVALL_US;
                 if (zeit_ist_synchron())
                     fuer_heute_neu_parsen();
             } else {
-                naechster_abruf_us = jetzt_us + ABRUF_RETRY_US;
+                s_naechster_abruf_us = jetzt_us + ABRUF_RETRY_US;
             }
         } else if (!netz_ist_verbunden()) {
-            naechster_abruf_us = jetzt_us + KEIN_WLAN_RETRY_US;
+            s_naechster_abruf_us = jetzt_us + KEIN_WLAN_RETRY_US;
         }
 
         /* Unabhaengig vom Netz: bei Tageswechsel (oder sobald die Uhrzeit
@@ -257,6 +266,11 @@ void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt)
                                                     anzahl_bestaetigt);
     }
     xSemaphoreGive(s_mutex);
+}
+
+void kalender_anzeige_jetzt_pruefen(void)
+{
+    s_naechster_abruf_us = 0;
 }
 
 kalender_tablette_status_t kalender_tablette_status(const kalender_tag_eintrag_t *eintrag,

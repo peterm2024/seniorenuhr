@@ -23,3 +23,7 @@ kalender.ics
 
 # Python-Bytecode (z.B. vom Testen des Screenshot-Dekodier-Skripts)
 __pycache__/
+
+# Serielle Boot-/Monitor-Mitschnitte (idf.py monitor > datei.log) - immer
+# temporaer fuers Debugging, nie fuer den Commit gedacht
+*.log

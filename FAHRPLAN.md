@@ -401,6 +401,20 @@ Umweg über Testdaten war nicht mehr nötig.
   Schwellenlogik per Host-Testprogramm mit 8 Grenzfaellen verifiziert (genau bei 0/60 Minuten,
   ganztags, unbekannte Zeit, bereits bestaetigt), danach live auf Board 1 bestaetigt (Peter hat
   eine Tablette testweise zurueckgeschoben - Faerbung passte).
+- ✅ Nachtrag 16 (23.07.2026) — Status-Detail-Fenster: eine grosszuegige, unsichtbare
+  Tippflaeche ueber den drei Status-Symbolen rechts oben oeffnet fuer 8 Sekunden ein Fenster
+  mit WLAN (SSID, dBm, IP), Uhrzeit (letzter NTP-Sync) und Kalender (letzter Download) im
+  Klartext - dieselben "ok"-Kriterien wie die Symbole selbst. Ist der Kalender nicht aktuell,
+  wird sofort ein Resync-Versuch angestossen (neue `kalender_anzeige_jetzt_pruefen()`, umgeht
+  das planmaessige 15-Min-Intervall); fuer WLAN/NTP unnoetig, die versuchen ohnehin schon
+  automatisch und fortlaufend die Wiederverbindung. Neue Zeitstempel-Funktion
+  `einstellungen_letzter_kalender_sync()` (analog zur bestehenden `letzte_sync` fuer NTP) sowie
+  `netz_ssid_text()`. Erster Layout-Versuch mit festen Zeilenabstaenden ueberlappte sich live
+  (bei diesem grossen 28px-Font bricht schon "WLAN: Heimnetz (-70 dBm)" auf mehrere Zeilen um,
+  mehr als angenommen) - behoben durch dynamisches Stapeln: jede Zeile liefert nach
+  `lv_obj_update_layout()` ihre tatsaechliche Hoehe zurueck, die naechste beginnt entsprechend
+  tiefer. Per Screenshot dreifach verifiziert (roh, erste Korrektur noch ueberlappend, finale
+  Fassung sauber gestapelt).
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
@@ -416,9 +430,6 @@ Umweg über Testdaten war nicht mehr nötig.
 - ✅ **Ziel:** Läuft im Wohnzimmer, Peter pflegt Termine vom eigenen Handy aus
 
 ### Später / Ideen (bewusst nicht am Anfang)
-- Status-Detail-Fenster: Tipp auf den Status-Symbol-Bereich zeigt fuer ein paar Sekunden WLAN
-  (SSID, IP), Zeit (letzter Sync) und Kalender (letzter Sync) im Detail und probiert bei
-  Bedarf gleich einen Resync
 - Analoge Zusatzuhr rechts neben der Digitaluhr (nur Kreis+Zeiger, keine Ziffern) - antippbarer
   Bereich, der Digital- und Analoganzeige tauscht (groß in der Mitte / klein als Zweitanzeige
   rechts), je nach Vorliebe

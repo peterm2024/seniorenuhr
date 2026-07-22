@@ -577,6 +577,14 @@ void netz_ip_text(char *puffer, size_t puffer_groesse)
         snprintf(puffer, puffer_groesse, IPSTR, IP2STR(&info.ip));
 }
 
+void netz_ssid_text(char *puffer, size_t puffer_groesse)
+{
+    puffer[0] = '\0';
+    wifi_ap_record_t info;
+    if (esp_wifi_sta_get_ap_info(&info) == ESP_OK)
+        snprintf(puffer, puffer_groesse, "%s", (const char *)info.ssid);
+}
+
 void netz_scan_starten(void)
 {
     s_scan_fertig = false;

@@ -77,4 +77,10 @@ kalender_tablette_status_t kalender_tablette_status(const kalender_tag_eintrag_t
  * Rueckgabe: Anzahl geschriebener Eintraege. */
 int kalender_anzeige_eintraege_fuer_tag(int tage_versatz, kalender_tag_eintrag_t *ziel, int max);
 
+/* Erzwingt einen sofortigen Abrufversuch (statt auf den naechsten planmaessigen
+ * Zeitpunkt zu warten) - fuer den "gleich einen Resync probieren"-Knopf im
+ * Status-Detail-Fenster (app_main.c). Wirkt nur, wenn WLAN verbunden ist;
+ * greift spaetestens beim naechsten Tick der Kalender-Task (TICK_MS). */
+void kalender_anzeige_jetzt_pruefen(void);
+
 #endif

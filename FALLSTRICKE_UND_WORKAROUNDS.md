@@ -270,3 +270,29 @@ secrets.h + NVS loeschen) und haette den Fehler vor dem Aufstellen gefunden.
 Ausserdem: Wenn ein Code-Kommentar einen Fehlerfall bereits benennt ("Scan
 schlaegt waehrend Verbindungsaufbau fehl"), lohnt die Frage, ob er nur ein
 Symptom daempft oder die eigentliche Ursache unbehandelt laesst.
+
+## 22. Status-Detail-Fenster: Textzeilen ueberlappten sich bei festen Y-Abstaenden
+
+**Problem:** Im neuen Status-Detail-Fenster (Tipp auf die Status-Symbole, siehe FAHRPLAN
+Nachtrag 16) ueberlappte die WLAN-Zeile die darunterliegende Uhrzeit-Zeile - "IP 192.168.188.45"
+lag mitten in "Uhrzeit: synchronisiert".
+
+**Ursache:** Bei diesem Projekt ist der kleinste UI-Font (`schrift_klein_28`, 28px, seniorengerecht
+gross) deutlich breiter pro Zeichen als bei einer typischen Desktop-Schrift erwartet. Ein
+Text wie "WLAN: Heimnetz (-70 dBm)" (25 Zeichen) passt bei 400px Zeilenbreite bereits NICHT
+mehr in eine Zeile, sondern bricht auf zwei bis drei Zeilen um. Die erste Layout-Version hatte
+feste Y-Abstaende (45px) geraten, die nur fuer eine einzeilige Anzeige gereicht haetten.
+
+**Loesung:** `status_zeile_erzeugen()` liefert nach `lv_obj_update_layout(label)` die per
+`lv_obj_get_height(label)` tatsaechlich ermittelte (umbruchabhaengige) Hoehe des soeben
+erzeugten Labels zurueck; die naechste Zeile beginnt an dieser Position plus einem festen
+Abstand. Damit ist es egal, ob eine Zeile 1, 2 oder 3 Zeilen braucht - es gibt nie eine
+Ueberlappung. Per Screenshot verifiziert (erste Version ueberlappend, korrigierte Version
+sauber gestapelt).
+
+**Lehre:** Bei diesem Projekt NIE die Zeilenzahl/Hoehe eines mehrzeiligen Labels bei
+`schrift_klein_28` (oder groesser) aus der Zeichenanzahl schaetzen und Positionen fest
+verdrahten - stattdessen `lv_obj_update_layout()` + `lv_obj_get_height()` nutzen und
+nachfolgende Elemente relativ dazu positionieren. Gilt fuer jedes neue UI-Element mit
+variabler/unsicherer Textlaenge (Namen, IP-Adressen, Statusmeldungen), nicht nur fuer dieses
+eine Fenster.

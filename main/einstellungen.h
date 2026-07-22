@@ -43,4 +43,10 @@ void einstellungen_letzte_anzeige_setzen(time_t zeitstempel);
 time_t einstellungen_letzte_sync(void);
 void einstellungen_letzte_sync_setzen(time_t zeitstempel);
 
+/* Zuletzt erfolgreich heruntergeladener Kalender - rein informativ,
+ * ungedrosselt (Download passiert ohnehin nur alle 15 Min oder bei
+ * manuellem Resync, siehe kalender_anzeige_jetzt_pruefen). */
+time_t einstellungen_letzter_kalender_sync(void);
+void einstellungen_letzter_kalender_sync_setzen(time_t zeitstempel);
+
 #endif

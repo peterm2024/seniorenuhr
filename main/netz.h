@@ -37,6 +37,12 @@ int netz_rssi_dbm(void);
  * Hinweis auf die Web-Konfiguration im Einstellungen-Menue (einrichtung.c). */
 void netz_ip_text(char *puffer, size_t puffer_groesse);
 
+/* Schreibt die SSID des aktuell verbundenen Netzes nach puffer, oder einen
+ * leeren String, falls gerade keine WLAN-Verbindung besteht. Fuer das
+ * Status-Detail-Fenster (app_main.c). puffer_groesse sollte mindestens
+ * 33 Byte betragen (max. SSID-Laenge + Nullterminierung). */
+void netz_ssid_text(char *puffer, size_t puffer_groesse);
+
 /* Pausiert (true) bzw. entpausiert (false) den WLAN-Watchdog (30s ohne
  * Verbindung -> Neustart). Waehrend der Benutzer auf einem
  * Einrichtungsbildschirm Zugangsdaten eintippt, soll ein Verbindungsabbruch
