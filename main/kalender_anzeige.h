@@ -50,6 +50,27 @@ int kalender_anzeige_heutige_eintraege(kalender_tag_eintrag_t *ziel, int max);
  * kalender_anzeige_heutige_eintraege()). */
 void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt);
 
+/* Faelligkeitsstatus einer Tablette - gemeinsam fuer alle Anzeigeorte
+ * (Hauptuebersicht in app_main.c, "Heute"-Fenster in tagesansicht.c), damit
+ * die Schwelle nur an einer Stelle gepflegt wird. Jeder Ort bildet die
+ * Werte auf seine eigene, dort schon vorhandene Farbpalette ab. */
+typedef enum {
+    KALENDER_TABLETTE_ABGEHAKT,     /* bereits bestaetigt - gedaempft darstellen */
+    KALENDER_TABLETTE_ZUKUNFT,      /* noch nicht faellig - normale Farbe */
+    KALENDER_TABLETTE_FAELLIG,      /* Einnahmezeit erreicht, noch nicht bestaetigt */
+    KALENDER_TABLETTE_UEBERFAELLIG, /* seit KALENDER_TABLETTE_UEBERFAELLIG_MIN
+                                      * unbestaetigt ueberfaellig */
+} kalender_tablette_status_t;
+
+#define KALENDER_TABLETTE_UEBERFAELLIG_MIN 60
+
+/* `zeit_bekannt`/`jetzt_minuten` wie an anderen Stellen: jetzt_minuten nur
+ * gueltig, wenn zeit_bekannt true ist (zeit_ist_synchron()). Ohne bekannte
+ * Uhrzeit oder bei einem ganztaegigen Eintrag bleibt der Status immer
+ * KALENDER_TABLETTE_ZUKUNFT (keine verlaessliche Zeitgrundlage). */
+kalender_tablette_status_t kalender_tablette_status(const kalender_tag_eintrag_t *eintrag,
+                                                     bool zeit_bekannt, int jetzt_minuten);
+
 /* Rein lesende Eintraege fuer einen beliebigen anderen Tag (Versatz in
  * Tagen zu heute, z. B. -1 = gestern, +1 = morgen) - fuer die Tages-Fenster
  * der uebrigen Wochentag-Buttons. Kein Bestaetigungsstatus (immer false).

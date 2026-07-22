@@ -259,6 +259,23 @@ void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt)
     xSemaphoreGive(s_mutex);
 }
 
+kalender_tablette_status_t kalender_tablette_status(const kalender_tag_eintrag_t *eintrag,
+                                                     bool zeit_bekannt, int jetzt_minuten)
+{
+    if (eintrag->bestaetigt)
+        return KALENDER_TABLETTE_ABGEHAKT;
+    if (!zeit_bekannt || eintrag->ganztags)
+        return KALENDER_TABLETTE_ZUKUNFT;
+
+    int soll_minuten = eintrag->stunde * 60 + eintrag->minute;
+    int ueberfaellig_seit = jetzt_minuten - soll_minuten;
+    if (ueberfaellig_seit < 0)
+        return KALENDER_TABLETTE_ZUKUNFT;
+    if (ueberfaellig_seit >= KALENDER_TABLETTE_UEBERFAELLIG_MIN)
+        return KALENDER_TABLETTE_UEBERFAELLIG;
+    return KALENDER_TABLETTE_FAELLIG;
+}
+
 int kalender_anzeige_eintraege_fuer_tag(int tage_versatz, kalender_tag_eintrag_t *ziel, int max)
 {
     time_t jetzt = time(NULL) + (time_t)tage_versatz * 86400;

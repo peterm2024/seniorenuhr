@@ -46,6 +46,8 @@ LV_FONT_DECLARE(schrift_mittel_40);
 #define FARBE_FENSTER_TEXT   0xffffff
 #define FARBE_FENSTER_AKZENT 0xffd75f
 #define FARBE_VERGANGEN      0x707a8a /* gedaempftes Grau fuer bereits vergangene Termine */
+#define FARBE_TABLETTE_FAELLIG      FARBE_FENSTER_AKZENT /* faellig, noch unbestaetigt: dasselbe Gold wie sonst im Fenster */
+#define FARBE_TABLETTE_UEBERFAELLIG 0xff5a4a /* seit KALENDER_TABLETTE_UEBERFAELLIG_MIN unbestaetigt: dasselbe Rot wie die Status-Symbole in app_main.c */
 
 /* Schiebeschalter statt lv_switch: bei Zittern/Ungenauigkeit im Alter
  * loest ein einfacher Tipp auf einen Schalter zu leicht eine Fehleingabe
@@ -411,6 +413,30 @@ static void tabletten_zeile_aktualisieren(int index, bool bestaetigt)
     size_t praefix_laenge = strlen(praefix);
     const char *aktuell = lv_label_get_text(label);
     bool hat_praefix = strncmp(aktuell, praefix, praefix_laenge) == 0;
+    const char *ohne_praefix = hat_praefix ? aktuell + praefix_laenge : aktuell;
+
+    /* Faelligkeitsfarbe VOR dem Textwechsel unten bestimmen - lv_label_set_text
+     * realloziert den Puffer hinter `aktuell`/`ohne_praefix`. Uhrzeit aus der
+     * vorhandenen "HH:MM  Titel"-Beschriftung ablesen statt den Eintrag erneut
+     * abzufragen (gleiches Prinzip wie beim Praefix-Umbau oben). */
+    uint32_t farbe = FARBE_FENSTER_TEXT;
+    if (bestaetigt) {
+        farbe = FARBE_VERGANGEN;
+    } else {
+        int stunde, minute;
+        if (sscanf(ohne_praefix, "%d:%d", &stunde, &minute) == 2) {
+            time_t jetzt = time(NULL);
+            struct tm lokal;
+            localtime_r(&jetzt, &lokal);
+            int jetzt_minuten = lokal.tm_hour * 60 + lokal.tm_min;
+            kalender_tag_eintrag_t hilfseintrag = { .stunde = stunde, .minute = minute };
+            switch (kalender_tablette_status(&hilfseintrag, true, jetzt_minuten)) {
+            case KALENDER_TABLETTE_FAELLIG:      farbe = FARBE_TABLETTE_FAELLIG; break;
+            case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; break;
+            default: break;
+            }
+        }
+    }
 
     if (bestaetigt && !hat_praefix) {
         char neu[ZEILE_MAX];
@@ -429,7 +455,7 @@ static void tabletten_zeile_aktualisieren(int index, bool bestaetigt)
         snprintf(neu, sizeof neu, "%s", aktuell + praefix_laenge);
         lv_label_set_text(label, neu);
     }
-    lv_obj_set_style_text_color(label, lv_color_hex(bestaetigt ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
 }
 
 /* Entscheidet beim Loslassen, ob genug gezogen wurde: nur jenseits der
@@ -543,10 +569,18 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
         char inhalt[ZEILE_MAX];
         eintrag_zeile_formatieren(&eintraege[i], eintraege[i].bestaetigt, inhalt, sizeof inhalt);
 
+        uint32_t farbe;
+        switch (kalender_tablette_status(&eintraege[i], true, jetzt_minuten)) {
+        case KALENDER_TABLETTE_ABGEHAKT:     farbe = FARBE_VERGANGEN; break;
+        case KALENDER_TABLETTE_FAELLIG:      farbe = FARBE_TABLETTE_FAELLIG; break;
+        case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; break;
+        default:                             farbe = FARBE_FENSTER_TEXT; break;
+        }
+
         lv_obj_t *label = lv_label_create(s_heute_fenster);
         lv_label_set_text(label, inhalt);
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(eintraege[i].bestaetigt ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
         lv_obj_set_pos(label, 20, y + 12);
         s_tabletten_zeile_labels[i] = label;
 

@@ -386,6 +386,21 @@ Umweg über Testdaten war nicht mehr nötig.
   nachgestelltem Eltern-Szenario (Fantasie-SSID, geloeschtes NVS) reproduziert und den Fix
   live verifiziert (Details FALLSTRICKE #21). Board 2 braucht dafuer einen Neuflash vor Ort
   (Produktions-Build, siehe Nachtrag 13) - OTA gibt es noch nicht.
+- ✅ Nachtrag 15 (22.07.2026) — Verpasste Tabletteneinnahme farblich erkennbar: bisher sah eine
+  faellige, nicht abgehakte Tablette optisch identisch aus wie eine, die erst Stunden spaeter
+  dran ist - keine Unterscheidung. Neue gemeinsame Funktion `kalender_tablette_status()`
+  (kalender_anzeige.c/h) liefert vier Zustaende (Zukunft/Faellig/Ueberfaellig/Abgehakt) anhand
+  von Soll-Zeit vs. aktueller Uhrzeit; ab Erreichen der Einnahmezeit faerbt sich die Zeile Gold
+  (dieselbe Akzentfarbe wie Wochentag/Ueberschriften), nach 60 Minuten unbestaetigt Rot
+  (dieselbe Warnfarbe wie bei fehlender Konnektivitaet der Status-Symbole) - kein Blinken, passt
+  zur bestehenden "nichts blinkt"-Regel. Umgesetzt an allen drei Anzeigeorten: Hauptuebersicht
+  (app_main.c, inkl. Fingerabdruck-Text fuer die Aenderungserkennung - sonst haette sich die
+  Farbe beim reinen Zeitablauf nie aktualisiert), "Heute"-Fenster beim Oeffnen und beim
+  Zurueckschieben des Schiebereglers (tagesansicht.c). Die 60-Minuten-Schwelle
+  (`KALENDER_TABLETTE_UEBERFAELLIG_MIN`) ist zentral in kalender_anzeige.h gepflegt. Reine
+  Schwellenlogik per Host-Testprogramm mit 8 Grenzfaellen verifiziert (genau bei 0/60 Minuten,
+  ganztags, unbekannte Zeit, bereits bestaetigt), danach live auf Board 1 bestaetigt (Peter hat
+  eine Tablette testweise zurueckgeschoben - Faerbung passte).
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
@@ -401,7 +416,15 @@ Umweg über Testdaten war nicht mehr nötig.
 - ✅ **Ziel:** Läuft im Wohnzimmer, Peter pflegt Termine vom eigenen Handy aus
 
 ### Später / Ideen (bewusst nicht am Anfang)
-- Benachrichtigung an Peter, wenn eine Tablette bis Zeitpunkt X nicht abgehakt wurde
+- Status-Detail-Fenster: Tipp auf den Status-Symbol-Bereich zeigt fuer ein paar Sekunden WLAN
+  (SSID, IP), Zeit (letzter Sync) und Kalender (letzter Sync) im Detail und probiert bei
+  Bedarf gleich einen Resync
+- Analoge Zusatzuhr rechts neben der Digitaluhr (nur Kreis+Zeiger, keine Ziffern) - antippbarer
+  Bereich, der Digital- und Analoganzeige tauscht (groß in der Mitte / klein als Zweitanzeige
+  rechts), je nach Vorliebe
+- Benachrichtigung an Peter (Push/Mail o. ä.), wenn eine Tablette laenger als X nicht abgehakt
+  wurde - die lokale Farb-Eskalation am Geraet selbst gibt es seit Nachtrag 15, das hier waere
+  der Schritt zu einer Fernbenachrichtigung nach draussen
 - Fotos/Geburtstage einblenden, Wetter
 - DS3231-RTC-Modul, Helligkeitssensor
 - Zweites Gerät (z. B. Schlafzimmer)

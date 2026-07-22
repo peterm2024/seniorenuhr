@@ -58,6 +58,8 @@
 #define FARBE_ICON_HELLGRAU     0xd8d8d8 /* Status-Symbole rechts oben - fest, unabhaengig vom Modus */
 #define FARBE_VERGANGEN         0x707a8a /* gedaempftes Grau: vergangene Termine / abgehakte Tabletten in der Uebersicht */
 #define FARBE_ZEIT_UNBESTAETIGT 0xcc7a1a /* dunkles Orange: grosse Uhrzeit blinkt damit, solange die Zeit nicht per NTP bestaetigt ist */
+#define FARBE_TABLETTE_FAELLIG      FARBE_AKZENT /* faellig, noch unbestaetigt: dasselbe Gold wie Wochentag/Ueberschriften */
+#define FARBE_TABLETTE_UEBERFAELLIG FARBE_WARNUNG /* seit KALENDER_TABLETTE_UEBERFAELLIG_MIN unbestaetigt: dasselbe Rot wie bei den Status-Symbolen */
 
 /* Kantenlaenge der kleinen Status-Symbole rechts oben (WLAN/Zeit/Kalender). */
 #define STATUS_ICON_GROESSE 34
@@ -270,14 +272,23 @@ static void liste_text_aufbauen(const kalender_tag_eintrag_t *eintraege, int anz
             snprintf(inhalt, sizeof inhalt, "%02d:%02d  %s",
                      eintraege[i].stunde, eintraege[i].minute, eintraege[i].titel);
 
-        bool gedaempft = nur_tabletten
-            ? eintraege[i].bestaetigt
-            : (zeit_bekannt && !eintraege[i].ganztags &&
-               (eintraege[i].stunde * 60 + eintraege[i].minute) < jetzt_minuten);
+        bool hat_farbe;
+        uint32_t farbe = FARBE_VERGANGEN;
+        if (nur_tabletten) {
+            switch (kalender_tablette_status(&eintraege[i], zeit_bekannt, jetzt_minuten)) {
+            case KALENDER_TABLETTE_ABGEHAKT:     farbe = FARBE_VERGANGEN; hat_farbe = true; break;
+            case KALENDER_TABLETTE_FAELLIG:      farbe = FARBE_TABLETTE_FAELLIG; hat_farbe = true; break;
+            case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; hat_farbe = true; break;
+            default:                             hat_farbe = false; break;
+            }
+        } else {
+            hat_farbe = zeit_bekannt && !eintraege[i].ganztags &&
+                        (eintraege[i].stunde * 60 + eintraege[i].minute) < jetzt_minuten;
+        }
 
         char zeile[104];
-        if (gedaempft)
-            snprintf(zeile, sizeof zeile, "#%06x %s#\n", FARBE_VERGANGEN, inhalt);
+        if (hat_farbe)
+            snprintf(zeile, sizeof zeile, "#%06lx %s#\n", (unsigned long)farbe, inhalt);
         else
             snprintf(zeile, sizeof zeile, "%s\n", inhalt);
 
@@ -336,7 +347,18 @@ static void uebersicht_spalte_neu_aufbauen(uebersicht_spalte_t *spalte, int32_t 
         bool abgehakt = nur_tabletten && eintraege[i].bestaetigt;
         bool vergangen = !nur_tabletten && zeit_bekannt && !eintraege[i].ganztags &&
                           (eintraege[i].stunde * 60 + eintraege[i].minute) < jetzt_minuten;
-        bool gedaempft = abgehakt || vergangen;
+
+        uint32_t farbe = FARBE_TEXT_HELL;
+        if (nur_tabletten) {
+            switch (kalender_tablette_status(&eintraege[i], zeit_bekannt, jetzt_minuten)) {
+            case KALENDER_TABLETTE_ABGEHAKT:     farbe = FARBE_VERGANGEN; break;
+            case KALENDER_TABLETTE_FAELLIG:      farbe = FARBE_TABLETTE_FAELLIG; break;
+            case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; break;
+            case KALENDER_TABLETTE_ZUKUNFT:      farbe = FARBE_TEXT_HELL; break;
+            }
+        } else if (vergangen) {
+            farbe = FARBE_VERGANGEN;
+        }
 
         char inhalt[88];
         const char *praefix = abgehakt ? UEBERSICHT_HAKEN_PRAEFIX : "";
@@ -348,7 +370,7 @@ static void uebersicht_spalte_neu_aufbauen(uebersicht_spalte_t *spalte, int32_t 
 
         lv_obj_t *label = lv_label_create(spalte->container);
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(gedaempft ? FARBE_VERGANGEN : FARBE_TEXT_HELL), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
         if (vergangen)
             lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
