@@ -421,8 +421,15 @@ static void uebersicht_spalte_neu_aufbauen(uebersicht_spalte_t *spalte, int32_t 
         lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
         if (vergangen)
             lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-        lv_obj_set_width(label, breite);
+        /* Einzeilig mit "..." abschneiden statt umbrechen: Die Spalte ist nur
+         * ~300px breit und der Platz nach unten knapp - ein Umbruch langer
+         * Eintraege (z.B. "[x] 20:00  2,5x Abends") sprengte die feste
+         * Zeilenhoehe, die Zeilen ueberlappten sich (bei den Eltern live
+         * beobachtet, gleiche Fehlerklasse wie FALLSTRICKE #22). Feste
+         * Label-Hoehe = Zeilenabstand -> nie Ueberlappung; der vollstaendige
+         * Name bleibt im "Heute"-Fenster sichtbar. */
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(label, breite, UEBERSICHT_ZEILE_ABSTAND);
         lv_obj_set_pos(label, 0, y);
         lv_label_set_text(label, inhalt);
         uebersicht_tippbar_machen(label);
