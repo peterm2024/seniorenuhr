@@ -447,6 +447,15 @@ Umweg über Testdaten war nicht mehr nötig.
   Bestaetigung -> normaler Weiterlauf; Negativtest POWERON -> keine Meldung, direkt
   Hauptanzeige. Naechster Schritt: Board 2 mit diesem Stand (Produktions-Build) neu flashen,
   damit ein erneuter Ausfall bei den Eltern protokolliert wird.
+- ✅ Nachtrag 19 (23.07.2026) — Ueberlappende Zeilen in der Tabletten-/Termin-Uebersicht bei
+  den Eltern (per Foto bemerkt): lange Eintraege ("[x] 20:00  2,5x Abends") brachen in der
+  schmalen Uebersicht-Spalte auf zwei Zeilen um, waehrend der Zeilenabstand fest auf 34px stand
+  - Zeilen ueberlappten sich, Zeichen vermischten sich zu Kauderwelsch. Gleiche Fehlerklasse wie
+  FALLSTRICKE #22. Fix: `LV_LABEL_LONG_DOT` statt Umbruch, feste Label-Hoehe = Zeilenabstand -
+  jede Zeile bleibt genau eine Zeile, zu langer Text endet mit "...", der volle Name bleibt im
+  "Heute"-Fenster sichtbar. Mit den echten Eltern-Daten auf Board 2 verifiziert. Board 2 hat bei
+  dieser Gelegenheit auch den WLAN-Scan-Fix (Nachtrag 14) und die Absturz-Blackbox
+  (Nachtrag 18) bekommen (Produktions-Neuflash).
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
