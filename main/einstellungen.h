@@ -8,6 +8,7 @@
 #define EINSTELLUNGEN_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <time.h>
 
 #define EINSTELLUNGEN_KALENDER_URL_MAX 256
@@ -48,5 +49,15 @@ void einstellungen_letzte_sync_setzen(time_t zeitstempel);
  * manuellem Resync, siehe kalender_anzeige_jetzt_pruefen). */
 time_t einstellungen_letzter_kalender_sync(void);
 void einstellungen_letzter_kalender_sync_setzen(time_t zeitstempel);
+
+/* Zaehler echter Abstuerze (Panic/Watchdog/Brownout) seit Inbetriebnahme -
+ * fuer die Absturz-Diagnose beim naechsten Start (siehe app_main.c). Der
+ * Heartbeat-Zeitpunkt des letzten gesunden Moments steckt bereits in
+ * einstellungen_letzte_anzeige() (wird ohnehin ~1x/60s geschrieben) - nach
+ * einem Absturz steht dort automatisch der ungefaehre Absturzzeitpunkt. */
+uint32_t einstellungen_absturz_zaehler(void);
+/* Erhoeht den Zaehler um 1 und persistiert ihn sofort. Beim Absturz-Boot
+ * aufrufen, bevor die Diagnose-Meldung den Wert anzeigt. */
+void einstellungen_absturz_registrieren(void);
 
 #endif

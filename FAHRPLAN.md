@@ -429,6 +429,24 @@ Umweg über Testdaten war nicht mehr nötig.
   Tausch unsichtbar -> LVGL-Align-Falle, siehe FALLSTRICKE #23; (3) Abstand/Position nach
   Peters Rueckmeldung nachjustiert (Analoguhr-Platz an den rechten Rand, dann Durchmesser
   verkleinert). Live von Peter abgenommen.
+- ✅ Nachtrag 18 (23.07.2026) — Absturz-Blackbox (Anlass: Board 2 stand bei den Eltern mit
+  komplett schwarzem Bildschirm, ohne mitlaufenden Monitor keinerlei Spur, warum). Da der
+  Coredump nur auf UART geht (nicht in eine Flash-Partition) und der Reset-Grund nach einem
+  Neustart/Transport ueberschrieben ist, war dieser konkrete Ausfall nicht mehr
+  rekonstruierbar - deshalb eine Blackbox fuer kuenftige Faelle: Beim Boot wird
+  `esp_reset_reason()` geprueft; war es ein echter Absturz (Panic, Task-/Interrupt-Watchdog,
+  Brownout - NICHT normaler POWERON/Stromausfall oder Einstellungen-Speichern), erscheint noch
+  vor dem normalen Startablauf eine Diagnose-Meldung mit Grund, ungefaehrem Absturzzeitpunkt
+  und laufender Absturznummer zum Abfotografieren. Der Absturzzeitpunkt kommt gratis aus dem
+  schon vorhandenen 60s-Heartbeat `einstellungen_letzte_anzeige` (kein neuer Schreibpfad); neu
+  nur ein Absturz-Zaehler im NVS (`einstellungen_absturz_registrieren`). Die Meldung blockiert
+  in der Beta-Phase bewusst UNBEGRENZT bis zur Touch-Bestaetigung (Peter: keine Info verlieren)
+  - fuer den Produktivbetrieb ist im Code ein Sicherheits-Timeout vermerkt, damit die normale
+  Anzeige (Tabletten!) nachts nicht dauerhaft verdeckt bleibt. Voll verifiziert auf Board 1:
+  gefakter Absturz -> Meldung korrekt (Grund/Zeit/Zaehler, von Peter abfotografiert),
+  Bestaetigung -> normaler Weiterlauf; Negativtest POWERON -> keine Meldung, direkt
+  Hauptanzeige. Naechster Schritt: Board 2 mit diesem Stand (Produktions-Build) neu flashen,
+  damit ein erneuter Ausfall bei den Eltern protokolliert wird.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal

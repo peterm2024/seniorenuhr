@@ -1504,10 +1504,135 @@ static void einblend_fertig_cb(lv_anim_t *a)
     ESP_LOGI(TAG, "Start: Einblend-Animation fertig");
 }
 
+/* True nur bei einem echten Absturz (kein normaler Stromausfall/Neustart) -
+ * genau diese Faelle sollen beim naechsten Start die Diagnose-Meldung zeigen
+ * (Peters Wunsch, Beta-Phase). ESP_RST_SW (WLAN-Watchdog, Speichern im
+ * Einrichtungsbildschirm) und POWERON/EXT bleiben bewusst aussen vor. */
+static bool reset_ist_absturz(esp_reset_reason_t grund)
+{
+    return grund == ESP_RST_PANIC || grund == ESP_RST_TASK_WDT ||
+           grund == ESP_RST_INT_WDT || grund == ESP_RST_WDT ||
+           grund == ESP_RST_BROWNOUT;
+}
+
+/* Kurzer, laienverstaendlicher Text fuer die Absturz-Diagnose auf dem Geraet
+ * (der ausfuehrliche reset_grund_text() geht ins serielle Log). */
+static const char *reset_grund_kurz(esp_reset_reason_t grund)
+{
+    switch (grund) {
+    case ESP_RST_PANIC:    return "Programmabsturz";
+    case ESP_RST_TASK_WDT: return "Haenger (Task-Watchdog)";
+    case ESP_RST_INT_WDT:  return "Haenger (Interrupt-Watchdog)";
+    case ESP_RST_WDT:      return "Watchdog";
+    case ESP_RST_BROWNOUT: return "Unterspannung (Netzteil?)";
+    default:               return "unbekannt";
+    }
+}
+
+static volatile bool s_diagnose_bestaetigt;
+
+static void diagnose_ok_cb(lv_event_t *e)
+{
+    (void)e;
+    s_diagnose_bestaetigt = true;
+}
+
+/* Blackbox-Meldung nach einem echten Absturz: zeigt Grund, ungefaehren
+ * Absturzzeitpunkt (aus dem 60s-Heartbeat einstellungen_letzte_anzeige) und
+ * die laufende Absturznummer - zum Abfotografieren. Blockiert app_main()
+ * BIS zur Bestaetigung per Touch. Die unbegrenzte Blockade ist eine bewusste
+ * Beta-Entscheidung (Peter: keine Absturz-Info verlieren) - fuer den
+ * spaeteren Produktivbetrieb sollte hier ein Sicherheits-Timeout ergaenzt
+ * werden, damit die normale Anzeige (Tabletten!) nachts nicht dauerhaft
+ * verdeckt bleibt. Der WLAN-Watchdog laeuft zu diesem Zeitpunkt noch nicht
+ * (netz_start kommt spaeter), ein Blockieren ist hier also gefahrlos. */
+static void diagnose_screen_zeigen_und_warten(esp_reset_reason_t grund)
+{
+    s_diagnose_bestaetigt = false;
+
+    char zeit_txt[48];
+    time_t letzte = einstellungen_letzte_anzeige();
+    if (letzte > 0) {
+        struct tm tm_letzte;
+        localtime_r(&letzte, &tm_letzte);
+        snprintf(zeit_txt, sizeof zeit_txt, "%02d.%02d.%04d, %02d:%02d Uhr",
+                 tm_letzte.tm_mday, tm_letzte.tm_mon + 1, tm_letzte.tm_year + 1900,
+                 tm_letzte.tm_hour, tm_letzte.tm_min);
+    } else {
+        snprintf(zeit_txt, sizeof zeit_txt, "unbekannt (Zeit nie gesetzt)");
+    }
+
+    char grund_txt[64];
+    snprintf(grund_txt, sizeof grund_txt, "Grund: %s", reset_grund_kurz(grund));
+    char zeit_zeile[80];
+    snprintf(zeit_zeile, sizeof zeit_zeile, "Zuletzt aktiv: %s", zeit_txt);
+    char nummer_zeile[48];
+    snprintf(nummer_zeile, sizeof nummer_zeile, "Absturz Nr. %lu",
+             (unsigned long)einstellungen_absturz_zaehler());
+
+    lvgl_port_lock(0);
+    lv_obj_t *vorher = lv_screen_active();
+
+    lv_obj_t *screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(FARBE_TAG_HINTERGRUND), 0);
+    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *titel = lv_label_create(screen);
+    lv_label_set_text(titel, "NEUSTART NACH FEHLER");
+    lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
+    lv_obj_set_style_text_color(titel, lv_color_hex(FARBE_WARNUNG), 0);
+    lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 40);
+
+    lv_obj_t *g = lv_label_create(screen);
+    lv_label_set_text(g, grund_txt);
+    lv_obj_set_style_text_font(g, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(g, lv_color_hex(FARBE_TEXT_HELL), 0);
+    lv_obj_align(g, LV_ALIGN_TOP_MID, 0, 130);
+
+    lv_obj_t *z = lv_label_create(screen);
+    lv_label_set_text(z, zeit_zeile);
+    lv_obj_set_style_text_font(z, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(z, lv_color_hex(FARBE_TEXT_HELL), 0);
+    lv_obj_align(z, LV_ALIGN_TOP_MID, 0, 180);
+
+    lv_obj_t *n = lv_label_create(screen);
+    lv_label_set_text(n, nummer_zeile);
+    lv_obj_set_style_text_font(n, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(n, lv_color_hex(FARBE_TEXT_HELL), 0);
+    lv_obj_align(n, LV_ALIGN_TOP_MID, 0, 230);
+
+    lv_obj_t *hinweis = lv_label_create(screen);
+    lv_label_set_text(hinweis, "Bitte abfotografieren, dann bestaetigen.");
+    lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(hinweis, lv_color_hex(FARBE_STATUS_HELL), 0);
+    lv_obj_align(hinweis, LV_ALIGN_TOP_MID, 0, 290);
+
+    lv_obj_t *btn = lv_button_create(screen);
+    lv_obj_set_size(btn, 320, 72);
+    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -40);
+    lv_obj_add_event_cb(btn, diagnose_ok_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *btn_label = lv_label_create(btn);
+    lv_label_set_text(btn_label, "Verstanden");
+    lv_obj_set_style_text_font(btn_label, &schrift_mittel_40, 0);
+    lv_obj_center(btn_label);
+
+    lv_screen_load(screen);
+    lvgl_port_unlock();
+
+    while (!s_diagnose_bestaetigt)
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+    lvgl_port_lock(0);
+    lv_screen_load(vorher);
+    lv_obj_delete(screen);
+    lvgl_port_unlock();
+}
+
 void app_main(void)
 {
+    esp_reset_reason_t reset_grund = esp_reset_reason();
     ESP_LOGI(TAG, "Start: Seniorenuhr startet (letzter Neustart-Grund: %s)",
-             reset_grund_text(esp_reset_reason()));
+             reset_grund_text(reset_grund));
 
     /* Ganz zuerst - initialisiert bei Bedarf selbst das NVS. */
     einstellungen_laden();
@@ -1516,6 +1641,17 @@ void app_main(void)
 
     ESP_ERROR_CHECK(anzeige_start());
     ESP_LOGI(TAG, "Start: Display bereit");
+
+    /* Blackbox: war der letzte Neustart ein echter Absturz, hier - noch vor
+     * dem normalen Startablauf und bevor NTP den Heartbeat-Zeitstempel
+     * ueberschreibt - eine Diagnose-Meldung zeigen und auf Bestaetigung
+     * warten (siehe diagnose_screen_zeigen_und_warten). */
+    if (reset_ist_absturz(reset_grund)) {
+        einstellungen_absturz_registrieren();
+        ESP_LOGW(TAG, "Start: Neustart nach Absturz (%s) - zeige Diagnose-Meldung",
+                 reset_grund_kurz(reset_grund));
+        diagnose_screen_zeigen_und_warten(reset_grund);
+    }
 #if ENTWICKLUNGSWERKZEUGE
     screenshot_debug_start(); /* Entwicklungswerkzeug: Touch-Button unten Mitte -> Screenshot ueber seriell */
 #endif

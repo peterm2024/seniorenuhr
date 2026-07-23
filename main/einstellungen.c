@@ -24,6 +24,7 @@ static time_t s_letzte_anzeige;
 static time_t s_letzte_anzeige_nvs_stand;
 static time_t s_letzte_sync;
 static time_t s_letzter_kalender_sync;
+static uint32_t s_absturz_zaehler;
 
 void einstellungen_laden(void)
 {
@@ -57,6 +58,8 @@ void einstellungen_laden(void)
         s_letzte_sync = (time_t)i64;
     if (nvs_get_i64(h, "let_kal", &i64) == ESP_OK)
         s_letzter_kalender_sync = (time_t)i64;
+
+    nvs_get_u32(h, "crashcnt", &s_absturz_zaehler);
 
     nvs_close(h);
     ESP_LOGI(TAG, "Einstellungen geladen (Buzzer=%d, Kalender-Override=%s)",
@@ -134,6 +137,19 @@ void einstellungen_letzter_kalender_sync_setzen(time_t zeitstempel)
     if (nvs_open(NVS_NAMENSRAUM, NVS_READWRITE, &h) != ESP_OK)
         return;
     nvs_set_i64(h, "let_kal", (int64_t)zeitstempel);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+uint32_t einstellungen_absturz_zaehler(void) { return s_absturz_zaehler; }
+
+void einstellungen_absturz_registrieren(void)
+{
+    s_absturz_zaehler++;
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMENSRAUM, NVS_READWRITE, &h) != ESP_OK)
+        return;
+    nvs_set_u32(h, "crashcnt", s_absturz_zaehler);
     nvs_commit(h);
     nvs_close(h);
 }
