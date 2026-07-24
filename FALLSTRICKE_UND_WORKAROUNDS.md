@@ -322,3 +322,57 @@ Positionierung mehr. Bei jedem Objekt, das zwischen "ausgerichtet" (align) und "
 positioniert" (set_pos) wechselt, muss der Wechsel das Align explizit mitfuehren. Typisches
 Symptom: Objekt "verschwindet" nach einer Umpositionierung, obwohl die berechneten
 Koordinaten auf dem Papier stimmen.
+
+## 24. Absturz jede Nacht um Punkt 00:00 Uhr — Stack-Overflow der LVGL-Task beim Tageswechsel
+
+**Problem:** Board 2 (bei den Eltern) hatte nachts wiederholt einen schwarzen Bildschirm;
+die Absturz-Blackbox (#Diagnose-Feature, FAHRPLAN Nachtrag 18) meldete beim Neustart
+"Programmabsturz", zuletzt aktiv "23:59 Uhr". Also ein Absturz taeglich um Mitternacht.
+
+**Reproduktion (der halbe Weg zur Loesung):** Statt jede Nacht zu warten, wurde im
+`sync_callback` (zeit.c) temporaer die Uhr direkt nach dem ersten NTP-Sync auf 23:59:55
+gestellt (NACH dem Sync, sonst holt der naechste NTP-Poll sofort die echte Zeit zurueck - eine
+ueber das Menue manuell gesetzte Zeit wurde live genau so ueberschrieben). Damit liess sich der
+Absturz in ~2 Minuten pro Versuch zuverlaessig ausloesen und mit angehaengtem Monitor
+(`esp_idf_monitor --no-reset`, damit die Blackbox-Meldung am Geraet stehen bleibt) der
+komplette Backtrace + Coredump mitschneiden.
+
+**Irrwege / Eingrenzung:** Die Absturzbilder wechselten von Lauf zu Lauf (`assert failed:
+xTaskRemoveFromEventList pxUnblockedTCB`, `LoadProhibited`, `InstrFetchProhibited`, sogar im
+GDMA-Interrupt-Handler) - typisch fuer eine Speicher-Korruption, bei der je nach Heap-Layout
+ein anderer spaeterer Zugriff das Opfer wird, nicht die Ursache. Bisektion (Analoguhr-Zeiger-
+Update auskommentiert) und ein Heap-Integritaets-Check bei jedem Sekunden-Tick zeigten: der
+Heap ist bis 23:59:59 gesund und exakt beim 00:00:00-Tick korrupt. Backtrace an dem Tick immer
+`uhr_tick -> tagesansicht_tag_aktualisieren -> button_terminfarbe_setzen ->
+kalender_anzeige_eintraege_fuer_tag -> ics_parser`.
+
+**Ursache (der rauchende Colt):** Eine Stack-High-Watermark-Messung am Ende von
+`tagesansicht_tag_aktualisieren` lieferte direkt vor dem Crash **308 Byte frei** (normal
+~5700). Klarer Stack-Overflow der LVGL-Task. Der Grund ist eine tiefe Aufrufkette mit mehreren
+grossen lokalen Puffern gleichzeitig, die NUR beim Tageswechsel voll durchlaeuft:
+`tagesansicht_tag_aktualisieren` faerbt alle 7 Wochentag-Buttons neu ein und ruft dafuer 7x
+`button_terminfarbe_setzen`, das ueber `kalender_anzeige_eintraege_fuer_tag` jeweils einen
+`ics_termin_t termine[32]`-Puffer (~3,8KB) anlegt - waehrend `uhr_tick` darueber schon seine
+eigenen ~3,9KB Text-/Eintrags-Puffer haelt. Der 10K-Stack der LVGL-Task lief dabei bis auf 308
+Byte leer und kippte in den benachbarten Heap. Weil `tagesansicht_tag_aktualisieren` an
+normalen Ticks per Tages-Schluessel-Vergleich frueh zurueckkehrt und den teuren Pfad NUR bei
+echtem Datumswechsel nimmt, trat der Absturz ausschliesslich um Punkt Mitternacht auf - und nie
+beim normalen Boot-Test tagsueber. (Der Canary-Stack-Overflow-Schutz griff nicht sichtbar, weil
+er nur beim Task-Switch prueft; hier crashte der wilde Heap-Zugriff schon innerhalb desselben
+Ticks.)
+
+**Loesung:** LVGL-Task-Stack in `anzeige.c` von 10240 auf 16384 Byte erhoeht (dieselbe
+Fehlerklasse hatte den Stack schon einmal von 4K auf 10K getrieben, damals beim blossen
+Antippen eines Buttons - derselbe Pfad, aber nur 1x statt 7x). Verifiziert per identischer
+Test-Zeit-Reproduktion: der 00:00:00-Tageswechsel laeuft jetzt mit `tabl_geaendert=1` sauber
+durch, Heap-OK, Stack-Reserve an der kritischen Stelle 5204 statt 308 Byte, kein Absturz ueber
+mehrere Minuten Nachlauf.
+
+**Lehre:** (1) Ein Absturz mit WECHSELNDEN Fehlerbildern (mal Assert, mal LoadProhibited, mal im
+fremden Interrupt) ist fast immer Speicher-Korruption - nicht am Absturzort suchen, sondern die
+Quelle per Heap-Check/Stack-Watermark einkreisen. (2) Ein Absturz zu einer festen Uhrzeit deutet
+auf zeitgesteuerten Sonder-Code (hier Tageswechsel); den kann man per manuell gestellter Testzeit
+in Minuten statt Stunden reproduzieren, wenn man NACH dem NTP-Sync setzt. (3) Bei ESP-IDF mit
+Puffer-lastigen Callback-Ketten den Task-Stack GROSSZUEGIG bemessen und den tatsaechlichen
+Verbrauch mit `uxTaskGetStackHighWaterMark` im Worst-Case-Pfad messen - der Canary allein warnt
+nicht zuverlaessig, wenn die Korruption noch im selben Tick zuschlaegt.

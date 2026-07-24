@@ -147,12 +147,19 @@ esp_err_t anzeige_start(void)
 
     /* LVGL starten und Display anmelden */
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
-    /* Der Standard-Stack (4K) reichte nicht mehr, seit Button-Callbacks
-     * (siehe tagesansicht.c/tages_fenster_oeffnen) auf dem LVGL-Task recht
-     * grosse lokale Puffer (kalender_tag_eintrag_t-Arrays, ics_termin_t[32])
-     * verwenden - fuehrte zu einem Stack-Overflow-Absturz beim Antippen
-     * eines Wochentag-Buttons. */
-    port_cfg.task_stack = 10240;
+    /* 16K: Auf dem LVGL-Task laufen mehrere tief verschachtelte Pfade mit
+     * grossen lokalen Puffern gleichzeitig. Der kritischste ist der
+     * Mitternachts-Tageswechsel: uhr_tick (eigene ~3,9KB Text-/Eintrags-
+     * Puffer) ruft tagesansicht_tag_aktualisieren, das fuer ALLE 7 Wochentag-
+     * Buttons button_terminfarbe_setzen aufruft - jeder Aufruf legt ueber
+     * kalender_anzeige_eintraege_fuer_tag einen ics_termin_t[32]-Puffer
+     * (~3,8KB) an. In Summe lief der fruehere 10K-Stack dabei bis auf 308
+     * Byte Reserve leer und kippte in den benachbarten Heap (Absturz
+     * ausschliesslich um 00:00 Uhr, siehe FALLSTRICKE #24). Der Standard-
+     * Stack (4K) hatte schon frueher beim blossen Antippen eines Buttons
+     * (derselbe Pfad, aber nur 1x) nicht gereicht - daher der erste Schritt
+     * auf 10K, jetzt 16K fuer den 7-fachen Mitternachts-Fall. */
+    port_cfg.task_stack = 16384;
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "LVGL-Port");
 
     const lvgl_port_display_cfg_t disp_cfg = {

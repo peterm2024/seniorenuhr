@@ -456,6 +456,20 @@ Umweg über Testdaten war nicht mehr nötig.
   "Heute"-Fenster sichtbar. Mit den echten Eltern-Daten auf Board 2 verifiziert. Board 2 hat bei
   dieser Gelegenheit auch den WLAN-Scan-Fix (Nachtrag 14) und die Absturz-Blackbox
   (Nachtrag 18) bekommen (Produktions-Neuflash).
+- ✅ Nachtrag 20 (24.07.2026) — Naechtlicher Mitternachts-Absturz gefunden und behoben (erster
+  echter Feld-Absturz, den die Absturz-Blackbox aus Nachtrag 18 sichtbar gemacht hat): Board 2
+  stuerzte bei den Eltern jede Nacht um Punkt 00:00 Uhr ab (schwarzer Bildschirm, Blackbox-
+  Meldung "Programmabsturz, zuletzt aktiv 23:59"). Ursache war ein Stack-Overflow der LVGL-Task
+  beim Tageswechsel: `tagesansicht_tag_aktualisieren` faerbt alle 7 Wochentag-Buttons neu und
+  legt dabei ueber `kalender_anzeige_eintraege_fuer_tag` je einen ~3,8KB-Parser-Puffer an,
+  gleichzeitig zu `uhr_tick`s eigenen ~3,9KB - der 10K-Task-Stack lief bis auf 308 Byte leer und
+  kippte in den Heap. Da dieser Pfad nur bei echtem Datumswechsel voll laeuft, trat der Absturz
+  ausschliesslich um Mitternacht auf, nie im normalen Boot-Test. Reproduziert per temporaer auf
+  23:59:55 gestellter Testzeit (nach dem NTP-Sync, sonst ueberschreibt NTP sie sofort) und
+  eingekreist per Heap-Integritaets-Check pro Tick + Stack-Watermark-Messung. Behoben durch
+  Erhoehung des LVGL-Task-Stacks von 10K auf 16K (`anzeige.c`); verifiziert, dass der
+  00:00:00-Wechsel jetzt mit 5204 statt 308 Byte Reserve sauber durchlaeuft. Board 1 und Board 2
+  (Produktion) mit dem Fix geflasht. Details FALLSTRICKE #24.
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
