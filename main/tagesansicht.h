@@ -29,6 +29,17 @@ void tagesansicht_sichtbarkeit_setzen(bool sichtbar);
  * Hauptbildschirm (siehe app_main.c). */
 void tagesansicht_heute_oeffnen(void);
 
+/* Oeffnet das Erinnerungsfenster fuer EINE faellige Tablette (Index aus
+ * kalender_anzeige_heutige_eintraege) - poppt zur Einnahmezeit von selbst
+ * auf, statt nur passiv die Zeile einzufaerben. Bewusst fokussiert auf
+ * genau diese eine Tablette: grosse Schrift, eine einzige Handlung.
+ * Bestaetigt wird mit demselben Schieber wie im "Heute"-Fenster (nicht mit
+ * einem Button) - eine zufaellige Beruehrung darf eine Tablette niemals
+ * faelschlich als genommen markieren. Schliesst sich nach kurzer Zeit von
+ * selbst wieder (ERINNERUNG_ANZEIGEDAUER_MS), damit es Uhrzeit und Datum
+ * nicht dauerhaft verdeckt; das Wiederholen uebernimmt app_main.c. */
+void tagesansicht_erinnerung_zeigen(int index);
+
 /* true, solange ein Tages- oder Heute-Fenster als Overlay ueber dem
  * Hauptbildschirm offen ist - waehrend dieser Zeit soll die Anzeige nicht
  * in den Abend-/Nacht-Modus zurueckfallen, auch wenn die 30s-Beruehrungs-

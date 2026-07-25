@@ -69,6 +69,16 @@ LV_FONT_DECLARE(schrift_mittel_40);
 
 #define TAGESFENSTER_ANZEIGEDAUER_MS (15 * 1000)
 #define HEUTEFENSTER_INAKTIV_MS      (5 * 60 * 1000)
+/* Erinnerungsfenster: bewusst kurz. Reagiert niemand, verschwindet es
+ * wieder und gibt Uhrzeit/Datum frei - das erneute Melden uebernimmt
+ * app_main.c (siehe erinnerung_pruefen). Ein dauerhaft stehendes Fenster
+ * waere derselbe Fehler wie eine nie quittierte Fehlermeldung: es verdeckt
+ * genau die Anzeige, um die es beim Geraet eigentlich geht. */
+#define ERINNERUNG_ANZEIGEDAUER_MS   (90 * 1000)
+/* Nach dem Bestaetigen kurz stehen lassen, damit der gruene Schieber als
+ * Rueckmeldung sichtbar wird, statt das Fenster abrupt wegzureissen. */
+#define ERINNERUNG_QUITTIERT_MS      800
+#define FENSTER_HOEHE_ERINNERUNG     265
 
 /* Titel (ICS_TITEL_MAX) plus Platz fuer "HH:MM  "-Prefix. */
 #define ZEILE_MAX (ICS_TITEL_MAX + 16)
@@ -98,6 +108,8 @@ static lv_obj_t *s_tages_fenster;
 static lv_timer_t *s_tages_fenster_timer;
 static lv_obj_t *s_heute_fenster;
 static lv_timer_t *s_heute_fenster_timer;
+static lv_obj_t *s_erinnerung_fenster;
+static lv_timer_t *s_erinnerung_fenster_timer;
 
 typedef struct {
     lv_obj_t *spur;
@@ -131,6 +143,17 @@ static void tagesfenster_intern_schliessen(void)
     }
 }
 
+/* Die Zeilen-Labels gehoeren dem gerade geschlossenen Fenster und sind mit
+ * ihm geloescht - die Zeiger MUESSEN genullt werden. Sonst greift
+ * tabletten_zeile_aktualisieren() beim naechsten Schieberegler (z. B. im
+ * Erinnerungsfenster, das dieselbe Index-Tabelle nutzt) auf freigegebenen
+ * Speicher zu. */
+static void tabletten_zeile_labels_vergessen(void)
+{
+    for (int i = 0; i < KALENDER_EINTRAEGE_MAX; i++)
+        s_tabletten_zeile_labels[i] = NULL;
+}
+
 static void heutefenster_intern_schliessen(void)
 {
     if (s_heute_fenster_timer) {
@@ -140,7 +163,21 @@ static void heutefenster_intern_schliessen(void)
     if (s_heute_fenster) {
         lv_obj_delete(s_heute_fenster);
         s_heute_fenster = NULL;
+        tabletten_zeile_labels_vergessen();
         aktiven_button_setzen(NULL);
+    }
+}
+
+static void erinnerung_intern_schliessen(void)
+{
+    if (s_erinnerung_fenster_timer) {
+        lv_timer_delete(s_erinnerung_fenster_timer);
+        s_erinnerung_fenster_timer = NULL;
+    }
+    if (s_erinnerung_fenster) {
+        lv_obj_delete(s_erinnerung_fenster);
+        s_erinnerung_fenster = NULL;
+        tabletten_zeile_labels_vergessen();
     }
 }
 
@@ -149,6 +186,14 @@ static void tagesfenster_timer_cb(lv_timer_t *t)
     (void)t;
     lvgl_port_lock(0);
     tagesfenster_intern_schliessen();
+    lvgl_port_unlock();
+}
+
+static void erinnerung_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    lvgl_port_lock(0);
+    erinnerung_intern_schliessen();
     lvgl_port_unlock();
 }
 
@@ -176,6 +221,14 @@ static void heutefenster_schliessen_cb(lv_event_t *e)
     (void)e;
     lvgl_port_lock(0);
     heutefenster_intern_schliessen();
+    lvgl_port_unlock();
+}
+
+static void erinnerung_schliessen_cb(lv_event_t *e)
+{
+    (void)e;
+    lvgl_port_lock(0);
+    erinnerung_intern_schliessen();
     lvgl_port_unlock();
 }
 
@@ -476,6 +529,15 @@ static void schieber_released_cb(lv_event_t *e)
     lvgl_port_lock(0);
     if (s_heute_fenster_timer)
         lv_timer_reset(s_heute_fenster_timer);
+    if (s_erinnerung_fenster_timer) {
+        /* Im Erinnerungsfenster ist die Bestaetigung die einzige Aufgabe:
+         * danach kurz stehen lassen (gruener Schieber als Rueckmeldung) und
+         * schliessen. Wurde nur zurueckgeschoben (neu_an == false), bleibt
+         * es die volle Zeit offen, damit man es doch noch bestaetigen kann. */
+        lv_timer_set_period(s_erinnerung_fenster_timer,
+                            neu_an ? ERINNERUNG_QUITTIERT_MS : ERINNERUNG_ANZEIGEDAUER_MS);
+        lv_timer_reset(s_erinnerung_fenster_timer);
+    }
     lvgl_port_unlock();
 }
 
@@ -638,9 +700,58 @@ void tagesansicht_heute_oeffnen(void)
     heute_oeffnen_intern(s_tag_buttons[HEUTE_INDEX]);
 }
 
+void tagesansicht_erinnerung_zeigen(int index)
+{
+    kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
+    int anzahl = kalender_anzeige_heutige_eintraege(eintraege, KALENDER_EINTRAEGE_MAX);
+    if (index < 0 || index >= anzahl || !eintraege[index].ist_tablette)
+        return;
+
+    char kopfzeile[48];
+    snprintf(kopfzeile, sizeof kopfzeile, "faellig um %02d:%02d Uhr",
+             eintraege[index].stunde, eintraege[index].minute);
+
+    lvgl_port_lock(0);
+    erinnerung_intern_schliessen();
+    heutefenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
+    tagesfenster_intern_schliessen();
+
+    s_erinnerung_fenster = fenster_grundgeruest_erzeugen("TABLETTE NEHMEN", kopfzeile,
+                                                          FENSTER_HOEHE_ERINNERUNG,
+                                                          erinnerung_schliessen_cb);
+
+    /* Name der Tablette gross und allein - eine Information, eine Handlung.
+     * Abschneiden statt umbrechen (siehe FALLSTRICKE #22/#19): ein langer
+     * Name darf das darunterliegende Bedienelement nicht verschieben. */
+    lv_obj_t *name = lv_label_create(s_erinnerung_fenster);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(name, FENSTER_BREITE - 40, 50);
+    lv_obj_set_pos(name, 20, 108);
+    lv_obj_set_style_text_font(name, &schrift_mittel_40, 0);
+    lv_obj_set_style_text_color(name, lv_color_hex(FARBE_FENSTER_AKZENT), 0);
+    lv_label_set_text(name, eintraege[index].titel);
+
+    lv_obj_t *hinweis = lv_label_create(s_erinnerung_fenster);
+    lv_label_set_text(hinweis, "Genommen?");
+    lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(hinweis, lv_color_hex(FARBE_FENSTER_TEXT), 0);
+    lv_obj_set_pos(hinweis, 20, 195);
+
+    /* Derselbe Schieber wie im "Heute"-Fenster - bewusst KEIN einfacher
+     * Button: eine zufaellige Beruehrung (Staubwischen, Anstossen) darf eine
+     * Tablette niemals faelschlich als genommen markieren. Die Bestaetigung
+     * selbst laeuft ueber schieber_released_cb wie ueberall sonst. */
+    schieber_erzeugen(s_erinnerung_fenster, 185, index, eintraege[index].bestaetigt);
+
+    s_erinnerung_fenster_timer = lv_timer_create(erinnerung_timer_cb, ERINNERUNG_ANZEIGEDAUER_MS, NULL);
+    lv_timer_set_repeat_count(s_erinnerung_fenster_timer, 1);
+    lvgl_port_unlock();
+}
+
 bool tagesansicht_fenster_offen(void)
 {
-    return s_tages_fenster != NULL || s_heute_fenster != NULL;
+    return s_tages_fenster != NULL || s_heute_fenster != NULL ||
+           s_erinnerung_fenster != NULL;
 }
 
 /* ---- Aufbau/Beschriftung der Buttons --------------------------------- */

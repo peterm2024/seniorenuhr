@@ -1053,6 +1053,72 @@ static void modus_anwenden(anzeige_modus_t modus)
     lvgl_port_unlock();
 }
 
+/* Erinnerungsfenster (siehe tagesansicht_erinnerung_zeigen): Reagiert
+ * niemand, meldet es sich in diesem Abstand erneut - hoechstens
+ * ERINNERUNG_MAX_VERSUCHE mal. Fuenf Versuche alle 10 Minuten decken genau
+ * das Zeitfenster ab, in dem eine Tablette als "faellig" gilt (60 Min, siehe
+ * KALENDER_TABLETTE_UEBERFAELLIG_MIN); danach uebernimmt die rote Faerbung
+ * in der Uebersicht als bleibender Hinweis. */
+#define ERINNERUNG_WIEDERHOLUNG_US (10LL * 60 * 1000000)
+#define ERINNERUNG_MAX_VERSUCHE    5
+
+/* Prueft einmal pro Sekunden-Tick, ob eine Tablette gerade faellig und noch
+ * nicht abgehakt ist, und laesst dafuer das Erinnerungsfenster aufpoppen.
+ * Bewusst NICHT nachts (Peters Wunsch: der Bildschirm bleibt zwischen 22:00
+ * und 6:00 dunkel) und nicht, waehrend ohnehin schon ein Fenster offen ist -
+ * ein Popup darf niemandem mitten in die Bedienung springen. */
+static void erinnerung_pruefen(const kalender_tag_eintrag_t *eintraege, int anzahl,
+                                int jetzt_minuten, anzeige_modus_t modus)
+{
+    static int s_soll_minuten = -1; /* Sollzeit der zuletzt erinnerten Tablette */
+    static int s_versuche = 0;
+    static int64_t s_naechster_us = 0;
+
+    if (modus == MODUS_NACHT || tagesansicht_fenster_offen())
+        return;
+
+    /* Erste faellige, noch unbestaetigte Tablette suchen. KALENDER_TABLETTE_FAELLIG
+     * gilt nur in den ersten 60 Minuten nach der Sollzeit - dadurch holt ein
+     * Neustart am Nachmittag die Morgentablette nicht nachtraeglich hoch. */
+    int index = -1;
+    for (int i = 0; i < anzahl; i++) {
+        if (!eintraege[i].ist_tablette)
+            continue;
+        if (kalender_tablette_status(&eintraege[i], true, jetzt_minuten) == KALENDER_TABLETTE_FAELLIG) {
+            index = i;
+            break;
+        }
+    }
+    if (index < 0) {
+        /* Nichts faellig (abgehakt oder inzwischen ueberfaellig) - die
+         * naechste Tablette faengt mit frischem Zaehler an. Das setzt den
+         * Zaehler auch ueber Nacht zurueck, sodass dieselbe Tablette morgen
+         * wieder alle Versuche bekommt. */
+        s_soll_minuten = -1;
+        return;
+    }
+
+    int soll = eintraege[index].stunde * 60 + eintraege[index].minute;
+    if (soll != s_soll_minuten) {
+        s_soll_minuten = soll;
+        s_versuche = 0;
+        s_naechster_us = 0;
+    }
+    if (s_versuche >= ERINNERUNG_MAX_VERSUCHE)
+        return;
+
+    int64_t jetzt_us = esp_timer_get_time();
+    if (jetzt_us < s_naechster_us)
+        return;
+
+    s_versuche++;
+    s_naechster_us = jetzt_us + ERINNERUNG_WIEDERHOLUNG_US;
+    ESP_LOGI(TAG, "Tabletten-Erinnerung %d/%d: '%s' (%02d:%02d)",
+             s_versuche, ERINNERUNG_MAX_VERSUCHE, eintraege[index].titel,
+             eintraege[index].stunde, eintraege[index].minute);
+    tagesansicht_erinnerung_zeigen(index);
+}
+
 /* Einmal true (Demo-Modus im Einstellungen-Menue gewaehlt), ueberspringen
  * alle noch offenen Boot-Phasen ihren Countdown sofort - die Uhrzeit steht
  * dann schon auf dem festen Demo-Zeitstempel, Kalenderdaten kommen
@@ -1240,6 +1306,12 @@ static void uhr_tick(lv_timer_t *timer)
         snprintf(neuer_tabletten_text, sizeof neuer_tabletten_text, "...");
         snprintf(neuer_termine_text, sizeof neuer_termine_text, "...");
     }
+
+    /* Muss VOR dem Aenderungs-Vergleich stehen: unten wird bei unveraendertem
+     * Text frueh zurueckgesprungen, und genau dann (die Uhr laeuft, sonst
+     * passiert nichts) soll die Erinnerung ja gerade greifen. */
+    if (hat_daten && zeit_bekannt)
+        erinnerung_pruefen(eintraege, anzahl, jetzt_minuten, modus);
 
     bool tabletten_geaendert = strcmp(neuer_tabletten_text, tabletten_text) != 0;
     bool termine_geaendert = strcmp(neuer_termine_text, termine_text) != 0;

@@ -470,6 +470,31 @@ Umweg über Testdaten war nicht mehr nötig.
   Erhoehung des LVGL-Task-Stacks von 10K auf 16K (`anzeige.c`); verifiziert, dass der
   00:00:00-Wechsel jetzt mit 5204 statt 308 Byte Reserve sauber durchlaeuft. Board 1 und Board 2
   (Produktion) mit dem Fix geflasht. Details FALLSTRICKE #24.
+- ✅ Nachtrag 21 (26.07.2026) — Erinnerungsfenster fuer Tabletten (erste Fassung, Peters Idee):
+  bisher war die Erinnerung rein passiv (die Zeile faerbte sich nur gold/rot) - jetzt poppt zur
+  Einnahmezeit von selbst ein Fenster mit dem Tablettennamen gross und einem Schieber zum
+  Bestaetigen auf (`tagesansicht_erinnerung_zeigen()`, ausgeloest von `erinnerung_pruefen()` in
+  app_main.c). Bewusst Schieber statt Button (Schutz vor versehentlichem Abhaken durch zufaellige
+  Beruehrung), bewusst NICHT nachts, bewusst mit Timeout (90s, danach nochmal alle 10 Min,
+  max. 5x - passend zur bestehenden 60-Minuten-Faellig-Schwelle). Per Screenshot verifiziert
+  (Layout sauber, Schieber korrekt im "Aus"-Zustand). Nur auf Board 1 (Dev) - noch keine
+  Produktions-Freigabe, siehe die naechsten Punkte.
+  **Peters Rueckmeldung nach dem ersten Test - naechste Ausbaustufe (noch nicht umgesetzt):**
+  - Fenster weiter nach unten setzen, damit die grosse Uhrzeit sichtbar bleibt
+  - Die 3-Zeilen-Termin-/Tabletten-Uebersicht auf dem Hauptbildschirm kuenftig nicht mehr alle
+    Eintraege zeigen, sondern nur vorherigen/aktuellen/naechsten Termin des Tages
+  - Der gerade anstehende Termin gelb, ab Beginn rot blinkend; bei mehreren gleichzeitigen
+    Terminen statt des Namens die Tageszeit anzeigen (z. B. "Vormittag")
+  - Die schon vorhandene Termin-ENDZEIT nutzen, um ein Einnahme-Zeitfenster zu definieren (Fenster
+    poppt/bestaetigt nur innerhalb Start-Ende)
+  - Das ICS-Beschreibungsfeld (bisher ungenutzt) im Erinnerungsfenster anzeigen fuer
+    Medikamentenart/Hinweise ("nuechtern" o. ae.)
+  - Tipp auf die Tabletten-Spalte des Hauptbildschirms oeffnet kuenftig direkt dasselbe
+    Erinnerungsfenster statt des bisherigen "Heute"-Fensters mit allen Eintraegen
+  - Bei zeitlich ueberlappenden Tabletten mit "<"/">"-Buttons zwischen ihnen wechseln
+  - Schieber zurueck zu (etwas groesseren) Checkboxen je Medikament; Uebernahme ueber einen
+    gruenen "OK"-Button unten rechts, Abbrechen ohne Uebernahme ueber roten Button unten links
+    ODER das "X" oben rechts
 - ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
