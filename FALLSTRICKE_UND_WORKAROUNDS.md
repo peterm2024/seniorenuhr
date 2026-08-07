@@ -376,3 +376,42 @@ in Minuten statt Stunden reproduzieren, wenn man NACH dem NTP-Sync setzt. (3) Be
 Puffer-lastigen Callback-Ketten den Task-Stack GROSSZUEGIG bemessen und den tatsaechlichen
 Verbrauch mit `uxTaskGetStackHighWaterMark` im Worst-Case-Pfad messen - der Canary allein warnt
 nicht zuverlaessig, wenn die Korruption noch im selben Tick zuschlaegt.
+
+---
+
+## 25. OTA-Hintergrund-Task: PSRAM-Stack stuerzt beim Flash-Schreiben ab, interner SRAM reicht am Boot-Ende knapp nicht
+
+**Problem (zwei getrennte Huerden beim Aufbau von `main/ota.c`):** Ein per `xTaskCreate()` am
+Ende von `app_main()` gestarteter Hintergrund-Task fuer OTA-Updates scheiterte live mit
+"OTA-Task konnte nicht gestartet werden" - `heap_caps_get_free_size(MALLOC_CAP_INTERNAL)`
+direkt davor zeigte 13311 Byte frei, also augenscheinlich genug fuer die angeforderten 8192
+Byte Stack.
+
+**Erster (falscher) Loesungsversuch:** Stack per `xTaskCreateStatic` explizit aus dem PSRAM
+alloziert (`heap_caps_malloc(...MALLOC_CAP_SPIRAM)`), analog zu den grossen Puffern in
+`kalender_holen.c`/`screenshot_debug.c`. Task liess sich zwar erzeugen, stuerzte aber beim
+ersten echten OTA-Versuch sofort ab: `assert failed:
+esp_cache_freeze_caches_disable_interrupts esp_cache_utils.c:96
+(s_task_stack_is_sane_when_cache_frozen())`. **Ursache:** Ein Task, der selbst Flash beschreibt
+(hier: die neue Firmware in die OTA-Partition schreiben), braucht seinen Stack zwingend im
+internen SRAM - waehrend des Flash-Schreibens wird der Cache kurz eingefroren, und PSRAM haengt
+komplett am selben Cache/MMU-Mechanismus, ist in diesem Moment also fuer den Task selbst nicht
+erreichbar. **Lehre:** Ein PSRAM-Stack ist NUR fuer Tasks geeignet, die garantiert nie Flash-
+Operationen (NVS-Schreiben, `esp_https_ota_*`, `spi_flash_*`) direkt auf ihrem eigenen Stack
+ausfuehren - im Zweifel interner SRAM, auch wenn PSRAM reichlich frei ist.
+
+**Zweiter (richtiger) Loesungsversuch:** Stack zurueck auf normalen `xTaskCreate()` (interner
+SRAM), aber die eigentliche Ursache des urspruenglichen Fehlschlags behoben: Der Aufruf direkt
+am Ende von `app_main()` konkurriert dort mit dem eigenen, noch nicht freigegebenen 16-KB-Stack
+des `main`-Tasks (`CONFIG_ESP_MAIN_TASK_STACK_SIZE`) sowie mit Fragmentierung durch die
+WLAN-/TLS-Aktivitaet waehrend des Bootens - 13311 Byte gesamt frei heisst nicht, dass davon
+8192 Byte in einem einzigen zusammenhaengenden Block liegen. **Loesung:** Start um 5s per
+`esp_timer_create()`/`esp_timer_start_once()` verzoegert - sobald `app_main()` zurueckkehrt,
+gibt der Idle-Task dessen Stack frei, und der Boot-Trubel hat sich gelegt. Seitdem erzeugt sich
+der Task zuverlaessig.
+
+**Lehre:** Bei ESP-IDF ist ein knapper interner SRAM am Ende eines WLAN-/TLS-lastigen
+Boot-Vorgangs eher die Regel als die Ausnahme (siehe auch #20) - vor einer neuen, grossen
+Task-Allokation lieber kurz auf einen Timer warten, statt den Speicher fest einzuplanen. Und:
+PSRAM loest nicht jedes Speicherproblem - Tasks mit Flash-Zugriff brauchen ihren Stack zwingend
+im internen SRAM, unabhaengig davon, wie viel PSRAM frei ist.

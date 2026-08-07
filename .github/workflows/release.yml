@@ -1,0 +1,58 @@
+name: Release-Build
+
+# Ausgeloest durch "git tag vX.Y.Z && git push --tags" - der Tag wird 1:1
+# zur Firmware-Version (siehe main/ota.c: esp_app_get_description()->version
+# kommt per "git describe" automatisch aus dem Tag, sofern die Historie beim
+# Checkout vollstaendig ist, siehe fetch-depth unten).
+on:
+  push:
+    tags:
+      - "v*"
+
+# Zum Anhaengen der Firmware ans Release muss der automatische GITHUB_TOKEN
+# schreiben duerfen - viele Repos setzen den Default inzwischen auf
+# read-only, deshalb hier explizit.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Offizieller ESP-IDF-Container - dieselbe Toolchain-Version wie lokal
+    # (main/CLAUDE.md/README: ESP-IDF 5.5).
+    container:
+      image: espressif/idf:v5.5
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          # Volle Historie inkl. Tags - "git describe" (siehe oben) braucht
+          # den Tag, ein flacher Checkout liefert sonst nur einen Hash.
+          fetch-depth: 0
+
+      # secrets.h liegt NICHT im Repo (siehe .gitignore) - der Platzhalter
+      # aus secrets.example.h landet in der Release-Binary. Damit ist ein
+      # versehentliches Veroeffentlichen von Peters WLAN-Passwort oder der
+      # privaten Kalender-URL seiner Eltern strukturell ausgeschlossen,
+      # nicht nur durch Sorgfalt vermieden (siehe FAHRPLAN.md Phase 5).
+      - name: Platzhalter-Zugangsdaten einsetzen
+        run: cp main/secrets.example.h main/secrets.h
+
+      - name: Firmware bauen (Produktions-Build, ohne Entwicklungswerkzeuge)
+        shell: bash
+        run: |
+          sed -i 's/#define ENTWICKLUNGSWERKZEUGE 1/#define ENTWICKLUNGSWERKZEUGE 0/' main/app_main.c
+          . "$IDF_PATH/export.sh"
+          idf.py build
+
+      - name: Version fuer die Release-Notiz ermitteln
+        id: version
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Release veroeffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Seniorenuhr ${{ steps.version.outputs.version }}
+          files: build/seniorenuhr.bin
+          generate_release_notes: true

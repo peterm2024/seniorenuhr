@@ -1,9 +1,15 @@
 # Partitionslayout fuer 8 MB Flash (Board ist die N8R8-Variante).
-# Grosszuegige App-Partition; OTA-Aufteilung folgt in Phase 5.
+# Zwei App-Partitionen (OTA, siehe FAHRPLAN.md Phase 5) statt vorher einer
+# einzigen 6-MB-"factory"-Partition - eine neue Partitionstabelle laesst
+# sich prinzipbedingt nicht per OTA einspielen, deshalb einmalig per USB
+# umgestellt. "speicher" bleibt bewusst auf ihrer bisherigen Adresse, damit
+# Kalender-Cache und Tages-Bestaetigungen den Umbau ueberleben.
 # Name,     Type, SubType,  Offset,   Size
 nvs,        data, nvs,      0x9000,   24K
 phy_init,   data, phy,      0xf000,   4K
-factory,    app,  factory,  0x10000,  6M
+otadata,    data, ota,      0x10000,  8K
+ota_0,      app,  ota_0,    0x20000,  3008K
+ota_1,      app,  ota_1,    0x310000, 3008K
 # Kalender-Cache: FAT + Wear-Levelling, damit der alle ~15 Minuten
 # geschriebene Kalender-Text nicht immer dieselben Flash-Sektoren abnutzt.
 speicher,   data, fat,      0x610000, 256K

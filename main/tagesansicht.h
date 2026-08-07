@@ -49,4 +49,14 @@ void tagesansicht_erinnerung_zeigen(int index);
  * verlaengern. */
 bool tagesansicht_fenster_offen(void);
 
+/* Ruhiges Hinweisfenster waehrend eines laufenden OTA-Downloads (siehe
+ * ota.h) - Fortschrittsbalken statt einer stillen Aktion im Hintergrund,
+ * damit die Eltern den anschliessenden Neustart einordnen koennen. Von
+ * app_main.c/uhr_tick anhand von ota_laeuft() gesteuert. Das "X" schliesst
+ * nur die Anzeige, nicht den Download selbst. */
+void tagesansicht_update_fenster_zeigen(void);
+/* prozent < 0: Groesse des Downloads unbekannt, zeigt nur "Laedt...". */
+void tagesansicht_update_fenster_fortschritt_setzen(int prozent);
+void tagesansicht_update_fenster_schliessen(void);
+
 #endif

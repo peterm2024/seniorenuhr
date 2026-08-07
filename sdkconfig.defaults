@@ -54,6 +54,14 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# OTA-Rollback-Schutz (siehe main/ota.c): eine frisch eingespielte Firmware
+# startet im Zustand "pending verify" - bestaetigt sie sich nicht selbst
+# (WLAN verbunden, Kalender geladen), faellt der Bootloader beim naechsten
+# Start automatisch auf die vorherige, funktionierende Version zurueck. Fuer
+# ein Geraet, das weit entfernt bei den Eltern steht, die wichtigste
+# einzelne Absicherung des ganzen OTA-Vorhabens.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # HTTPS-Kalenderabruf: Zertifikatsbuendel fuer die TLS-Pruefung von
 # calendar.google.com
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y

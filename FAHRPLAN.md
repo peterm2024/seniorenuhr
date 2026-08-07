@@ -495,7 +495,42 @@ Umweg über Testdaten war nicht mehr nötig.
   - Schieber zurueck zu (etwas groesseren) Checkboxen je Medikament; Uebernahme ueber einen
     gruenen "OK"-Button unten rechts, Abbrechen ohne Uebernahme ueber roten Button unten links
     ODER das "X" oben rechts
-- ⬜ OTA-Updates, sauberer Kaltstart-Test nach echtem Stromausfall
+- ✅ Nachtrag 22 (07.08.2026) — OTA-Updates ueber GitHub (Stufe 1, Grundlage): Anlass war der
+  vorangegangene Kurzbesuch, bei dem Peter das Erinnerungsfenster (Nachtrag 21) per USB auf
+  Board 2 spielen musste - jede weitere Korrekturrunde am Erinnerungsfenster-Umbau haette
+  wieder eine Fahrt bedeutet. Peters Ablauf jetzt: `git tag vX.Y.Z && git push --tags`, den Rest
+  erledigt `.github/workflows/release.yml` (baut im offiziellen espressif/idf:v5.5-Container,
+  Platzhalter-Zugangsdaten aus `secrets.example.h` statt der echten `secrets.h` - Peters
+  WLAN-Passwort und die private Kalender-URL seiner Eltern koennen dadurch strukturell nicht in
+  eine oeffentliche Release-Binary geraten) und haengt `seniorenuhr.bin` ans GitHub-Release.
+  Neues Modul `main/ota.c/h`: ein Hintergrund-Task prueft alle 30 Minuten
+  `.../releases/latest/download/seniorenuhr.bin` - der Versionsvergleich laeuft direkt ueber
+  `esp_https_ota_get_img_desc()` gegen den Bildkopf des neuen Images, noch VOR dem eigentlichen
+  Download, eine separate `version.txt` ist dafuer nicht noetig. Bei Treffer laedt das Geraet
+  automatisch herunter und startet neu; waehrenddessen zeigt ein ruhiges Hinweisfenster mit
+  Fortschrittsbalken (`tagesansicht_update_fenster_*`, wiederverwendet das bestehende
+  Fenster-Grundgeruest) den Fortschritt, damit die Eltern den Neustart einordnen koennen -
+  unterdrueckt bis zum Abschluss das Tabletten-Erinnerungsfenster, damit sich beide Overlays
+  nicht ueberlappen. Absicherung per `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`: eine frisch
+  eingespielte Version startet im Zustand "pending verify" und wird erst bestaetigt
+  (`esp_ota_mark_app_valid_cancel_rollback`), sobald sie nachweislich brauchbar ist (WLAN
+  verbunden, Kalender einmal geladen) - kommt sie nicht so weit, faellt der Bootloader beim
+  naechsten Start von selbst auf die vorherige Version zurueck. Dafuer musste die
+  Partitionstabelle einmalig umgebaut werden (eine 6-MB-"factory"-Partition -> zwei
+  3-MB-OTA-Partitionen) - das geht prinzipbedingt nicht per OTA, Board 1 wurde dafuer bereits neu
+  geflasht, **Board 2 (bei den Eltern) braucht diesen einmaligen USB-Flash noch, bevor dort
+  je ein OTA-Update ankommen kann**. Zwei echte Fallstricke beim Aufbau des Hintergrund-Tasks
+  geloest, Details FALLSTRICKE #25 (PSRAM-Stack unvereinbar mit Flash-Schreiben; interner SRAM
+  am Boot-Ende knapp, per 5s-Verzoegerung geloest). Live auf Board 1 verifiziert: sauberer Boot
+  mit neuer Partitionstabelle (WLAN-Profile/Kalender-Cache ueberlebten den Umbau unveraendert),
+  drei echte Verbindungsversuche gegen github.com (Zertifikat validierte jedes Mal erfolgreich,
+  Verbindung brach bei schwachem WLAN-Signal (-74 dBm) danach ab - sauber und ohne Absturz
+  abgefangen, naechster Versuch nach 30 Min). Ein vollstaendiger Erfolgsdurchlauf (echtes
+  Release gefunden, heruntergeladen, Neustart, Rollback-Bestaetigung) steht noch aus - dafuer
+  muss Peter einmal `git tag` setzen. Stufe 2 (Fern-Diagnose: Screenshot, Log-Puffer,
+  Geraetezustand, Fernbefehle - "Nice-to-have", ueber die bestehende Weboberflaeche) bewusst
+  zurueckgestellt, eigene Session.
+- ⬜ Sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal
   (`MBEDTLS_ERR_SSL_CONN_EOF` waehrend des TLS-Handshakes) - heilt sich ueber die bestehende

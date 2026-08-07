@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 #include "kalender_anzeige.h"
 #include "netz.h"
+#include "ota.h"
 #include "screenshot_debug.h"
 #include "startbildschirm.h"
 #include "tagesansicht.h"
@@ -1074,7 +1075,7 @@ static void erinnerung_pruefen(const kalender_tag_eintrag_t *eintraege, int anza
     static int s_versuche = 0;
     static int64_t s_naechster_us = 0;
 
-    if (modus == MODUS_NACHT || tagesansicht_fenster_offen())
+    if (modus == MODUS_NACHT || tagesansicht_fenster_offen() || ota_laeuft())
         return;
 
     /* Erste faellige, noch unbestaetigte Tablette suchen. KALENDER_TABLETTE_FAELLIG
@@ -1312,6 +1313,20 @@ static void uhr_tick(lv_timer_t *timer)
      * passiert nichts) soll die Erinnerung ja gerade greifen. */
     if (hat_daten && zeit_bekannt)
         erinnerung_pruefen(eintraege, anzahl, jetzt_minuten, modus);
+
+    /* Update-Hinweisfenster: folgt dem ota_laeuft()-Zustand unabhaengig
+     * davon, ob sich sonst an der Anzeige etwas geaendert hat - deshalb
+     * ebenfalls hier, noch vor dem fruehen Ausstieg unten. */
+    static bool ota_fenster_war_offen = false;
+    bool ota_aktiv = ota_laeuft();
+    if (ota_aktiv) {
+        if (!ota_fenster_war_offen)
+            tagesansicht_update_fenster_zeigen();
+        tagesansicht_update_fenster_fortschritt_setzen(ota_fortschritt_prozent());
+    } else if (ota_fenster_war_offen) {
+        tagesansicht_update_fenster_schliessen();
+    }
+    ota_fenster_war_offen = ota_aktiv;
 
     bool tabletten_geaendert = strcmp(neuer_tabletten_text, tabletten_text) != 0;
     bool termine_geaendert = strcmp(neuer_termine_text, termine_text) != 0;
@@ -1802,4 +1817,9 @@ void app_main(void)
     lvgl_port_unlock();
 
     ESP_LOGI(TAG, "Start: Uhr laeuft");
+
+    /* Bewusst ganz am Ende, nachdem die Anzeige bereits laeuft - OTA ist
+     * reine Wartung im Hintergrund und soll den Boot-Ablauf in keinem Fall
+     * verzoegern (siehe ota.h). */
+    ota_starten();
 }

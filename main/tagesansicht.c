@@ -748,6 +748,106 @@ void tagesansicht_erinnerung_zeigen(int index)
     lvgl_port_unlock();
 }
 
+/* ---- Update-Hinweisfenster (waehrend eines laufenden OTA-Downloads) --- */
+
+#define FENSTER_HOEHE_UPDATE 200
+
+static lv_obj_t *s_update_fenster;
+static lv_obj_t *s_update_balken;
+static lv_obj_t *s_update_prozent_label;
+
+/* Das "X" schliesst hier NUR die Benachrichtigung - der Download laeuft im
+ * Hintergrund unbeeinflusst weiter und das Geraet startet am Ende trotzdem
+ * neu (siehe ota.c). Genau wie bei den anderen Fenstern dieses Moduls
+ * bewusst kein Abbrechen ueber die UI, nur ein Wegklicken der Anzeige. */
+static void update_fenster_intern_schliessen(void)
+{
+    if (s_update_fenster) {
+        lv_obj_delete(s_update_fenster);
+        s_update_fenster = NULL;
+        s_update_balken = NULL;
+        s_update_prozent_label = NULL;
+    }
+}
+
+static void update_fenster_schliessen_cb(lv_event_t *e)
+{
+    (void)e;
+    lvgl_port_lock(0);
+    update_fenster_intern_schliessen();
+    lvgl_port_unlock();
+}
+
+/* Einmalig aufzurufen, sobald ota_laeuft() auf true wechselt (siehe
+ * app_main.c/uhr_tick) - ruhiges Hinweisfenster, damit die Eltern den
+ * anschliessenden Neustart einordnen koennen. Schliesst dabei die anderen
+ * Overlays dieses Moduls, damit sich nichts ueberlappt. */
+void tagesansicht_update_fenster_zeigen(void)
+{
+    lvgl_port_lock(0);
+    if (s_update_fenster) {
+        lvgl_port_unlock();
+        return;
+    }
+    tagesfenster_intern_schliessen();
+    heutefenster_intern_schliessen();
+    erinnerung_intern_schliessen();
+
+    s_update_fenster = fenster_grundgeruest_erzeugen("AKTUALISIERUNG",
+                                                       "Bitte kurz warten - das Geraet startet danach neu",
+                                                       FENSTER_HOEHE_UPDATE, update_fenster_schliessen_cb);
+
+    s_update_balken = lv_bar_create(s_update_fenster);
+    lv_obj_set_size(s_update_balken, FENSTER_BREITE - 40, 28);
+    lv_obj_set_pos(s_update_balken, 20, 110);
+    lv_bar_set_range(s_update_balken, 0, 100);
+    lv_bar_set_value(s_update_balken, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_update_balken, lv_color_hex(FARBE_SCHIEBER_AUS), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_update_balken, lv_color_hex(FARBE_FENSTER_AKZENT), LV_PART_INDICATOR);
+    lv_obj_set_style_radius(s_update_balken, 8, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_update_balken, 8, LV_PART_INDICATOR);
+
+    s_update_prozent_label = lv_label_create(s_update_fenster);
+    lv_label_set_text(s_update_prozent_label, "Laedt...");
+    lv_obj_set_style_text_font(s_update_prozent_label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(s_update_prozent_label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
+    lv_obj_set_pos(s_update_prozent_label, 20, 150);
+
+    lvgl_port_unlock();
+}
+
+/* Gefahrlos jeden Tick aufrufbar, auch wenn der Benutzer das Fenster per
+ * "X" bereits weggeklickt hat (dann ein No-Op). prozent < 0 bedeutet
+ * "Groesse unbekannt" (siehe ota_fortschritt_prozent). */
+void tagesansicht_update_fenster_fortschritt_setzen(int prozent)
+{
+    lvgl_port_lock(0);
+    if (s_update_fenster) {
+        if (prozent >= 0) {
+            lv_bar_set_value(s_update_balken, prozent, LV_ANIM_ON);
+            char text[16]; /* grosszuegig, damit GCCs Format-Truncation-Pruefung
+                             * nicht am theoretischen int-Wertebereich anstoesst -
+                             * derselbe Fallstrick wie bei den Uebersichtszeilen. */
+            snprintf(text, sizeof text, "%d %%", prozent);
+            lv_label_set_text(s_update_prozent_label, text);
+        } else {
+            lv_label_set_text(s_update_prozent_label, "Laedt...");
+        }
+    }
+    lvgl_port_unlock();
+}
+
+/* Aufzurufen, sobald ota_laeuft() wieder auf false wechselt (Update fertig
+ * oder fehlgeschlagen) - bei Erfolg startet das Geraet ohnehin sofort neu,
+ * dies deckt vor allem den Fehlerfall ab (Fenster soll nicht ewig auf
+ * "Laedt..." stehen bleiben). */
+void tagesansicht_update_fenster_schliessen(void)
+{
+    lvgl_port_lock(0);
+    update_fenster_intern_schliessen();
+    lvgl_port_unlock();
+}
+
 bool tagesansicht_fenster_offen(void)
 {
     return s_tages_fenster != NULL || s_heute_fenster != NULL ||
