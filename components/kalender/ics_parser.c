@@ -229,6 +229,7 @@ static void parse_rrule(const char *text, rrule_t *rr)
 
 typedef struct {
     char       titel[256];
+    char       beschreibung[256];
     ics_zeit_t start;
     bool       hat_start;
     bool       ganztags;
@@ -344,9 +345,31 @@ static bool event_trifft_tag(const vevent_t *ev, long ziel)
 }
 
 /* ------------------------------------------------------------------ */
-/* Titel aufbereiten: Escapes auflösen, TABLETTE:-Präfix erkennen      */
+/* Text aufbereiten: ICS-Escapes auflösen (\n -> Leerzeichen, \\ -> \,  */
+/* \, -> , usw.) - gemeinsam fuer Titel (nach Praefix-Erkennung) und    */
+/* Beschreibung genutzt.                                                */
 /* ------------------------------------------------------------------ */
 
+static void text_escape_kopieren(const char *roh, char *ziel, size_t ziel_kapazitaet)
+{
+    const char *p = roh;
+    size_t o = 0;
+    while (*p && o < ziel_kapazitaet - 1) {
+        if (*p == '\\' && p[1]) {
+            p++;
+            switch (*p) {
+                case 'n': case 'N': ziel[o++] = ' '; break;
+                default:            ziel[o++] = *p;  break;
+            }
+            p++;
+        } else {
+            ziel[o++] = *p++;
+        }
+    }
+    ziel[o] = '\0';
+}
+
+/* Titel aufbereiten: TABLETTE:-Praefix erkennen, dann Escapes aufloesen. */
 static void titel_uebernehmen(const char *roh, ics_termin_t *ziel)
 {
     const char *p = roh;
@@ -358,20 +381,13 @@ static void titel_uebernehmen(const char *roh, ics_termin_t *ziel)
         while (*p == ' ') p++;
     }
 
-    size_t o = 0;
-    while (*p && o < ICS_TITEL_MAX - 1) {
-        if (*p == '\\' && p[1]) {
-            p++;
-            switch (*p) {
-                case 'n': case 'N': ziel->titel[o++] = ' '; break;
-                default:            ziel->titel[o++] = *p;  break;
-            }
-            p++;
-        } else {
-            ziel->titel[o++] = *p++;
-        }
-    }
-    ziel->titel[o] = '\0';
+    text_escape_kopieren(p, ziel->titel, sizeof ziel->titel);
+}
+
+/* Beschreibung aufbereiten: nur Escapes aufloesen, kein Praefix-Konzept. */
+static void beschreibung_uebernehmen(const char *roh, ics_termin_t *ziel)
+{
+    text_escape_kopieren(roh, ziel->beschreibung, sizeof ziel->beschreibung);
 }
 
 /* ------------------------------------------------------------------ */
@@ -493,6 +509,7 @@ int ics_termine_fuer_tag(const char *ics_text, size_t laenge,
                     ics_termin_t *t = &ergebnis[anzahl++];
                     memset(t, 0, sizeof *t);
                     titel_uebernehmen(ev.titel, t);
+                    beschreibung_uebernehmen(ev.beschreibung, t);
                     t->ganztags = ev.ganztags;
                     t->beginn = ev.start;
                     t->beginn.jahr = jahr;
@@ -501,6 +518,17 @@ int ics_termine_fuer_tag(const char *ics_text, size_t laenge,
                     if (ev.ganztags) {
                         t->beginn.stunde = 0;
                         t->beginn.minute = 0;
+                    }
+                    /* Nur eine echte DTEND-Uhrzeit zaehlt als Einnahme-
+                     * Fenster-Ende (kalender_tablette_status, main/
+                     * kalender_anzeige.c) - ein ganztaegiges DTEND ist ein
+                     * Datum, keine Uhrzeit, und waere hier bedeutungslos. */
+                    t->hat_ende = ev.hat_ende && !ev.ende_ganztags;
+                    if (t->hat_ende) {
+                        t->ende = ev.ende;
+                        t->ende.jahr = jahr;
+                        t->ende.monat = monat;
+                        t->ende.tag = tag;
                     }
                 }
             }
@@ -511,6 +539,8 @@ int ics_termine_fuer_tag(const char *ics_text, size_t laenge,
 
         if (strcmp(name, "SUMMARY") == 0) {
             strncpy(ev.titel, wert, sizeof ev.titel - 1);
+        } else if (strcmp(name, "DESCRIPTION") == 0) {
+            strncpy(ev.beschreibung, wert, sizeof ev.beschreibung - 1);
         } else if (strcmp(name, "DTSTART") == 0) {
             ev.hat_start = parse_zeitwert(wert, &ev.start, &ev.ganztags);
         } else if (strcmp(name, "DTEND") == 0) {

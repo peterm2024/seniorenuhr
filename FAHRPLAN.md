@@ -530,6 +530,46 @@ Umweg über Testdaten war nicht mehr nötig.
   muss Peter einmal `git tag` setzen. Stufe 2 (Fern-Diagnose: Screenshot, Log-Puffer,
   Geraetezustand, Fernbefehle - "Nice-to-have", ueber die bestehende Weboberflaeche) bewusst
   zurueckgestellt, eigene Session.
+- ✅ Nachtrag 23 (08.08.2026) — Erinnerungsfenster Ausbaustufe 2: setzt Peters 8-Punkte-Liste aus
+  Nachtrag 21 um, mit drei in Ruecksprache getroffenen Vereinfachungen. (1) Checkboxen + OK/
+  Abbrechen ersetzen den Schieber in BEIDEN Fenstern (Erinnerungsfenster UND "Heute"-Fenster,
+  Peters ausdruecklicher Test-Wunsch "ich muss die Komplexitaet rausnehmen" - laesst sich per
+  Git jederzeit zurueckrollen, falls es bei seinen Eltern nicht gut ankommt). Ein Checkbox-Tipp
+  wirkt NICHT mehr sofort (anders als vormals der Schieber) - erst "OK" uebernimmt alle
+  angehakten Checkboxen auf einmal per `kalender_anzeige_tablette_bestaetigen()`, "Abbrechen"/
+  "X"/Timeout verwerfen sie wieder (bewusster Verhaltenswechsel: ein Timeout kann jetzt offene
+  Haken verwerfen, was der alte, sofort committende Schieber nie konnte). (2) Punkt 7
+  ("<"/">"-Wechsel bei mehreren gleichzeitigen Tabletten) entfaellt zugunsten einer Checkliste:
+  alle aktuell faelligen/ueberfaelligen Tabletten stehen als Zeilen (Name + kurze Beschreibung +
+  Checkbox) in einem Fenster, mit dem bestehenden "+N weitere"-Muster aus dem Tages-Fenster bei
+  Platzmangel - kein Bedienelement zum Erlernen zusaetzlich noetig. Ein Direkt-Bestaetigungs-
+  Button ohne OK-Schritt wurde bewusst verworfen, das haette die urspruengliche Schieber-
+  Absicherung ("keine zufaellige Beruehrung darf eine Tablette faelschlich abhaken") wieder
+  aufgehoben. (3) Punkte 2+3 (Uebersicht-Filterung, Gelb/Rot-Blinken) gelten NUR fuer die
+  Tabletten-Spalte, nicht fuer Termine (Peters Entscheidung).
+  **Datengrundlage:** `ics_parser.c` reicht DTEND (war intern schon geparst, nur nicht nach
+  aussen durchgereicht) und ein neues DESCRIPTION-Feld jetzt bis in `kalender_tag_eintrag_t`
+  durch; `kalender_tablette_status()` nutzt eine echte DTEND-Uhrzeit als Einnahme-Zeitfenster-
+  Ende, wo vorhanden, sonst weiterhin die feste 60-Minuten-Schwelle (voll abwaertskompatibel).
+  **Uebersicht:** zeigt nur noch vorherige/aktuelle/naechste Tablette (`tabletten_positionen_
+  ermitteln()`), ueberfaellige unbestaetigte Tabletten blinken rot/weiss - bewusst NICHT ueber
+  einen kompletten Spalten-Neuaufbau pro Sekunde geloest (haette den kleinen LVGL-Speicherpool
+  unnoetig strapaziert, siehe FALLSTRICKE #16), sondern per direktem Umfaerben des gemerkten
+  Zeilen-Labels, genau wie das schon laenger bestehende Blinken der unbestaetigten Uhrzeit.
+  Tipp auf die Tabletten-Spalte oeffnet bei mindestens einer faelligen Tablette jetzt direkt die
+  Checkliste statt des "Heute"-Fensters (faellt auf "Heute" zurueck, wenn gerade nichts faellig
+  ist - ein Tipp soll nie ins Leere gehen).
+  **Ein echter Absturz unterwegs gefunden und behoben:** durch die neue Beschreibung wurde
+  `ics_termin_t` mehr als doppelt so gross, wodurch das schon aus FALLSTRICKE #24 bekannte
+  `termine[32]`-Stack-Array in `kalender_anzeige.c` (von ~3,8 auf ~8,6 KB) beim allerersten
+  Tageswechsel-Durchlauf jedes Boots den main-Task-Stack sprengte - sofortiger Absturz bei
+  JEDEM Neustart. Behoben durch Verlagerung dieses Puffers vom Stack in den PSRAM
+  (`heap_caps_malloc`, wie schon bei anderen grossen Puffern in diesem Projekt ueblich). Details
+  FALLSTRICKE #26. Zweimal in Folge sauber durchgebootet auf Board 1.
+  **Noch nicht live per Touch verifiziert** (Checkbox-Bedienung, OK/Abbrechen, Blink-Optik,
+  Checkliste bei mehreren gleichzeitigen Tabletten) - das braucht Peters Blick/Finger am
+  tatsaechlichen Geraet, dafuer gibt es keinen Ferntest. Nur auf Board 1 (Dev), keine
+  Produktions-Freigabe.
 - ⬜ Sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal

@@ -49,23 +49,25 @@ LV_FONT_DECLARE(schrift_mittel_40);
 #define FARBE_TABLETTE_FAELLIG      FARBE_FENSTER_AKZENT /* faellig, noch unbestaetigt: dasselbe Gold wie sonst im Fenster */
 #define FARBE_TABLETTE_UEBERFAELLIG 0xff5a4a /* seit KALENDER_TABLETTE_UEBERFAELLIG_MIN unbestaetigt: dasselbe Rot wie die Status-Symbole in app_main.c */
 
-/* Schiebeschalter statt lv_switch: bei Zittern/Ungenauigkeit im Alter
- * loest ein einfacher Tipp auf einen Schalter zu leicht eine Fehleingabe
- * aus. Ein langer Schieberweg (~5cm bei diesem Display) muss bewusst
- * durchgezogen werden - ein kurzer Tipp irgendwo auf der Spur bewegt den
- * Knopf nicht ueber die Schwelle und die Stellung bleibt unveraendert. */
-#define SCHIEBER_BREITE        195 /* 25% kuerzer als urspruenglich (260) */
-#define SCHIEBER_HOEHE         50
-#define SCHIEBER_KNOPF         46
-#define SCHIEBER_TRAVEL        (SCHIEBER_BREITE - SCHIEBER_KNOPF)
+/* Checkbox statt Schieber (Ausbaustufe 2, Peters Test-Wunsch: "ich muss die
+ * Komplexitaet rausnehmen") - ein Tipp aendert NUR den Anzeigezustand, NICHT
+ * sofort den bestaetigten Status wie vormals der Schieber. Erst der
+ * OK-Button (siehe ok_abbrechen_erzeugen) uebernimmt alle angehakten
+ * Checkboxen auf einmal; Abbrechen/"X"/Timeout verwerfen sie wieder. Ein
+ * einzelner Fehltipp ist dadurch folgenlos korrigierbar - der urspruengliche
+ * Schieber-Gedanke ("keine zufaellige Beruehrung darf eine Tablette
+ * faelschlich abhaken") bleibt so gewahrt, nur ohne die Zieh-Geste. */
+#define CHECKBOX_GROESSE 46 /* mind. so gross wie vormals der Schieber-Knopf */
 /* Abstand zum rechten Fensterrand - bewusst gleich dem linken Rand der
  * Eintrags-Labels (x=20), damit beide Seiten optisch symmetrisch wirken. */
-#define SCHIEBER_RAND          20
-#define SCHIEBER_SCHWELLE_EIN  0.7f
-#define SCHIEBER_SCHWELLE_AUS  0.3f
-#define FARBE_SCHIEBER_AUS     0x4a5568
-#define FARBE_SCHIEBER_EIN     0x3aa655
-#define FARBE_SCHIEBER_KNOPF   0xffffff
+#define CHECKBOX_RAND     20
+#define FARBE_SCHIEBER_AUS 0x4a5568 /* auch fuer die leere Checkbox und den Update-Fortschrittsbalken */
+#define FARBE_SCHIEBER_EIN 0x3aa655 /* auch fuer die angehakte Checkbox, den OK-Button und den Update-Fortschrittsbalken */
+#define FARBE_ABBRECHEN     FARBE_TABLETTE_UEBERFAELLIG /* dasselbe Rot wie ueberfaellige Tabletten */
+
+#define OK_ABBRECHEN_BREITE 150
+#define OK_ABBRECHEN_HOEHE  52
+#define OK_ABBRECHEN_RAND_UNTEN 16
 
 #define TAGESFENSTER_ANZEIGEDAUER_MS (15 * 1000)
 #define HEUTEFENSTER_INAKTIV_MS      (5 * 60 * 1000)
@@ -75,10 +77,14 @@ LV_FONT_DECLARE(schrift_mittel_40);
  * waere derselbe Fehler wie eine nie quittierte Fehlermeldung: es verdeckt
  * genau die Anzeige, um die es beim Geraet eigentlich geht. */
 #define ERINNERUNG_ANZEIGEDAUER_MS   (90 * 1000)
-/* Nach dem Bestaetigen kurz stehen lassen, damit der gruene Schieber als
- * Rueckmeldung sichtbar wird, statt das Fenster abrupt wegzureissen. */
-#define ERINNERUNG_QUITTIERT_MS      800
-#define FENSTER_HOEHE_ERINNERUNG     265
+/* Zeilenhoehe pro Tablette (Name + optionale Beschreibung + Checkbox) und
+ * maximale Anzahl gleichzeitig sichtbarer Zeilen - bei mehr Tabletten als
+ * ERINNERUNG_ZEILEN_MAX zeigt die letzte Zeile "+N weitere" (siehe
+ * tagesfenster_spalte_zeichnen fuer dasselbe Muster). Fenster-Hoehe deckt
+ * Kopf (100px) + ERINNERUNG_ZEILEN_MAX Zeilen + OK/Abbrechen-Zeile. */
+#define ERINNERUNG_ZEILE_HOEHE       78
+#define ERINNERUNG_ZEILEN_MAX        3
+#define FENSTER_HOEHE_ERINNERUNG     (100 + ERINNERUNG_ZEILEN_MAX * ERINNERUNG_ZEILE_HOEHE + 90)
 
 /* Titel (ICS_TITEL_MAX) plus Platz fuer "HH:MM  "-Prefix. */
 #define ZEILE_MAX (ICS_TITEL_MAX + 16)
@@ -112,23 +118,17 @@ static lv_obj_t *s_erinnerung_fenster;
 static lv_timer_t *s_erinnerung_fenster_timer;
 
 typedef struct {
-    lv_obj_t *spur;
-    lv_obj_t *knopf;
+    lv_obj_t *box; /* NULL, solange kein Fenster diesen Index gerade anzeigt */
     int index;
-    bool an;
-    int32_t min_x;
-    int32_t max_x;
-    int32_t press_start_x;
-    int32_t knopf_start_x;
-} schieber_t;
+} tablette_checkbox_t;
 
-static schieber_t s_schieber[KALENDER_EINTRAEGE_MAX];
-
-/* Textlabel neben jedem Schieberegler im Heute-Fenster, indiziert wie
- * s_schieber (derselbe Index wie kalender_anzeige_tablette_bestaetigen) -
- * wird beim Loslassen des Schiebereglers live aktualisiert (Haken/Graufaerbung),
- * ohne auf das naechste Neuoeffnen des Fensters warten zu muessen. */
-static lv_obj_t *s_tabletten_zeile_labels[KALENDER_EINTRAEGE_MAX];
+/* Indiziert wie kalender_anzeige_tablette_bestaetigen() - von Heute-Fenster
+ * UND Erinnerungsfenster gemeinsam genutzt (nur eines von beiden ist je
+ * offen, siehe die jeweiligen intern_schliessen()-Aufrufe). s_pending haelt
+ * den Anzeigezustand bis zum OK-Tipp fest, unabhaengig vom tatsaechlich
+ * bestaetigten Status (siehe Kommentar bei CHECKBOX_GROESSE). */
+static tablette_checkbox_t s_checkboxen[KALENDER_EINTRAEGE_MAX];
+static bool s_pending[KALENDER_EINTRAEGE_MAX];
 
 static void tagesfenster_intern_schliessen(void)
 {
@@ -143,15 +143,15 @@ static void tagesfenster_intern_schliessen(void)
     }
 }
 
-/* Die Zeilen-Labels gehoeren dem gerade geschlossenen Fenster und sind mit
- * ihm geloescht - die Zeiger MUESSEN genullt werden. Sonst greift
- * tabletten_zeile_aktualisieren() beim naechsten Schieberegler (z. B. im
- * Erinnerungsfenster, das dieselbe Index-Tabelle nutzt) auf freigegebenen
- * Speicher zu. */
-static void tabletten_zeile_labels_vergessen(void)
+/* Die Checkboxen gehoeren dem gerade geschlossenen Fenster und sind mit ihm
+ * geloescht - die Zeiger MUESSEN genullt werden. Sonst wuerde ein
+ * OK-Tipp im naechsten Fenster (Heute-Fenster und Erinnerungsfenster nutzen
+ * dieselbe Index-Tabelle) versehentlich auf freigegebenen Speicher zugreifen
+ * bzw. laengst geschlossene Zeilen mit uebernehmen. */
+static void checkboxen_vergessen(void)
 {
     for (int i = 0; i < KALENDER_EINTRAEGE_MAX; i++)
-        s_tabletten_zeile_labels[i] = NULL;
+        s_checkboxen[i].box = NULL;
 }
 
 static void heutefenster_intern_schliessen(void)
@@ -163,7 +163,7 @@ static void heutefenster_intern_schliessen(void)
     if (s_heute_fenster) {
         lv_obj_delete(s_heute_fenster);
         s_heute_fenster = NULL;
-        tabletten_zeile_labels_vergessen();
+        checkboxen_vergessen();
         aktiven_button_setzen(NULL);
     }
 }
@@ -177,7 +177,7 @@ static void erinnerung_intern_schliessen(void)
     if (s_erinnerung_fenster) {
         lv_obj_delete(s_erinnerung_fenster);
         s_erinnerung_fenster = NULL;
-        tabletten_zeile_labels_vergessen();
+        checkboxen_vergessen();
     }
 }
 
@@ -420,124 +420,26 @@ static void tag_button_cb(lv_event_t *e)
 
 /* ---- Heute-Fenster (mit Bestaetigungs-Schaltern, 5min Inaktivitaet) - */
 
-static void schieber_stellung_anwenden(schieber_t *s, bool an)
+static void checkbox_stellung_anwenden(lv_obj_t *box, bool markiert)
 {
-    s->an = an;
-    lv_obj_set_style_bg_color(s->spur, lv_color_hex(an ? FARBE_SCHIEBER_EIN : FARBE_SCHIEBER_AUS), 0);
-    lv_obj_set_x(s->knopf, an ? s->max_x : s->min_x);
+    lv_obj_set_style_bg_color(box, lv_color_hex(markiert ? FARBE_SCHIEBER_EIN : FARBE_SCHIEBER_AUS), 0);
 }
 
-static void schieber_pressed_cb(lv_event_t *e)
+/* Aendert NUR s_pending - der eigentliche Bestaetigungs-Aufruf
+ * (kalender_anzeige_tablette_bestaetigen) passiert erst beim OK-Tipp, siehe
+ * erinnerung_ok_cb/heute_ok_cb. Setzt trotzdem den jeweiligen
+ * Inaktivitaets-Timer zurueck, wie zuvor beim Schieber-Loslassen. */
+static void checkbox_geklickt_cb(lv_event_t *e)
 {
-    schieber_t *s = (schieber_t *)lv_event_get_user_data(e);
-    lv_indev_t *indev = lv_indev_get_act();
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-    s->press_start_x = p.x;
-    s->knopf_start_x = lv_obj_get_x(s->knopf);
-}
-
-static void schieber_pressing_cb(lv_event_t *e)
-{
-    schieber_t *s = (schieber_t *)lv_event_get_user_data(e);
-    lv_indev_t *indev = lv_indev_get_act();
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-    int32_t neu_x = s->knopf_start_x + (p.x - s->press_start_x);
-    if (neu_x < s->min_x)
-        neu_x = s->min_x;
-    if (neu_x > s->max_x)
-        neu_x = s->max_x;
-    lv_obj_set_x(s->knopf, neu_x);
-}
-
-/* Blendet das "[x] "-Praefix ins zugehoerige Zeilenlabel ein/aus und faerbt
- * es passend - direkt am Loslassen des Schiebereglers, ohne auf ein
- * Neuoeffnen des Fensters warten zu muessen. Schneidet/ergaenzt das
- * Praefix am VORHANDENEN Label-Text, statt den Eintrag erneut abzufragen -
- * einfacher als eine zweite Kalender-Abfrage nur fuer die Beschriftung. */
-static void tabletten_zeile_aktualisieren(int index, bool bestaetigt)
-{
-    lv_obj_t *label = s_tabletten_zeile_labels[index];
-    if (!label)
-        return;
-
-    const char *praefix = TAGESANSICHT_HAKEN_PRAEFIX;
-    size_t praefix_laenge = strlen(praefix);
-    const char *aktuell = lv_label_get_text(label);
-    bool hat_praefix = strncmp(aktuell, praefix, praefix_laenge) == 0;
-    const char *ohne_praefix = hat_praefix ? aktuell + praefix_laenge : aktuell;
-
-    /* Faelligkeitsfarbe VOR dem Textwechsel unten bestimmen - lv_label_set_text
-     * realloziert den Puffer hinter `aktuell`/`ohne_praefix`. Uhrzeit aus der
-     * vorhandenen "HH:MM  Titel"-Beschriftung ablesen statt den Eintrag erneut
-     * abzufragen (gleiches Prinzip wie beim Praefix-Umbau oben). */
-    uint32_t farbe = FARBE_FENSTER_TEXT;
-    if (bestaetigt) {
-        farbe = FARBE_VERGANGEN;
-    } else {
-        int stunde, minute;
-        if (sscanf(ohne_praefix, "%d:%d", &stunde, &minute) == 2) {
-            time_t jetzt = time(NULL);
-            struct tm lokal;
-            localtime_r(&jetzt, &lokal);
-            int jetzt_minuten = lokal.tm_hour * 60 + lokal.tm_min;
-            kalender_tag_eintrag_t hilfseintrag = { .stunde = stunde, .minute = minute };
-            switch (kalender_tablette_status(&hilfseintrag, true, jetzt_minuten)) {
-            case KALENDER_TABLETTE_FAELLIG:      farbe = FARBE_TABLETTE_FAELLIG; break;
-            case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; break;
-            default: break;
-            }
-        }
-    }
-
-    if (bestaetigt && !hat_praefix) {
-        char neu[ZEILE_MAX];
-        snprintf(neu, sizeof neu, "%s%s", praefix, aktuell);
-        lv_label_set_text(label, neu);
-    } else if (!bestaetigt && hat_praefix) {
-        /* NIEMALS einen Zeiger in den eigenen Label-Puffer an
-         * lv_label_set_text uebergeben: die Funktion realloziert zuerst
-         * genau diesen Puffer und kopiert dann aus der (damit ggf. schon
-         * freigegebenen/verschobenen) Quelle - Ergebnis waren wirre
-         * Zeichen wie "'_?0 Frueh" nach dem Zurueckschieben des
-         * Tabletten-Schiebers. Erst in einen lokalen Puffer kopieren
-         * (gleiche Fehlerklasse wie der Dropdown-Fallstrick in
-         * einrichtung.c/wlan_scan_tick_cb). */
-        char neu[ZEILE_MAX];
-        snprintf(neu, sizeof neu, "%s", aktuell + praefix_laenge);
-        lv_label_set_text(label, neu);
-    }
-    lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
-}
-
-/* Entscheidet beim Loslassen, ob genug gezogen wurde: nur jenseits der
- * Schwellen wird umgeschaltet, dazwischen schnappt der Knopf zurueck. */
-static void schieber_released_cb(lv_event_t *e)
-{
-    schieber_t *s = (schieber_t *)lv_event_get_user_data(e);
-    float anteil = (float)(lv_obj_get_x(s->knopf) - s->min_x) / (float)(s->max_x - s->min_x);
-    bool neu_an = s->an;
-    if (anteil >= SCHIEBER_SCHWELLE_EIN)
-        neu_an = true;
-    else if (anteil <= SCHIEBER_SCHWELLE_AUS)
-        neu_an = false;
-    schieber_stellung_anwenden(s, neu_an);
-    kalender_anzeige_tablette_bestaetigen(s->index, neu_an);
-    tabletten_zeile_aktualisieren(s->index, neu_an);
+    tablette_checkbox_t *c = (tablette_checkbox_t *)lv_event_get_user_data(e);
+    s_pending[c->index] = !s_pending[c->index];
+    checkbox_stellung_anwenden(c->box, s_pending[c->index]);
 
     lvgl_port_lock(0);
     if (s_heute_fenster_timer)
         lv_timer_reset(s_heute_fenster_timer);
-    if (s_erinnerung_fenster_timer) {
-        /* Im Erinnerungsfenster ist die Bestaetigung die einzige Aufgabe:
-         * danach kurz stehen lassen (gruener Schieber als Rueckmeldung) und
-         * schliessen. Wurde nur zurueckgeschoben (neu_an == false), bleibt
-         * es die volle Zeit offen, damit man es doch noch bestaetigen kann. */
-        lv_timer_set_period(s_erinnerung_fenster_timer,
-                            neu_an ? ERINNERUNG_QUITTIERT_MS : ERINNERUNG_ANZEIGEDAUER_MS);
+    if (s_erinnerung_fenster_timer)
         lv_timer_reset(s_erinnerung_fenster_timer);
-    }
     lvgl_port_unlock();
 }
 
@@ -547,49 +449,63 @@ static void schieber_released_cb(lv_event_t *e)
  * Koordinaten unterschiedlich stark verschoben werden koennen (aehnlich
  * dem Rand-Insets-Fallstrick der Status-Symbole, siehe app_main.c).
  * lv_obj_align kennt die tatsaechliche rechte Kante des Panels und ist
- * dagegen immun - min_x/max_x werden danach aus der tatsaechlich
- * aufgeloesten Position ausgelesen (lv_obj_get_x), damit der separate
- * Knopf (dasselbe Elternobjekt) exakt dazu passt. */
-static void schieber_erzeugen(lv_obj_t *parent, int32_t y, int index, bool an)
+ * dagegen immun. `y` ist die Y-Position innerhalb der jeweiligen Zeile. */
+static void tablette_checkbox_erzeugen(lv_obj_t *parent, int32_t y, int index, bool markiert)
 {
-    schieber_t *s = &s_schieber[index];
-    s->index = index;
-    s->an = an;
-
-    lv_obj_t *spur = lv_obj_create(parent);
-    lv_obj_remove_style_all(spur);
-    lv_obj_remove_flag(spur, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(spur, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(spur, SCHIEBER_BREITE, SCHIEBER_HOEHE);
-    /* Das Fenster-Panel ist gerade erst erzeugt worden - ohne diesen
-     * erzwungenen Layout-Durchlauf sind seine Koordinaten zum Zeitpunkt
-     * von lv_obj_align/lv_obj_get_x noch nicht aufgeloest (parent-Rahmen
-     * effektiv [0..-1]), wodurch die Ausrichtung faelschlich nahe x=0
-     * statt rechtsbuendig landete. */
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_remove_style_all(box);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(box, CHECKBOX_GROESSE, CHECKBOX_GROESSE);
     lv_obj_update_layout(parent);
-    lv_obj_align(spur, LV_ALIGN_TOP_RIGHT, -SCHIEBER_RAND, y);
-    lv_obj_update_layout(parent);
-    s->min_x = lv_obj_get_x(spur);
-    s->max_x = s->min_x + SCHIEBER_TRAVEL;
-    lv_obj_set_style_radius(spur, SCHIEBER_HOEHE / 2, 0);
-    lv_obj_set_style_bg_opa(spur, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(spur, lv_color_hex(an ? FARBE_SCHIEBER_EIN : FARBE_SCHIEBER_AUS), 0);
-    s->spur = spur;
+    lv_obj_align(box, LV_ALIGN_TOP_RIGHT, -CHECKBOX_RAND, y);
+    lv_obj_set_style_radius(box, 8, 0);
+    lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(box, 3, 0);
+    lv_obj_set_style_border_color(box, lv_color_hex(FARBE_FENSTER_TEXT), 0);
+    checkbox_stellung_anwenden(box, markiert);
 
-    lv_obj_t *knopf = lv_obj_create(parent);
-    lv_obj_remove_style_all(knopf);
-    lv_obj_remove_flag(knopf, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(knopf, SCHIEBER_KNOPF, SCHIEBER_KNOPF);
-    lv_obj_set_pos(knopf, an ? s->max_x : s->min_x, y + (SCHIEBER_HOEHE - SCHIEBER_KNOPF) / 2);
-    lv_obj_set_style_radius(knopf, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(knopf, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(knopf, lv_color_hex(FARBE_SCHIEBER_KNOPF), 0);
-    s->knopf = knopf;
+    s_checkboxen[index].box = box;
+    s_checkboxen[index].index = index;
+    s_pending[index] = markiert;
 
-    lv_obj_add_event_cb(knopf, schieber_pressed_cb, LV_EVENT_PRESSED, s);
-    lv_obj_add_event_cb(knopf, schieber_pressing_cb, LV_EVENT_PRESSING, s);
-    lv_obj_add_event_cb(knopf, schieber_released_cb, LV_EVENT_RELEASED, s);
-    lv_obj_add_event_cb(knopf, schieber_released_cb, LV_EVENT_PRESS_LOST, s);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(box, checkbox_geklickt_cb, LV_EVENT_CLICKED, &s_checkboxen[index]);
+}
+
+/* Baut das gemeinsame gruene OK-/rote Abbrechen-Button-Paar unten im
+ * Fenster - "Abbrechen" ist absichtlich gleichwertig zum "X" oben rechts
+ * (schliessen_cb kann fuer beide denselben Callback verwenden). */
+static void ok_abbrechen_erzeugen(lv_obj_t *parent, lv_event_cb_t ok_cb, lv_event_cb_t abbrechen_cb)
+{
+    lv_obj_t *btn_abbrechen = lv_button_create(parent);
+    lv_obj_set_size(btn_abbrechen, OK_ABBRECHEN_BREITE, OK_ABBRECHEN_HOEHE);
+    lv_obj_set_style_bg_color(btn_abbrechen, lv_color_hex(FARBE_ABBRECHEN), 0);
+    lv_obj_align(btn_abbrechen, LV_ALIGN_BOTTOM_LEFT, 20, -OK_ABBRECHEN_RAND_UNTEN);
+    lv_obj_add_event_cb(btn_abbrechen, abbrechen_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *abbrechen_label = lv_label_create(btn_abbrechen);
+    lv_label_set_text(abbrechen_label, "Abbrechen");
+    lv_obj_set_style_text_font(abbrechen_label, &schrift_klein_28, 0);
+    lv_obj_center(abbrechen_label);
+
+    lv_obj_t *btn_ok = lv_button_create(parent);
+    lv_obj_set_size(btn_ok, OK_ABBRECHEN_BREITE, OK_ABBRECHEN_HOEHE);
+    lv_obj_set_style_bg_color(btn_ok, lv_color_hex(FARBE_SCHIEBER_EIN), 0);
+    lv_obj_align(btn_ok, LV_ALIGN_BOTTOM_RIGHT, -20, -OK_ABBRECHEN_RAND_UNTEN);
+    lv_obj_add_event_cb(btn_ok, ok_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *ok_label = lv_label_create(btn_ok);
+    lv_label_set_text(ok_label, "OK");
+    lv_obj_set_style_text_font(ok_label, &schrift_klein_28, 0);
+    lv_obj_center(ok_label);
+}
+
+/* Uebernimmt fuer jede aktuell im Fenster gezeigte Checkbox (s_checkboxen[i].box
+ * != NULL) den Pending-Zustand per kalender_anzeige_tablette_bestaetigen() -
+ * gemeinsame Grundlage fuer den OK-Button beider Fenster. */
+static void checkboxen_uebernehmen(void)
+{
+    for (int i = 0; i < KALENDER_EINTRAEGE_MAX; i++)
+        if (s_checkboxen[i].box)
+            kalender_anzeige_tablette_bestaetigen(i, s_pending[i]);
 }
 
 static void heutefenster_hintergrund_cb(lv_event_t *e)
@@ -598,6 +514,15 @@ static void heutefenster_hintergrund_cb(lv_event_t *e)
     lvgl_port_lock(0);
     if (s_heute_fenster_timer)
         lv_timer_reset(s_heute_fenster_timer);
+    lvgl_port_unlock();
+}
+
+static void heute_ok_cb(lv_event_t *e)
+{
+    (void)e;
+    checkboxen_uebernehmen();
+    lvgl_port_lock(0);
+    heutefenster_intern_schliessen();
     lvgl_port_unlock();
 }
 
@@ -628,8 +553,10 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
             continue;
         tablette_vorhanden = true;
 
+        /* Kein "[x] "-Praefix mehr noetig - die Checkbox rechts zeigt den
+         * (vorlaeufigen) Zustand, siehe tablette_checkbox_erzeugen. */
         char inhalt[ZEILE_MAX];
-        eintrag_zeile_formatieren(&eintraege[i], eintraege[i].bestaetigt, inhalt, sizeof inhalt);
+        eintrag_zeile_formatieren(&eintraege[i], false, inhalt, sizeof inhalt);
 
         uint32_t farbe;
         switch (kalender_tablette_status(&eintraege[i], true, jetzt_minuten)) {
@@ -644,9 +571,8 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
         lv_obj_set_pos(label, 20, y + 12);
-        s_tabletten_zeile_labels[i] = label;
 
-        schieber_erzeugen(s_heute_fenster, y, i, eintraege[i].bestaetigt);
+        tablette_checkbox_erzeugen(s_heute_fenster, y + (70 - CHECKBOX_GROESSE) / 2, i, eintraege[i].bestaetigt);
 
         y += 70;
     }
@@ -686,6 +612,9 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
         y += 36;
     }
 
+    if (tablette_vorhanden)
+        ok_abbrechen_erzeugen(s_heute_fenster, heute_ok_cb, heutefenster_schliessen_cb);
+
     s_heute_fenster_timer = lv_timer_create(heutefenster_timer_cb, HEUTEFENSTER_INAKTIV_MS, NULL);
     lvgl_port_unlock();
 }
@@ -700,48 +629,114 @@ void tagesansicht_heute_oeffnen(void)
     heute_oeffnen_intern(s_tag_buttons[HEUTE_INDEX]);
 }
 
-void tagesansicht_erinnerung_zeigen(int index)
+/* Sammelt die Indizes aller heutigen, unbestaetigten Tabletten, die gerade
+ * FAELLIG oder UEBERFAELLIG sind (kalender_tablette_status) - genau die
+ * Menge, die die Erinnerungs-Checkliste anzeigt. Rueckgabe: Anzahl. */
+static int faellige_tabletten_sammeln(const kalender_tag_eintrag_t *eintraege, int anzahl,
+                                       int jetzt_minuten, int *indizes_aus, int max)
 {
-    kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
-    int anzahl = kalender_anzeige_heutige_eintraege(eintraege, KALENDER_EINTRAEGE_MAX);
-    if (index < 0 || index >= anzahl || !eintraege[index].ist_tablette)
+    int n = 0;
+    for (int i = 0; i < anzahl && n < max; i++) {
+        if (!eintraege[i].ist_tablette)
+            continue;
+        kalender_tablette_status_t status = kalender_tablette_status(&eintraege[i], true, jetzt_minuten);
+        if (status == KALENDER_TABLETTE_FAELLIG || status == KALENDER_TABLETTE_UEBERFAELLIG)
+            indizes_aus[n++] = i;
+    }
+    return n;
+}
+
+static void erinnerung_ok_cb(lv_event_t *e)
+{
+    (void)e;
+    checkboxen_uebernehmen();
+    lvgl_port_lock(0);
+    erinnerung_intern_schliessen();
+    lvgl_port_unlock();
+}
+
+/* Zeigt eine Checkliste aller gerade faelligen/ueberfaelligen, unbestaetigten
+ * Tabletten - sammelt sie selbst (siehe faellige_tabletten_sammeln), daher
+ * ohne Index-Parameter. Tut nichts, wenn es aktuell keine gibt (z. B. wenn
+ * app_main.c/erinnerung_pruefen zwischenzeitlich veraltete Daten hatte) oder
+ * die Uhrzeit nicht bekannt ist. */
+void tagesansicht_erinnerung_zeigen(void)
+{
+    if (!zeit_ist_synchron())
         return;
 
-    char kopfzeile[48];
-    snprintf(kopfzeile, sizeof kopfzeile, "faellig um %02d:%02d Uhr",
-             eintraege[index].stunde, eintraege[index].minute);
+    kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
+    int anzahl = kalender_anzeige_heutige_eintraege(eintraege, KALENDER_EINTRAEGE_MAX);
+
+    time_t jetzt = time(NULL);
+    struct tm lokal;
+    localtime_r(&jetzt, &lokal);
+    int jetzt_minuten = lokal.tm_hour * 60 + lokal.tm_min;
+
+    int indizes[KALENDER_EINTRAEGE_MAX];
+    int n = faellige_tabletten_sammeln(eintraege, anzahl, jetzt_minuten, indizes, KALENDER_EINTRAEGE_MAX);
+    if (n == 0)
+        return;
 
     lvgl_port_lock(0);
     erinnerung_intern_schliessen();
     heutefenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
     tagesfenster_intern_schliessen();
 
-    s_erinnerung_fenster = fenster_grundgeruest_erzeugen("TABLETTE NEHMEN", kopfzeile,
-                                                          FENSTER_HOEHE_ERINNERUNG,
-                                                          erinnerung_schliessen_cb);
+    s_erinnerung_fenster = fenster_grundgeruest_erzeugen(n == 1 ? "TABLETTE NEHMEN" : "TABLETTEN NEHMEN",
+                                                          "Bitte bestaetigen",
+                                                          FENSTER_HOEHE_ERINNERUNG, erinnerung_schliessen_cb);
 
-    /* Name der Tablette gross und allein - eine Information, eine Handlung.
-     * Abschneiden statt umbrechen (siehe FALLSTRICKE #22/#19): ein langer
-     * Name darf das darunterliegende Bedienelement nicht verschieben. */
-    lv_obj_t *name = lv_label_create(s_erinnerung_fenster);
-    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-    lv_obj_set_size(name, FENSTER_BREITE - 40, 50);
-    lv_obj_set_pos(name, 20, 108);
-    lv_obj_set_style_text_font(name, &schrift_mittel_40, 0);
-    lv_obj_set_style_text_color(name, lv_color_hex(FARBE_FENSTER_AKZENT), 0);
-    lv_label_set_text(name, eintraege[index].titel);
+    int32_t y = 100;
+    int gezeigt = 0;
+    for (int k = 0; k < n; k++) {
+        if (gezeigt >= ERINNERUNG_ZEILEN_MAX - (n > ERINNERUNG_ZEILEN_MAX ? 1 : 0))
+            break;
+        int i = indizes[k];
+        int32_t breite = FENSTER_BREITE - 40 - CHECKBOX_GROESSE - 20;
 
-    lv_obj_t *hinweis = lv_label_create(s_erinnerung_fenster);
-    lv_label_set_text(hinweis, "Genommen?");
-    lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
-    lv_obj_set_style_text_color(hinweis, lv_color_hex(FARBE_FENSTER_TEXT), 0);
-    lv_obj_set_pos(hinweis, 20, 195);
+        /* Name + Uhrzeit ueber die vorhandene Formatierfunktion - dieselbe
+         * "HH:MM  Titel"-Zeile wie ueberall sonst in diesem Modul.
+         * Abschneiden statt umbrechen (FALLSTRICKE #22/#19): ein langer
+         * Name darf die Checkbox nicht verschieben. */
+        char inhalt[ZEILE_MAX];
+        eintrag_zeile_formatieren(&eintraege[i], false, inhalt, sizeof inhalt);
 
-    /* Derselbe Schieber wie im "Heute"-Fenster - bewusst KEIN einfacher
-     * Button: eine zufaellige Beruehrung (Staubwischen, Anstossen) darf eine
-     * Tablette niemals faelschlich als genommen markieren. Die Bestaetigung
-     * selbst laeuft ueber schieber_released_cb wie ueberall sonst. */
-    schieber_erzeugen(s_erinnerung_fenster, 185, index, eintraege[index].bestaetigt);
+        lv_obj_t *name = lv_label_create(s_erinnerung_fenster);
+        lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(name, breite, 32);
+        lv_obj_set_pos(name, 20, y);
+        lv_obj_set_style_text_font(name, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(name, lv_color_hex(FARBE_FENSTER_AKZENT), 0);
+        lv_label_set_text(name, inhalt);
+
+        if (eintraege[i].beschreibung[0]) {
+            lv_obj_t *beschreibung = lv_label_create(s_erinnerung_fenster);
+            lv_label_set_long_mode(beschreibung, LV_LABEL_LONG_DOT);
+            lv_obj_set_size(beschreibung, breite, 30);
+            lv_obj_set_pos(beschreibung, 20, y + 32);
+            lv_obj_set_style_text_font(beschreibung, &schrift_klein_28, 0);
+            lv_obj_set_style_text_color(beschreibung, lv_color_hex(FARBE_VERGANGEN), 0);
+            lv_label_set_text(beschreibung, eintraege[i].beschreibung);
+        }
+
+        tablette_checkbox_erzeugen(s_erinnerung_fenster, y + (ERINNERUNG_ZEILE_HOEHE - CHECKBOX_GROESSE) / 2,
+                                    i, eintraege[i].bestaetigt);
+
+        y += ERINNERUNG_ZEILE_HOEHE;
+        gezeigt++;
+    }
+    if (n > gezeigt) {
+        lv_obj_t *mehr = lv_label_create(s_erinnerung_fenster);
+        char text[24];
+        snprintf(text, sizeof text, "+%d weitere", n - gezeigt);
+        lv_label_set_text(mehr, text);
+        lv_obj_set_style_text_font(mehr, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(mehr, lv_color_hex(FARBE_VERGANGEN), 0);
+        lv_obj_set_pos(mehr, 20, y);
+    }
+
+    ok_abbrechen_erzeugen(s_erinnerung_fenster, erinnerung_ok_cb, erinnerung_schliessen_cb);
 
     s_erinnerung_fenster_timer = lv_timer_create(erinnerung_timer_cb, ERINNERUNG_ANZEIGEDAUER_MS, NULL);
     lv_timer_set_repeat_count(s_erinnerung_fenster_timer, 1);

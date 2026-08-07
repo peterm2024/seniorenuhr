@@ -36,17 +36,19 @@ static const char KALENDER[] =
     "DTSTART;TZID=Europe/Berlin:20260715T150000\r\n"
     "DTEND;TZID=Europe/Berlin:20260715T154500\r\n"
     "SUMMARY:Dr. Müller (Hausarzt)\r\n"
+    "DESCRIPTION:Blutdruck vorher messen\r\n"
     "BEGIN:VALARM\r\n"
     "ACTION:DISPLAY\r\n"
     "SUMMARY:Alarm-Text der NICHT angezeigt werden darf\r\n"
     "END:VALARM\r\n"
     "END:VEVENT\r\n"
 
-    /* 2) Tablette, täglich 08:00 seit 01.06.2026 */
+    /* 2) Tablette, täglich 08:00 seit 01.06.2026, mit Beschreibung, ohne DTEND */
     "BEGIN:VEVENT\r\n"
     "DTSTART;TZID=Europe/Berlin:20260601T080000\r\n"
     "RRULE:FREQ=DAILY\r\n"
     "SUMMARY:TABLETTE: Blutdruck (1 morgens)\r\n"
+    "DESCRIPTION:nüchtern\r\n"
     "END:VEVENT\r\n"
 
     /* 3) Tablette Mo+Do 18:00, mit Ausnahme am Do 16.07.2026 */
@@ -129,10 +131,17 @@ int main(void)
     PRUEFE(arzt >= 0 && t[arzt].beginn.stunde == 15 && t[arzt].beginn.minute == 0,
            "Arzttermin beginnt 15:00");
     PRUEFE(arzt >= 0 && !t[arzt].ist_tablette, "Arzttermin ist keine Tablette");
+    PRUEFE(arzt >= 0 && t[arzt].hat_ende && t[arzt].ende.stunde == 15 && t[arzt].ende.minute == 45,
+           "Arzttermin: DTEND als Endzeit uebernommen (15:45)");
+    PRUEFE(arzt >= 0 && strcmp(t[arzt].beschreibung, "Blutdruck vorher messen") == 0,
+           "Arzttermin: Beschreibung uebernommen");
     int blut = suche(t, n, "Blutdruck (1 morgens)");
     PRUEFE(blut >= 0, "taegliche Tablette gefunden, Praefix entfernt");
     PRUEFE(blut >= 0 && t[blut].ist_tablette, "als Tablette erkannt");
     PRUEFE(blut >= 0 && t[blut].beginn.stunde == 8, "Tablette um 08:00");
+    PRUEFE(blut >= 0 && !t[blut].hat_ende, "Tablette ohne DTEND: hat_ende bleibt false");
+    PRUEFE(blut >= 0 && strcmp(t[blut].beschreibung, "nüchtern") == 0,
+           "Tablette: Beschreibung 'nuechtern' uebernommen");
     PRUEFE(suche(t, n, "Einkaufen: Brot, Milch") >= 0,
            "maskiertes Komma im Titel aufgeloest");
     PRUEFE(suche(t, n, "Abgesagter Friseur") < 0, "abgesagter Termin fehlt");
@@ -150,6 +159,8 @@ int main(void)
     PRUEFE(kaffee >= 0, "gefaltete Zeile mit Umlaut korrekt zusammengesetzt");
     PRUEFE(kaffee >= 0 && t[kaffee].beginn.stunde == 15,
            "13:00 UTC wurde zu 15:00 Sommerzeit");
+    PRUEFE(kaffee >= 0 && t[kaffee].beschreibung[0] == '\0',
+           "Kaffee-Termin ohne DESCRIPTION: Beschreibung bleibt leer");
 
     printf("== Montag, 20.07.2026 ==\n");
     n = ics_termine_fuer_tag(KALENDER, len, 2026, 7, 20, t, 16);

@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -70,8 +71,13 @@ static void eintrag_uebernehmen(kalender_tag_eintrag_t *ziel, const ics_termin_t
      * sehr grosses Worst-Case-Ergebnis angenommen und
      * -Werror=format-truncation ausgeloest wird. */
     snprintf(ziel->titel, sizeof ziel->titel, "%.*s", (int)sizeof ziel->titel - 1, quelle->titel);
+    snprintf(ziel->beschreibung, sizeof ziel->beschreibung, "%.*s",
+             (int)sizeof ziel->beschreibung - 1, quelle->beschreibung);
     ziel->stunde = quelle->beginn.stunde;
     ziel->minute = quelle->beginn.minute;
+    ziel->hat_ende = quelle->hat_ende;
+    ziel->end_stunde = quelle->ende.stunde;
+    ziel->end_minute = quelle->ende.minute;
     ziel->ganztags = quelle->ganztags;
     ziel->ist_tablette = quelle->ist_tablette;
     ziel->bestaetigt = false;
@@ -86,12 +92,23 @@ static void fuer_heute_neu_parsen(void)
     int schluessel = heute_schluessel(&lokal);
     bool neuer_tag = (schluessel != s_letzter_tag_schluessel);
 
-    ics_termin_t termine[32];
+    /* Aus dem Stack in den PSRAM verlagert (heap_caps_malloc): seit
+     * ics_termin_t die Beschreibung traegt (ICS_BESCHREIBUNG_MAX, siehe
+     * ics_parser.h) ist ein termine[32]-Array auf dem Stack live nicht mehr
+     * sicher - derselbe Fehlerklasse wie FALLSTRICKE #8/#24, nur diesmal
+     * durch groessere Eintraege statt mehr Aufrufe. Details FALLSTRICKE #26. */
+    ics_termin_t *termine = heap_caps_malloc(32 * sizeof(ics_termin_t), MALLOC_CAP_SPIRAM);
+    if (!termine) {
+        ESP_LOGE(TAG, "Kein PSRAM fuer Termin-Puffer - Tagesaktualisierung uebersprungen");
+        return;
+    }
+
     int n = ics_termine_fuer_tag(s_ics_text, s_ics_laenge,
                                  lokal.tm_year + 1900, lokal.tm_mon + 1, lokal.tm_mday,
                                  termine, 32);
     if (n < 0) {
         ESP_LOGW(TAG, "ICS-Parser meldet ungueltige Argumente");
+        heap_caps_free(termine);
         return;
     }
 
@@ -99,6 +116,7 @@ static void fuer_heute_neu_parsen(void)
     int neue_anzahl = n < KALENDER_EINTRAEGE_MAX ? n : KALENDER_EINTRAEGE_MAX;
     for (int i = 0; i < neue_anzahl; i++)
         eintrag_uebernehmen(&neue_eintraege[i], &termine[i]);
+    heap_caps_free(termine);
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     /* Bestaetigt-Status per Titel-Abgleich aus dem bisherigen Stand
@@ -282,10 +300,17 @@ kalender_tablette_status_t kalender_tablette_status(const kalender_tag_eintrag_t
         return KALENDER_TABLETTE_ZUKUNFT;
 
     int soll_minuten = eintrag->stunde * 60 + eintrag->minute;
-    int ueberfaellig_seit = jetzt_minuten - soll_minuten;
-    if (ueberfaellig_seit < 0)
+    if (jetzt_minuten < soll_minuten)
         return KALENDER_TABLETTE_ZUKUNFT;
-    if (ueberfaellig_seit >= KALENDER_TABLETTE_UEBERFAELLIG_MIN)
+
+    /* Einnahme-Zeitfenster: falls die Tablette eine echte DTEND-Uhrzeit hat
+     * (main/ics_parser.h), gilt sie bis dahin als "faellig", statt der
+     * sonst festen 60-Minuten-Schwelle - passend zu Terminen, die selbst
+     * schon ein Zeitfenster vorgeben (z. B. "8:00-8:30 Uhr nuechtern"). */
+    int grenze_minuten = eintrag->hat_ende
+                              ? eintrag->end_stunde * 60 + eintrag->end_minute
+                              : soll_minuten + KALENDER_TABLETTE_UEBERFAELLIG_MIN;
+    if (jetzt_minuten >= grenze_minuten)
         return KALENDER_TABLETTE_UEBERFAELLIG;
     return KALENDER_TABLETTE_FAELLIG;
 }
@@ -296,7 +321,17 @@ int kalender_anzeige_eintraege_fuer_tag(int tage_versatz, kalender_tag_eintrag_t
     struct tm lokal;
     localtime_r(&jetzt, &lokal);
 
-    ics_termin_t termine[32];
+    /* Aus dem Stack in den PSRAM verlagert - siehe Kommentar bei
+     * fuer_heute_neu_parsen() weiter oben. Diese Funktion laeuft im
+     * schlimmsten Fall 7x verschachtelt (tagesansicht_tag_aktualisieren
+     * faerbt beim Tageswechsel alle 7 Wochentag-Buttons neu), auf dem
+     * main-/LVGL-Task war das mit einem termine[32]-Array auf dem Stack
+     * live nicht mehr sicher (FALLSTRICKE #26). */
+    ics_termin_t *termine = heap_caps_malloc(32 * sizeof(ics_termin_t), MALLOC_CAP_SPIRAM);
+    if (!termine) {
+        ESP_LOGE(TAG, "Kein PSRAM fuer Termin-Puffer");
+        return 0;
+    }
     int n = 0;
 
     /* Mutex bleibt waehrend des gesamten Parse-Vorgangs gehalten - der
@@ -311,11 +346,14 @@ int kalender_anzeige_eintraege_fuer_tag(int tage_versatz, kalender_tag_eintrag_t
     }
     xSemaphoreGive(s_mutex);
 
-    if (n <= 0)
+    if (n <= 0) {
+        heap_caps_free(termine);
         return 0;
+    }
 
     int anzahl = n < max ? n : max;
     for (int i = 0; i < anzahl; i++)
         eintrag_uebernehmen(&ziel[i], &termine[i]);
+    heap_caps_free(termine);
     return anzahl;
 }

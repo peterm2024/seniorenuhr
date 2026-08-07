@@ -21,8 +21,12 @@
 
 typedef struct {
     char titel[ICS_TITEL_MAX];
+    char beschreibung[ICS_BESCHREIBUNG_MAX]; /* leer, wenn nicht gesetzt */
     int stunde;
     int minute;
+    int end_stunde;
+    int end_minute;
+    bool hat_ende;    /* true nur bei echter DTEND-Uhrzeit, siehe ics_parser.h */
     bool ganztags;
     bool ist_tablette;
     bool bestaetigt;
@@ -58,8 +62,12 @@ typedef enum {
     KALENDER_TABLETTE_ABGEHAKT,     /* bereits bestaetigt - gedaempft darstellen */
     KALENDER_TABLETTE_ZUKUNFT,      /* noch nicht faellig - normale Farbe */
     KALENDER_TABLETTE_FAELLIG,      /* Einnahmezeit erreicht, noch nicht bestaetigt */
-    KALENDER_TABLETTE_UEBERFAELLIG, /* seit KALENDER_TABLETTE_UEBERFAELLIG_MIN
-                                      * unbestaetigt ueberfaellig */
+    KALENDER_TABLETTE_UEBERFAELLIG, /* Einnahme-Zeitfenster abgelaufen, immer
+                                      * noch unbestaetigt - Ende des Fensters
+                                      * ist die DTEND-Uhrzeit, falls im ICS
+                                      * gesetzt (kalender_tag_eintrag_t.hat_ende),
+                                      * sonst KALENDER_TABLETTE_UEBERFAELLIG_MIN
+                                      * nach der Soll-Zeit */
 } kalender_tablette_status_t;
 
 #define KALENDER_TABLETTE_UEBERFAELLIG_MIN 60

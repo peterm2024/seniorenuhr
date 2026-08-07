@@ -29,16 +29,20 @@ void tagesansicht_sichtbarkeit_setzen(bool sichtbar);
  * Hauptbildschirm (siehe app_main.c). */
 void tagesansicht_heute_oeffnen(void);
 
-/* Oeffnet das Erinnerungsfenster fuer EINE faellige Tablette (Index aus
- * kalender_anzeige_heutige_eintraege) - poppt zur Einnahmezeit von selbst
- * auf, statt nur passiv die Zeile einzufaerben. Bewusst fokussiert auf
- * genau diese eine Tablette: grosse Schrift, eine einzige Handlung.
- * Bestaetigt wird mit demselben Schieber wie im "Heute"-Fenster (nicht mit
- * einem Button) - eine zufaellige Beruehrung darf eine Tablette niemals
- * faelschlich als genommen markieren. Schliesst sich nach kurzer Zeit von
- * selbst wieder (ERINNERUNG_ANZEIGEDAUER_MS), damit es Uhrzeit und Datum
- * nicht dauerhaft verdeckt; das Wiederholen uebernimmt app_main.c. */
-void tagesansicht_erinnerung_zeigen(int index);
+/* Oeffnet eine Checkliste aller aktuell faelligen/ueberfaelligen,
+ * unbestaetigten Tabletten (sammelt sie selbst, kein Index-Parameter mehr
+ * noetig - siehe kalender_anzeige_heutige_eintraege/kalender_tablette_status
+ * in tagesansicht.c) - poppt zur Einnahmezeit von selbst auf, statt nur
+ * passiv die Zeile einzufaerben. Bestaetigt wird per Checkbox pro Tablette
+ * plus einem gemeinsamen "OK"-Button (Ausbaustufe 2) - ein Checkbox-Tipp
+ * wirkt erst nach "OK", nicht sofort wie vormals beim Schieber; "Abbrechen"
+ * bzw. Timeout verwerfen alle offenen Haken wieder. Kein Button OHNE diesen
+ * Zwischenschritt - eine zufaellige Beruehrung darf eine Tablette niemals
+ * sofort faelschlich als genommen markieren. Schliesst sich nach kurzer Zeit
+ * von selbst wieder (ERINNERUNG_ANZEIGEDAUER_MS), damit es Uhrzeit und Datum
+ * nicht dauerhaft verdeckt; das Wiederholen uebernimmt app_main.c. Tut
+ * nichts, wenn es aktuell keine faellige Tablette gibt. */
+void tagesansicht_erinnerung_zeigen(void);
 
 /* true, solange ein Tages- oder Heute-Fenster als Overlay ueber dem
  * Hauptbildschirm offen ist - waehrend dieser Zeit soll die Anzeige nicht

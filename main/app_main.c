@@ -173,6 +173,10 @@ static lv_obj_t *s_termine_ueberschrift;
 typedef struct {
     lv_obj_t *container;
     lv_obj_t *zeilen[UEBERSICHT_ZEILEN_MAX];
+    /* true fuer Zeilen mit einer ueberfaelligen, unbestaetigten Tablette -
+     * nur bei der Tabletten-Spalte gesetzt. uhr_tick faerbt diese Zeilen
+     * jede Sekunde direkt um (Blinken), ohne die Spalte neu aufzubauen. */
+    bool ueberfaellig[UEBERSICHT_ZEILEN_MAX];
     int anzahl;
 } uebersicht_spalte_t;
 
@@ -190,21 +194,59 @@ static void beruehrung_callback(lv_event_t *e)
     s_wach_bis_us = esp_timer_get_time() + BERUEHRUNG_WACHZEIT_US;
 }
 
-/* Tipp auf die Tabletten/Termine-Uebersicht oeffnet direkt das "Heute"-
- * Fenster - bisher ging das nur ueber den eigenen "Heute"-Button links. */
+/* Tipp auf die Termine-Uebersicht oeffnet direkt das "Heute"-Fenster -
+ * bisher ging das nur ueber den eigenen "Heute"-Button links. */
 static void uebersicht_geklickt_cb(lv_event_t *e)
 {
     (void)e;
     tagesansicht_heute_oeffnen();
 }
 
+/* Tipp auf die Tabletten-Uebersicht (Ausbaustufe 2, Punkt 6): oeffnet bei
+ * mindestens einer gerade faelligen/ueberfaelligen, unbestaetigten Tablette
+ * direkt die Erinnerungs-Checkliste statt des "Heute"-Fensters mit allen
+ * Eintraegen. Derselbe Massstab wie tagesansicht_erinnerung_zeigen() selbst
+ * anwendet (FAELLIG/UEBERFAELLIG) - sonst wuerde der Tipp bei einer erst
+ * spaeter faelligen, noch unbestaetigten Tablette scheinbar ins Leere gehen
+ * (die Checkliste zeigt in dem Fall naemlich nichts). Gibt es aktuell keine,
+ * faellt der Tipp auf das gewohnte "Heute"-Fenster zurueck. */
+static void tabletten_geklickt_cb(lv_event_t *e)
+{
+    (void)e;
+    kalender_tag_eintrag_t eintraege[KALENDER_EINTRAEGE_MAX];
+    int anzahl = kalender_anzeige_heutige_eintraege(eintraege, KALENDER_EINTRAEGE_MAX);
+
+    bool etwas_faellig = false;
+    if (zeit_ist_synchron()) {
+        time_t jetzt = time(NULL);
+        struct tm lokal;
+        localtime_r(&jetzt, &lokal);
+        int jetzt_minuten = lokal.tm_hour * 60 + lokal.tm_min;
+
+        for (int i = 0; i < anzahl; i++) {
+            if (!eintraege[i].ist_tablette)
+                continue;
+            kalender_tablette_status_t status = kalender_tablette_status(&eintraege[i], true, jetzt_minuten);
+            if (status == KALENDER_TABLETTE_FAELLIG || status == KALENDER_TABLETTE_UEBERFAELLIG) {
+                etwas_faellig = true;
+                break;
+            }
+        }
+    }
+
+    if (etwas_faellig)
+        tagesansicht_erinnerung_zeigen();
+    else
+        tagesansicht_heute_oeffnen();
+}
+
 /* Macht ein Label per Tipp klickbar (Ueberschrift/Inhalt der Tabletten-
  * bzw. Termine-Uebersicht) - Labels sind in LVGL standardmaessig nicht
  * klickbar. */
-static void uebersicht_tippbar_machen(lv_obj_t *label)
+static void uebersicht_tippbar_machen(lv_obj_t *label, lv_event_cb_t klick_cb)
 {
     lv_obj_add_flag(label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(label, uebersicht_geklickt_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(label, klick_cb, LV_EVENT_CLICKED, NULL);
 }
 
 /* lv_obj_set_style_bg_opa hat 3 Parameter (Objekt, Deckkraft, Selektor) -
@@ -296,12 +338,81 @@ static lv_obj_t *uebersicht_container_erzeugen(lv_obj_t *scr, int32_t x, int32_t
     return cont;
 }
 
+/* Ausbaustufe 2 (Peter): die Tabletten-Spalte zeigt nicht mehr alle
+ * heutigen Tabletten, sondern nur noch vorherige/aktuelle/naechste - genug
+ * fuer einen Ueberblick, ohne dass viele Eintraege die Uebersicht sprengen.
+ * "aktuell" ist die erste noch unbestaetigte (chronologisch, eintraege ist
+ * bereits sortiert); sind alle bestaetigt, gilt die zeitlich letzte als
+ * "aktuell" (bleibt sichtbar statt die Spalte leerzuraeumen). Schreibt bis
+ * zu 3 Indizes nach positionen_aus, Rueckgabe: deren Anzahl (0, wenn heute
+ * keine Tablette ansteht). */
+static int tabletten_positionen_ermitteln(const kalender_tag_eintrag_t *eintraege, int anzahl,
+                                           int *positionen_aus)
+{
+    int aktuell = -1;
+    for (int i = 0; i < anzahl; i++) {
+        if (!eintraege[i].ist_tablette)
+            continue;
+        aktuell = i;
+        if (!eintraege[i].bestaetigt)
+            break;
+    }
+    if (aktuell < 0)
+        return 0;
+
+    int vorherige = -1;
+    for (int i = aktuell - 1; i >= 0; i--) {
+        if (eintraege[i].ist_tablette) { vorherige = i; break; }
+    }
+    int naechste = -1;
+    for (int i = aktuell + 1; i < anzahl; i++) {
+        if (eintraege[i].ist_tablette) { naechste = i; break; }
+    }
+
+    int n = 0;
+    if (vorherige >= 0) positionen_aus[n++] = vorherige;
+    positionen_aus[n++] = aktuell;
+    if (naechste >= 0) positionen_aus[n++] = naechste;
+    return n;
+}
+
+/* True, wenn mindestens eine WEITERE Tablette exakt zur selben Uhrzeit
+ * ansteht - dann zeigt die Zeile die Tageszeit statt eines der beiden Namen
+ * (Peter: "bei mehreren gleichzeitigen Terminen statt des Namens die
+ * Tageszeit anzeigen"). */
+static bool tablette_zeit_kollidiert(const kalender_tag_eintrag_t *eintraege, int anzahl, int index)
+{
+    if (eintraege[index].ganztags)
+        return false;
+    int treffer = 0;
+    for (int i = 0; i < anzahl; i++) {
+        if (!eintraege[i].ist_tablette || eintraege[i].ganztags)
+            continue;
+        if (eintraege[i].stunde == eintraege[index].stunde && eintraege[i].minute == eintraege[index].minute)
+            treffer++;
+    }
+    return treffer > 1;
+}
+
+/* zeit_tageszeit() (zeit.h) wertet nur tm_hour aus - hier mit der Soll-
+ * Stunde der Tablette statt der aktuellen Uhrzeit aufgerufen. */
+static const char *tageszeit_fuer_stunde(int stunde)
+{
+    struct tm hilfstm = {0};
+    hilfstm.tm_hour = stunde;
+    return zeit_tageszeit(&hilfstm);
+}
+
 /* Baut eine Fingerabdruck-Zeichenkette fuer eine der beiden Spalten
  * (Tabletten/Termine) aus den strukturierten Tageseintraegen - dient NUR
  * dem billigen Aenderungs-Check in uhr_tick() (strcmp gegen den vorherigen
  * Aufruf), nicht der direkten Anzeige. Die Faerbung wird als Farbcode mit
  * eincodiert, damit sich auch ein reiner Bestaetigt-/Vergangen-Wechsel
- * (ohne Textaenderung) zuverlaessig im Fingerabdruck niederschlaegt. */
+ * (ohne Textaenderung) zuverlaessig im Fingerabdruck niederschlaegt. Das
+ * Blinken ueberfaelliger Tabletten laeuft bewusst NICHT hierueber (haette
+ * einen kompletten Spalten-Neuaufbau pro Sekunde bedeutet, siehe
+ * FALLSTRICKE #16 zum kleinen LVGL-Speicherpool) - stattdessen faerbt
+ * uhr_tick() das gemerkte Label direkt um, analog zu zeit_blink_an. */
 static void liste_text_aufbauen(const kalender_tag_eintrag_t *eintraege, int anzahl, bool nur_tabletten,
                                 bool zeit_bekannt, int jetzt_minuten, char *ziel, size_t ziel_groesse)
 {
@@ -309,17 +420,34 @@ static void liste_text_aufbauen(const kalender_tag_eintrag_t *eintraege, int anz
     size_t belegt = 0;
     int gefunden = 0;
 
-    for (int i = 0; i < anzahl; i++) {
-        if (eintraege[i].ist_tablette != nur_tabletten)
-            continue;
+    int positionen[UEBERSICHT_ZEILEN_MAX];
+    int n_positionen;
+    if (nur_tabletten) {
+        n_positionen = tabletten_positionen_ermitteln(eintraege, anzahl, positionen);
+    } else {
+        n_positionen = 0;
+        for (int i = 0; i < anzahl && n_positionen < UEBERSICHT_ZEILEN_MAX; i++)
+            if (!eintraege[i].ist_tablette)
+                positionen[n_positionen++] = i;
+    }
+
+    for (int k = 0; k < n_positionen; k++) {
+        int i = positionen[k];
         gefunden++;
 
+        /* Explizite Praezision (dynamisch aus der Zielgroesse) statt nacktem
+         * "%s" - ueber einen Zeiger zugegriffene Array-Felder (titel)
+         * verlieren bei GCCs Format-Truncation-Pruefung ihre bekannte
+         * Groesse, siehe eintrag_zeile_formatieren (tagesansicht.c). */
         char inhalt[80];
-        if (eintraege[i].ganztags)
-            snprintf(inhalt, sizeof inhalt, "%s", eintraege[i].titel);
-        else
+        if (nur_tabletten && tablette_zeit_kollidiert(eintraege, anzahl, i))
             snprintf(inhalt, sizeof inhalt, "%02d:%02d  %s",
-                     eintraege[i].stunde, eintraege[i].minute, eintraege[i].titel);
+                     eintraege[i].stunde, eintraege[i].minute, tageszeit_fuer_stunde(eintraege[i].stunde));
+        else if (eintraege[i].ganztags)
+            snprintf(inhalt, sizeof inhalt, "%.*s", (int)sizeof inhalt - 1, eintraege[i].titel);
+        else
+            snprintf(inhalt, sizeof inhalt, "%02d:%02d  %.*s",
+                     eintraege[i].stunde, eintraege[i].minute, (int)sizeof inhalt - 8, eintraege[i].titel);
 
         bool hat_farbe;
         uint32_t farbe = FARBE_VERGANGEN;
@@ -357,11 +485,16 @@ static void uebersicht_spalte_leeren(uebersicht_spalte_t *spalte)
     for (int i = 0; i < spalte->anzahl; i++)
         lv_obj_delete(spalte->zeilen[i]);
     spalte->anzahl = 0;
+    /* Verhindert, dass uhr_tick's Blink-Schleife anschliessend ein laengst
+     * geloeschtes oder inzwischen andersartiges Label (z. B. den "..."-
+     * Platzhalter) umfaerbt. */
+    memset(spalte->ueberfaellig, 0, sizeof spalte->ueberfaellig);
 }
 
 /* Zeigt einen einzelnen Platzhaltertext an (z. B. "..." bevor Kalenderdaten
  * bekannt sind) - ersetzt alle bisherigen Zeilen. */
-static void uebersicht_spalte_platzhalter_setzen(uebersicht_spalte_t *spalte, const char *text)
+static void uebersicht_spalte_platzhalter_setzen(uebersicht_spalte_t *spalte, const char *text,
+                                                  lv_event_cb_t klick_cb)
 {
     uebersicht_spalte_leeren(spalte);
     lv_obj_t *label = lv_label_create(spalte->container);
@@ -369,7 +502,7 @@ static void uebersicht_spalte_platzhalter_setzen(uebersicht_spalte_t *spalte, co
     lv_obj_set_style_text_color(label, lv_color_hex(FARBE_TEXT_HELL), 0);
     lv_obj_set_pos(label, 0, 0);
     lv_label_set_text(label, text);
-    uebersicht_tippbar_machen(label);
+    uebersicht_tippbar_machen(label, klick_cb);
     spalte->zeilen[spalte->anzahl++] = label;
 }
 
@@ -386,36 +519,57 @@ static void uebersicht_spalte_neu_aufbauen(uebersicht_spalte_t *spalte, int32_t 
 {
     uebersicht_spalte_leeren(spalte);
 
+    int positionen[UEBERSICHT_ZEILEN_MAX];
+    int n_positionen;
+    if (nur_tabletten) {
+        n_positionen = tabletten_positionen_ermitteln(eintraege, anzahl, positionen);
+    } else {
+        n_positionen = 0;
+        for (int i = 0; i < anzahl && n_positionen < UEBERSICHT_ZEILEN_MAX; i++)
+            if (!eintraege[i].ist_tablette)
+                positionen[n_positionen++] = i;
+    }
+
     int32_t y = 0;
     int gefunden = 0;
-    for (int i = 0; i < anzahl && spalte->anzahl < UEBERSICHT_ZEILEN_MAX; i++) {
-        if (eintraege[i].ist_tablette != nur_tabletten)
-            continue;
+    for (int k = 0; k < n_positionen && spalte->anzahl < UEBERSICHT_ZEILEN_MAX; k++) {
+        int i = positionen[k];
         gefunden++;
 
         bool abgehakt = nur_tabletten && eintraege[i].bestaetigt;
         bool vergangen = !nur_tabletten && zeit_bekannt && !eintraege[i].ganztags &&
                           (eintraege[i].stunde * 60 + eintraege[i].minute) < jetzt_minuten;
+        bool ueberfaellig = false;
 
         uint32_t farbe = FARBE_TEXT_HELL;
         if (nur_tabletten) {
             switch (kalender_tablette_status(&eintraege[i], zeit_bekannt, jetzt_minuten)) {
             case KALENDER_TABLETTE_ABGEHAKT:     farbe = FARBE_VERGANGEN; break;
             case KALENDER_TABLETTE_FAELLIG:      farbe = FARBE_TABLETTE_FAELLIG; break;
-            case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; break;
+            /* Startfarbe rot - der Sekunden-Blink-Abgleich in uhr_tick
+             * uebernimmt ab dem naechsten Tick per spalte->ueberfaellig[]. */
+            case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; ueberfaellig = true; break;
             case KALENDER_TABLETTE_ZUKUNFT:      farbe = FARBE_TEXT_HELL; break;
             }
         } else if (vergangen) {
             farbe = FARBE_VERGANGEN;
         }
 
+        /* Explizite Praezision (dynamisch aus der Zielgroesse) statt nacktem
+         * "%s" - siehe Kommentar bei liste_text_aufbauen weiter oben. */
         char inhalt[88];
         const char *praefix = abgehakt ? UEBERSICHT_HAKEN_PRAEFIX : "";
-        if (eintraege[i].ganztags)
-            snprintf(inhalt, sizeof inhalt, "%s%s", praefix, eintraege[i].titel);
-        else
+        int praefix_laenge = (int)strlen(praefix);
+        if (nur_tabletten && tablette_zeit_kollidiert(eintraege, anzahl, i))
             snprintf(inhalt, sizeof inhalt, "%s%02d:%02d  %s", praefix,
-                     eintraege[i].stunde, eintraege[i].minute, eintraege[i].titel);
+                     eintraege[i].stunde, eintraege[i].minute, tageszeit_fuer_stunde(eintraege[i].stunde));
+        else if (eintraege[i].ganztags)
+            snprintf(inhalt, sizeof inhalt, "%s%.*s", praefix,
+                     (int)sizeof inhalt - 1 - praefix_laenge, eintraege[i].titel);
+        else
+            snprintf(inhalt, sizeof inhalt, "%s%02d:%02d  %.*s", praefix,
+                     eintraege[i].stunde, eintraege[i].minute,
+                     (int)sizeof inhalt - 8 - praefix_laenge, eintraege[i].titel);
 
         lv_obj_t *label = lv_label_create(spalte->container);
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
@@ -433,8 +587,9 @@ static void uebersicht_spalte_neu_aufbauen(uebersicht_spalte_t *spalte, int32_t 
         lv_obj_set_size(label, breite, UEBERSICHT_ZEILE_ABSTAND);
         lv_obj_set_pos(label, 0, y);
         lv_label_set_text(label, inhalt);
-        uebersicht_tippbar_machen(label);
+        uebersicht_tippbar_machen(label, nur_tabletten ? tabletten_geklickt_cb : uebersicht_geklickt_cb);
 
+        spalte->ueberfaellig[spalte->anzahl] = ueberfaellig;
         spalte->zeilen[spalte->anzahl++] = label;
         y += UEBERSICHT_ZEILE_ABSTAND;
     }
@@ -445,7 +600,7 @@ static void uebersicht_spalte_neu_aufbauen(uebersicht_spalte_t *spalte, int32_t 
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_TEXT_HELL), 0);
         lv_obj_set_pos(label, 0, 0);
         lv_label_set_text(label, "-");
-        uebersicht_tippbar_machen(label);
+        uebersicht_tippbar_machen(label, nur_tabletten ? tabletten_geklickt_cb : uebersicht_geklickt_cb);
         spalte->zeilen[spalte->anzahl++] = label;
     }
 }
@@ -950,11 +1105,11 @@ static void ui_aufbauen(void)
      * haben (siehe tagesansicht_erstellen unten). */
     s_tabletten_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TABLETTEN HEUTE", 80, 335, 300);
     s_tabletten_spalte.container = uebersicht_container_erzeugen(s_bildschirm, 80, 385, UEBERSICHT_SPALTE_BREITE);
-    uebersicht_tippbar_machen(s_tabletten_ueberschrift);
+    uebersicht_tippbar_machen(s_tabletten_ueberschrift, tabletten_geklickt_cb);
 
     s_termine_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TERMINE HEUTE", 420, 335, 300);
     s_termine_spalte.container = uebersicht_container_erzeugen(s_bildschirm, 420, 385, UEBERSICHT_SPALTE_BREITE);
-    uebersicht_tippbar_machen(s_termine_ueberschrift);
+    uebersicht_tippbar_machen(s_termine_ueberschrift, uebersicht_geklickt_cb);
 
     /* Wochentag-Navigation: 7 Buttons links (gestern..+5 Tage) + Heute-
      * Button rechts, oeffnen Tages-/Heute-Fenster mit Terminen/Tabletten. */
@@ -1056,52 +1211,68 @@ static void modus_anwenden(anzeige_modus_t modus)
 
 /* Erinnerungsfenster (siehe tagesansicht_erinnerung_zeigen): Reagiert
  * niemand, meldet es sich in diesem Abstand erneut - hoechstens
- * ERINNERUNG_MAX_VERSUCHE mal. Fuenf Versuche alle 10 Minuten decken genau
- * das Zeitfenster ab, in dem eine Tablette als "faellig" gilt (60 Min, siehe
- * KALENDER_TABLETTE_UEBERFAELLIG_MIN); danach uebernimmt die rote Faerbung
- * in der Uebersicht als bleibender Hinweis. */
+ * ERINNERUNG_MAX_VERSUCHE mal, danach uebernimmt die rote Faerbung in der
+ * Uebersicht als bleibender Hinweis (kein endloses Nagen). */
 #define ERINNERUNG_WIEDERHOLUNG_US (10LL * 60 * 1000000)
 #define ERINNERUNG_MAX_VERSUCHE    5
 
-/* Prueft einmal pro Sekunden-Tick, ob eine Tablette gerade faellig und noch
- * nicht abgehakt ist, und laesst dafuer das Erinnerungsfenster aufpoppen.
- * Bewusst NICHT nachts (Peters Wunsch: der Bildschirm bleibt zwischen 22:00
- * und 6:00 dunkel) und nicht, waehrend ohnehin schon ein Fenster offen ist -
- * ein Popup darf niemandem mitten in die Bedienung springen. */
+/* Fingerprint-Baustein pro Tablette (Sollzeit+Titel) - ICS_TITEL_MAX aus
+ * ics_parser.h (ueber kalender_anzeige.h eingebunden). */
+#define ERINNERUNG_FINGERPRINT_STUECK_MAX (ICS_TITEL_MAX + 16)
+
+/* Prueft einmal pro Sekunden-Tick, welche Tabletten gerade faellig oder
+ * ueberfaellig und noch nicht abgehakt sind, und laesst dafuer die
+ * Erinnerungs-Checkliste aufpoppen (Ausbaustufe 2: zeigt alle auf einmal,
+ * nicht mehr nur die erste). Ein Fingerprint aus Sollzeit+Titel der
+ * gesamten Menge (gleiches Prinzip wie liste_text_aufbauen) erkennt jede
+ * Aenderung - neue Tablette faellig, oder eine bestaetigt und faellt raus -
+ * und setzt dann den Wiederholungs-Zaehler zurueck. Bewusst NICHT nachts
+ * (Peters Wunsch: der Bildschirm bleibt zwischen 22:00 und 6:00 dunkel) und
+ * nicht, waehrend ohnehin schon ein Fenster offen ist - ein Popup darf
+ * niemandem mitten in die Bedienung springen. */
 static void erinnerung_pruefen(const kalender_tag_eintrag_t *eintraege, int anzahl,
                                 int jetzt_minuten, anzeige_modus_t modus)
 {
-    static int s_soll_minuten = -1; /* Sollzeit der zuletzt erinnerten Tablette */
+    static char s_fingerprint[KALENDER_EINTRAEGE_MAX * ERINNERUNG_FINGERPRINT_STUECK_MAX] = "";
     static int s_versuche = 0;
     static int64_t s_naechster_us = 0;
 
     if (modus == MODUS_NACHT || tagesansicht_fenster_offen() || ota_laeuft())
         return;
 
-    /* Erste faellige, noch unbestaetigte Tablette suchen. KALENDER_TABLETTE_FAELLIG
-     * gilt nur in den ersten 60 Minuten nach der Sollzeit - dadurch holt ein
-     * Neustart am Nachmittag die Morgentablette nicht nachtraeglich hoch. */
-    int index = -1;
+    char neuer_fingerprint[sizeof s_fingerprint];
+    neuer_fingerprint[0] = '\0';
+    size_t belegt = 0;
+    bool etwas_faellig = false;
     for (int i = 0; i < anzahl; i++) {
         if (!eintraege[i].ist_tablette)
             continue;
-        if (kalender_tablette_status(&eintraege[i], true, jetzt_minuten) == KALENDER_TABLETTE_FAELLIG) {
-            index = i;
-            break;
+        kalender_tablette_status_t status = kalender_tablette_status(&eintraege[i], true, jetzt_minuten);
+        if (status != KALENDER_TABLETTE_FAELLIG && status != KALENDER_TABLETTE_UEBERFAELLIG)
+            continue;
+        etwas_faellig = true;
+
+        char stueck[ERINNERUNG_FINGERPRINT_STUECK_MAX];
+        snprintf(stueck, sizeof stueck, "%02d:%02d %.*s|", eintraege[i].stunde, eintraege[i].minute,
+                 (int)sizeof stueck - 8, eintraege[i].titel);
+        size_t n = strlen(stueck);
+        if (belegt + n < sizeof neuer_fingerprint) {
+            memcpy(neuer_fingerprint + belegt, stueck, n);
+            belegt += n;
+            neuer_fingerprint[belegt] = '\0';
         }
     }
-    if (index < 0) {
-        /* Nichts faellig (abgehakt oder inzwischen ueberfaellig) - die
-         * naechste Tablette faengt mit frischem Zaehler an. Das setzt den
-         * Zaehler auch ueber Nacht zurueck, sodass dieselbe Tablette morgen
-         * wieder alle Versuche bekommt. */
-        s_soll_minuten = -1;
+
+    if (!etwas_faellig) {
+        /* Nichts (mehr) faellig - die naechste Tablette faengt mit frischem
+         * Zaehler an. Das setzt den Zaehler auch ueber Nacht zurueck, sodass
+         * dieselbe Tablette morgen wieder alle Versuche bekommt. */
+        s_fingerprint[0] = '\0';
         return;
     }
 
-    int soll = eintraege[index].stunde * 60 + eintraege[index].minute;
-    if (soll != s_soll_minuten) {
-        s_soll_minuten = soll;
+    if (strcmp(neuer_fingerprint, s_fingerprint) != 0) {
+        snprintf(s_fingerprint, sizeof s_fingerprint, "%s", neuer_fingerprint);
         s_versuche = 0;
         s_naechster_us = 0;
     }
@@ -1114,10 +1285,8 @@ static void erinnerung_pruefen(const kalender_tag_eintrag_t *eintraege, int anza
 
     s_versuche++;
     s_naechster_us = jetzt_us + ERINNERUNG_WIEDERHOLUNG_US;
-    ESP_LOGI(TAG, "Tabletten-Erinnerung %d/%d: '%s' (%02d:%02d)",
-             s_versuche, ERINNERUNG_MAX_VERSUCHE, eintraege[index].titel,
-             eintraege[index].stunde, eintraege[index].minute);
-    tagesansicht_erinnerung_zeigen(index);
+    ESP_LOGI(TAG, "Tabletten-Erinnerung %d/%d", s_versuche, ERINNERUNG_MAX_VERSUCHE);
+    tagesansicht_erinnerung_zeigen();
 }
 
 /* Einmal true (Demo-Modus im Einstellungen-Menue gewaehlt), ueberspringen
@@ -1236,6 +1405,23 @@ static void uhr_tick(lv_timer_t *timer)
         zeit_war_unbestaetigt = false;
     }
 
+    /* Blink-Zustand fuer ueberfaellige, unbestaetigte Tabletten in der
+     * Tabletten-Spalte (Ausbaustufe 2) - toggelt jede Sekunde bedingungslos
+     * (billig, ein Bool), analog zu zeit_blink_an oben. Faerbt die
+     * betroffenen Zeilen-Labels DIREKT um (spalte->ueberfaellig[], gesetzt
+     * von uebersicht_spalte_neu_aufbauen) statt die Spalte neu aufzubauen -
+     * ein kompletter Delete/Create-Zyklus pro Sekunde waere unnoetiger
+     * Verschleiss des kleinen, festen LVGL-Speicherpools (FALLSTRICKE #16). */
+    static bool tablette_blink_an = false;
+    tablette_blink_an = !tablette_blink_an;
+    lvgl_port_lock(0);
+    for (int k = 0; k < s_tabletten_spalte.anzahl; k++) {
+        if (s_tabletten_spalte.ueberfaellig[k])
+            lv_obj_set_style_text_color(s_tabletten_spalte.zeilen[k],
+                lv_color_hex(tablette_blink_an ? FARBE_TABLETTE_UEBERFAELLIG : FARBE_TEXT_HELL), 0);
+    }
+    lvgl_port_unlock();
+
     /* Wochentag-Buttons der Tagesansicht - intern gegen unnoetige Updates
      * abgesichert (nur bei tatsaechlichem Tageswechsel). */
     tagesansicht_tag_aktualisieren();
@@ -1339,14 +1525,14 @@ static void uhr_tick(lv_timer_t *timer)
             uebersicht_spalte_neu_aufbauen(&s_tabletten_spalte, UEBERSICHT_SPALTE_BREITE,
                                             eintraege, anzahl, true, zeit_bekannt, jetzt_minuten);
         else
-            uebersicht_spalte_platzhalter_setzen(&s_tabletten_spalte, "...");
+            uebersicht_spalte_platzhalter_setzen(&s_tabletten_spalte, "...", tabletten_geklickt_cb);
     }
     if (termine_geaendert) {
         if (hat_daten)
             uebersicht_spalte_neu_aufbauen(&s_termine_spalte, UEBERSICHT_SPALTE_BREITE,
                                             eintraege, anzahl, false, zeit_bekannt, jetzt_minuten);
         else
-            uebersicht_spalte_platzhalter_setzen(&s_termine_spalte, "...");
+            uebersicht_spalte_platzhalter_setzen(&s_termine_spalte, "...", uebersicht_geklickt_cb);
     }
     lvgl_port_unlock();
 

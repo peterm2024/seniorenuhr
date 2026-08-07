@@ -36,9 +36,18 @@ typedef struct {
     int minute;  /* 0..59 */
 } ics_zeit_t;
 
+/* Reicht für kurze Hinweise wie "nüchtern" oder "mit reichlich Wasser",
+ * nicht für lange ICS-Freitexte - passend zum Projekt-Prinzip "abschneiden
+ * statt umbrechen" in der Anzeige. */
+#define ICS_BESCHREIBUNG_MAX 128
+
 typedef struct {
-    char       titel[ICS_TITEL_MAX]; /* UTF-8; ohne "TABLETTE:"-Präfix */
-    ics_zeit_t beginn;               /* Beginn am angefragten Tag (lokale Zeit) */
+    char       titel[ICS_TITEL_MAX];       /* UTF-8; ohne "TABLETTE:"-Präfix */
+    char       beschreibung[ICS_BESCHREIBUNG_MAX]; /* UTF-8; leer, wenn nicht gesetzt */
+    ics_zeit_t beginn;                     /* Beginn am angefragten Tag (lokale Zeit) */
+    ics_zeit_t ende;                       /* nur gültig, wenn hat_ende true ist */
+    bool       hat_ende;                   /* true nur bei einer echten DTEND-Uhrzeit
+                                             * (nicht bei ganztägigen Terminen) */
     bool       ganztags;
     bool       ist_tablette;
 } ics_termin_t;

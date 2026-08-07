@@ -415,3 +415,38 @@ Boot-Vorgangs eher die Regel als die Ausnahme (siehe auch #20) - vor einer neuen
 Task-Allokation lieber kurz auf einen Timer warten, statt den Speicher fest einzuplanen. Und:
 PSRAM loest nicht jedes Speicherproblem - Tasks mit Flash-Zugriff brauchen ihren Stack zwingend
 im internen SRAM, unabhaengig davon, wie viel PSRAM frei ist.
+
+---
+
+## 26. Sofortiger Absturz beim ersten Boot nach Erweiterung von ics_termin_t/kalender_tag_eintrag_t
+
+**Problem:** Nach dem Hinzufuegen einer Beschreibung (`beschreibung[ICS_BESCHREIBUNG_MAX]`,
+Ausbaustufe 2 des Erinnerungsfensters) zu `ics_termin_t` (ics_parser.h) und
+`kalender_tag_eintrag_t` (kalender_anzeige.h) stuerzte das Geraet bei JEDEM Boot ab -
+"Guru Meditation Error: Core 0 panic'ed (Unhandled debug exception)", exakt beim ersten
+synchronen `uhr_tick()`-Aufruf in `app_main()`.
+
+**Ursache:** `ics_termin_t` und `kalender_tag_eintrag_t` steckten schon vorher in mehreren
+grossen Stack-Arrays, allen voran `ics_termin_t termine[32]` in `kalender_anzeige.c` (der schon
+bei ~120 Byte/Eintrag mit ~3,8 KB der dominante Verursacher des Mitternachts-Stack-Overflows
+aus FALLSTRICKE #24 war). Die neue 128-Byte-Beschreibung plus eine zweite `ics_zeit_t` fuer die
+Endzeit (Punkt 4 derselben Ausbaustufe) liessen `ics_termin_t` von ~120 auf ~270 Byte anwachsen -
+`termine[32]` damit von ~3,8 KB auf ~8,6 KB, mehr als doppelt so gross. Genau dieses Array liegt
+in `kalender_anzeige_eintraege_fuer_tag()`, die `tagesansicht_tag_aktualisieren()` beim
+Tageswechsel 7x verschachtelt aufruft (einmal pro Wochentag-Button) - derselbe Aufrufpfad, der
+in FALLSTRICKE #24 schon einmal knapp wurde, diesmal aber durch groessere Eintraege statt durch
+mehr Aufrufe gesprengt. Der erste `uhr_tick()`-Aufruf laeuft direkt im `main`-Task (16 KB Stack,
+siehe FALLSTRICKE #25/#20), und genau dort passierte der allererste Tageswechsel-Durchlauf
+jedes Boots.
+
+**Loesung:** Beide `ics_termin_t termine[32]`-Arrays in `kalender_anzeige.c`
+(`fuer_heute_neu_parsen()` und `kalender_anzeige_eintraege_fuer_tag()`) vom Stack in den PSRAM
+verlagert (`heap_caps_malloc(..., MALLOC_CAP_SPIRAM)` + `heap_caps_free()` vor jedem Return-Pfad) -
+derselbe etablierte Griff wie bei den grossen Puffern in `kalender_holen.c`/`screenshot_debug.c`.
+Zweimal in Folge sauber durchgebootet, kein Absturz mehr.
+
+**Lehre:** Wird ein Struct groesser, das bereits in einem grossen Stack-Array steckt, IMMER
+gegenpruefen, ob dieses Array (oder ein anderes desselben Structs) noch auf den Stack passt -
+die Rechnung "Anzahl Eintraege × Struct-Groesse" macht das in Sekunden, und diese Codebasis hat
+schon zweimal (#24, #26) genau diese Art von Stack-Overflow erlebt. Ein Feld "nur mal eben"
+anzuhaengen ist in Structs, die in `[N]`-Arrays auf dem Stack liegen, nie kostenlos.
