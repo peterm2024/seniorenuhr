@@ -6,9 +6,10 @@ Log-Mitschnitt und schreibt es als BMP- und PNG-Datei(en).
 Ablauf:
   1. idf.py -p COM3 monitor (oder aehnliches) mitlaufen lassen und in eine
      Log-Datei umleiten, waehrend auf dem Geraet der "Screenshot"-Button
-     unten mittig angetippt wird. Die Uebertragung dauert 2-3 Minuten
-     (Base64 ueber 115200 Baud) - danach zeigt der Button wieder
-     "Screenshot" statt "Sende...".
+     unten mittig angetippt wird. Die Uebertragung dauert dank RLE-Kompression
+     der Pixeldaten (siehe main/screenshot_debug.c) meist nur noch einen
+     Bruchteil der frueheren 2-3 Minuten (Base64 ueber 115200 Baud) - danach
+     zeigt der Button wieder "Screenshot" statt "Sende...".
   2. python screenshot_dekodieren.py <log-datei> <ziel.bmp>
 
 Erzeugt aus <ziel.bmp> zusaetzlich (falls Pillow installiert ist) zwei PNGs:
@@ -101,6 +102,23 @@ def referenzmarke_pruefen_und_entfernen(bild, Image):
 
     return Image.fromarray(arr, "RGB")
 
+def rle_dekomprimieren(daten, anzahl_pixel):
+    """Kehrt pixel_rle_komprimieren() aus main/screenshot_debug.c um: je
+    4-Byte-Chunk (Lauflaenge 1-255 + 3 Farbbytes) werden die Farbbytes
+    entsprechend oft wiederholt. Ein unvollstaendiger letzter Chunk (z.B.
+    durch abgebrochene Uebertragung) wird ignoriert - das Auffuellen mit
+    Schwarz uebernimmt der Aufrufer wie beim unkomprimierten Fall."""
+    ausgabe = bytearray()
+    soll_bytes = anzahl_pixel * 3
+    pos = 0
+    while pos + 4 <= len(daten) and len(ausgabe) < soll_bytes:
+        lauf = daten[pos]
+        pixel = daten[pos + 1:pos + 4]
+        ausgabe += pixel * lauf
+        pos += 4
+    return bytes(ausgabe[:soll_bytes])
+
+
 def main():
     logdatei = sys.argv[1] if len(sys.argv) > 1 else "boot_screendbg.log"
     zieldatei = sys.argv[2] if len(sys.argv) > 2 else "screenshot.bmp"
@@ -108,10 +126,13 @@ def main():
     with open(logdatei, "r", encoding="utf-8", errors="replace") as f:
         inhalt = f.read()
 
-    start_muster = re.search(r"-----BEGIN SCREENSHOT (\d+)x(\d+)-----\r?\n", inhalt)
+    start_muster = re.search(r"-----BEGIN SCREENSHOT (RLE )?(\d+)x(\d+)-----\r?\n", inhalt)
     if not start_muster:
         print("Kein 'BEGIN SCREENSHOT'-Marker gefunden - wurde der Screenshot-Button angetippt?")
         sys.exit(1)
+
+    komprimiert = start_muster.group(1) is not None
+    breite, hoehe = int(start_muster.group(2)), int(start_muster.group(3))
 
     start = start_muster.end()
     ende = inhalt.find("-----END SCREENSHOT-----", start)
@@ -130,19 +151,30 @@ def main():
     zeilen = [z.strip() for z in block.splitlines()]
     b64 = "".join(z for z in zeilen if z and base64_zeichen.match(z))
 
-    daten = base64.b64decode(b64)
-    breite, hoehe = int(start_muster.group(1)), int(start_muster.group(2))
+    empfangen = base64.b64decode(b64)
+
+    # Die ersten 54 Byte sind immer der unveraenderte BMP-Kopf (siehe
+    # BMP_HEADER_GROESSE in screenshot_debug.c); danach folgen entweder rohe
+    # oder RLE-komprimierte Pixeldaten.
+    kopf = empfangen[:54]
+    pixel_rohdaten = empfangen[54:]
+
+    if komprimiert:
+        pixel_daten = rle_dekomprimieren(pixel_rohdaten, breite * hoehe)
+    else:
+        pixel_daten = pixel_rohdaten
 
     # Fehlen am Ende Bytes (z.B. weil die Uebertragung vorzeitig endete oder die
     # letzten Base64-Zeilen verloren gingen), mit Schwarz auffuellen, damit das BMP
-    # trotzdem gueltig und lesbar bleibt (24bpp = 3 Byte/Pixel + 54 Byte Kopf).
-    soll_groesse = 54 + breite * 3 * hoehe
-    if len(daten) < soll_groesse:
-        fehlend = soll_groesse - len(daten)
-        daten += b"\x00" * fehlend
+    # trotzdem gueltig und lesbar bleibt (24bpp = 3 Byte/Pixel).
+    soll_pixel_groesse = breite * 3 * hoehe
+    if len(pixel_daten) < soll_pixel_groesse:
+        fehlend = soll_pixel_groesse - len(pixel_daten)
+        pixel_daten += b"\x00" * fehlend
         print(f"HINWEIS: {fehlend} Byte fehlten am Ende - mit Schwarz aufgefuellt "
               f"(Uebertragung evtl. unvollstaendig).")
 
+    daten = kopf + pixel_daten
     with open(zieldatei, "wb") as f:
         f.write(daten)
 

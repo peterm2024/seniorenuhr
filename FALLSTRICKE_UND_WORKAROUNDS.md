@@ -450,3 +450,66 @@ gegenpruefen, ob dieses Array (oder ein anderes desselben Structs) noch auf den 
 die Rechnung "Anzahl Eintraege × Struct-Groesse" macht das in Sekunden, und diese Codebasis hat
 schon zweimal (#24, #26) genau diese Art von Stack-Overflow erlebt. Ein Feld "nur mal eben"
 anzuhaengen ist in Structs, die in `[N]`-Arrays auf dem Stack liegen, nie kostenlos.
+
+## 27. Fenster-Layout: unsichtbares Innenpolster des Panels frass alle eingeplanten Abstaende
+
+**Problem:** Im "Heute"-Fenster schnitt die letzte Tabletten-Zeile in die OK-/Abbrechen-Buttons
+hinein, obwohl zwischen Liste und Buttons rechnerisch ein Abstand eingeplant war. Schlimmer:
+die scrollbare Liste liess sich gar nicht scrollen, obwohl sichtbar mehr Inhalt vorhanden war
+als hineinpasste.
+
+**Ursache:** Die Geometrie war durchgehend aus `FENSTER_BREITE`/der gesetzten Fensterhoehe
+gerechnet. Ein per `lv_obj_create()` erzeugtes Panel behaelt aber (ohne
+`lv_obj_remove_style_all()`) das Standard-Innenpolster des Themes - hier rund 20px je Seite,
+plus 2px Rahmen. Die tatsaechliche INHALTSflaeche ist damit rund 44px niedriger und 44px
+schmaler als das Panel. Der Listenbereich bekam per `lv_obj_set_size(..., HOEHE)` zwar seine
+volle Wunschhoehe, sass aber in einem entsprechend kleineren Inhaltsbereich und ragte unten in
+den Button-Bereich hinein. Weil LVGL die Liste zugleich fuer "passt genau" hielt, gab es aus
+seiner Sicht nichts zu scrollen - die Scrollleiste blieb aus (`LV_SCROLLBAR_MODE_AUTO`).
+Dasselbe Polster verschob auch die rechte Kante, weshalb eine aus `FENSTER_BREITE` gerechnete
+Breite nie mit `lv_obj_align(..., LV_ALIGN_TOP_RIGHT, ...)`-positionierten Kindern zusammenpasste
+(verwandt mit #23: gerechnete Koordinaten vs. Align-Mechanik).
+
+**Loesung:** Nicht mehr gegen unsichtbare Werte rechnen, sondern sie zur Laufzeit messen bzw.
+umgehen:
+- Fensterhoehe aus der GEWUENSCHTEN Inhaltshoehe ableiten:
+  `rahmen_polster = lv_obj_get_height(panel) - lv_obj_get_content_height(panel)` nach einem
+  `lv_obj_update_layout()`, dann `lv_obj_set_height(panel, wunsch + rahmen_polster)`.
+- Breiten relativ statt absolut: `lv_obj_set_size(inhalt, lv_pct(100), ...)` statt
+  `FENSTER_BREITE - x`.
+- Reservierte Streifen (hier fuer die Scrollleiste) als `pad_right` des Containers umsetzen -
+  dann enden `LV_ALIGN_TOP_RIGHT`-Kinder automatisch davor, ohne Zusatzrechnung.
+- Zeilen im Scrollbereich bei y=0 beginnen lassen und die sichtbare Hoehe als exaktes
+  Vielfaches der Zeilenhoehe waehlen, sonst endet die letzte Zeile angeschnitten.
+
+**Lehre:** Sobald in einem LVGL-Container mit gesetzten Pixelkoordinaten gearbeitet wird, ist
+die Panel-Groesse NICHT die nutzbare Flaeche. Entweder `lv_obj_remove_style_all()` (dann ist
+Polster = 0 und die Rechnung stimmt), oder konsequent `lv_pct`/`pad`/`align` verwenden, oder
+das Polster einmal messen und einrechnen. Ein "es fehlen ein paar Pixel"-Symptom hat in dieser
+Codebasis fast immer diese Ursache.
+
+## 28. Abendliches Abdunkeln kam "ueberraschend": Wachzeit sah Beruehrungen in Fenstern nicht
+
+**Problem:** Peter meldete, dass die Anzeige abends/nachts scheinbar zufaellig in den
+abgedunkelten Modus wechselte, obwohl sie erst 30 Sekunden nach der letzten Beruehrung
+abdunkeln sollte.
+
+**Ursache:** Die Wachzeit wurde von einem `LV_EVENT_PRESSED`-Callback auf dem HAUPTBILDSCHIRM
+verlaengert (`s_wach_bis_us`). Beruehrungen innerhalb der Fenster - Checkboxen, OK/Abbrechen,
+Scrollen - werden dort von den Kind-Objekten verarbeitet und erreichen den Bildschirm nie. Die
+30s liefen also waehrend der gesamten Bedienung ungebremst ab. Verdeckt wurde das durch den
+Sonderfall "solange ein Fenster offen ist, gilt Tag-Modus": Erst beim SCHLIESSEN des Fensters
+fiel dieser Schutz weg, und die laengst abgelaufene Wachzeit schlug schlagartig durch. Wie
+ueberraschend das wirkte, hing davon ab, wie lange man VOR dem Oeffnen nichts angefasst hatte -
+daher der zufaellige Eindruck.
+
+**Loesung:** Eigenen Callback und `s_wach_bis_us` ersatzlos entfernt, stattdessen LVGLs eigene
+Inaktivitaets-Uhr abgefragt: `lv_display_get_inactive_time(NULL) < BERUEHRUNG_WACHZEIT_MS`.
+Die zaehlt jede Eingabe auf Ebene des Eingabegeraets, unabhaengig davon, welches Objekt sie
+entgegennimmt.
+
+**Lehre:** "Letzte Benutzeraktivitaet" ueber Event-Callbacks einzelner Objekte zu erfassen ist
+strukturell lueckenhaft - jedes neu hinzugefuegte Bedienelement muesste daran denken. Wenn das
+Framework eine globale Inaktivitaetszeit anbietet, ist sie der richtige Anker. Und: ein
+Sonderfall, der einen Fehler nur VERDECKT ("Fenster offen => immer hell"), macht ihn beim
+Wegfallen dieses Sonderfalls umso verwirrender.

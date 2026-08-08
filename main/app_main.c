@@ -39,7 +39,9 @@
  * verfuegbar (Peters Wunsch). */
 #define ENTWICKLUNGSWERKZEUGE 1
 
-#define BERUEHRUNG_WACHZEIT_US (30LL * 1000000)
+/* Nach der letzten Beruehrung bleibt die Anzeige so lange im Tag-Modus,
+ * bevor sie abends/nachts wieder abdunkelt. */
+#define BERUEHRUNG_WACHZEIT_MS (30 * 1000)
 
 /* Mindestabstand zwischen zwei Deckkraft-Aenderungen waehrend der Einblend-
  * Animation. Ohne diese Bremse ruft lv_anim bei jedem LVGL-Tick (ca. alle
@@ -184,14 +186,18 @@ static uebersicht_spalte_t s_tabletten_spalte;
 static uebersicht_spalte_t s_termine_spalte;
 static lv_obj_t *s_dimm_overlay; /* nur fuer den Abend-Modus verwendet */
 
-/* Bei Beruehrung waehrend Abend/Nacht wechselt die Anzeige fuer diese
- * Wachzeit vollstaendig in den Tag-Modus (siehe beruehrung_callback). */
-static volatile int64_t s_wach_bis_us = 0;
-
-static void beruehrung_callback(lv_event_t *e)
+/* Wachzeit-Erkennung ueber LVGLs eigene Inaktivitaets-Uhr statt ueber einen
+ * eigenen LV_EVENT_PRESSED-Callback auf dem Hauptbildschirm: jener bekam
+ * Beruehrungen INNERHALB der Fenster (Checkboxen, OK/Abbrechen, Scrollen)
+ * nie zu sehen, weil sie dort nicht bis zum Bildschirm durchbubbeln. Die
+ * Wachzeit lief damit waehrend der Bedienung ab, und im Moment des
+ * Fensterschliessens kippte die Anzeige uebergangslos in den Abend-/
+ * Nachtmodus - von Peter als "geschieht meistens ueberraschend"
+ * zurueckgemeldet. lv_display_get_inactive_time() zaehlt dagegen JEDE
+ * Eingabe, unabhaengig davon welches Objekt sie entgegennimmt. */
+static bool kuerzlich_beruehrt(void)
 {
-    (void)e;
-    s_wach_bis_us = esp_timer_get_time() + BERUEHRUNG_WACHZEIT_US;
+    return lv_display_get_inactive_time(NULL) < BERUEHRUNG_WACHZEIT_MS;
 }
 
 /* Tipp auf die Termine-Uebersicht oeffnet direkt das "Heute"-Fenster -
@@ -288,11 +294,10 @@ static anzeige_modus_t aktueller_modus(void)
         return MODUS_TAG;
 
     /* Waehrend ein Tages-/Heute-Fenster offen ist, bleibt es Tag-Modus -
-     * Presses auf Elemente innerhalb dieser Fenster (Schieberegler,
-     * Schliessen-Button, ...) bubbeln nicht bis zu beruehrung_callback
-     * durch und wuerden die 30s-Wachzeit sonst nicht verlaengern, obwohl
-     * der Benutzer aktiv am Geraet ist (z. B. beim Abhaken mehrerer
-     * Tabletten). */
+     * ein Fenster darf nie in einen abgedunkelten Bildschirm hinein offen
+     * stehen. Die Wachzeit danach zaehlt lv_display_get_inactive_time()
+     * korrekt weiter (siehe kuerzlich_beruehrt), sodass es beim Schliessen
+     * keinen abrupten Sprung mehr gibt. */
     if (tagesansicht_fenster_offen())
         return MODUS_TAG;
 
@@ -307,7 +312,7 @@ static anzeige_modus_t aktueller_modus(void)
     else if (strcmp(tageszeit, "Abend") == 0)
         modus = MODUS_ABEND;
 
-    if (modus != MODUS_TAG && esp_timer_get_time() < s_wach_bis_us)
+    if (modus != MODUS_TAG && kuerzlich_beruehrt())
         modus = MODUS_TAG;
     return modus;
 }
@@ -1071,7 +1076,6 @@ static void ui_aufbauen(void)
      * die Anzeige per Touch ein paar Pixel hoch-/runterschieben (elastischer
      * Rueckfedereffekt), obwohl der Inhalt exakt in den Bildschirm passt. */
     lv_obj_remove_flag(s_bildschirm, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(s_bildschirm, beruehrung_callback, LV_EVENT_PRESSED, NULL);
 
     s_wochentag_label = lv_label_create(s_bildschirm);
     lv_label_set_text(s_wochentag_label, "...");

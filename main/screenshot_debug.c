@@ -190,9 +190,49 @@ static uint8_t *screenshot_aufnehmen(lv_obj_t *screen, uint32_t *datei_groesse_a
     return gesamt_puffer;
 }
 
-/* Base64-kodiert das BMP und gibt es zeilenweise ueber ESP_LOGI aus,
- * eingerahmt von klaren Markierungen. */
-static void screenshot_base64_ausgeben(const uint8_t *bmp, uint32_t datei_groesse, uint32_t w, uint32_t h)
+/* Verlustfreie Lauflaengenkodierung der Pixeldaten (3 Byte je Pixel, siehe
+ * BMP_HEADER_GROESSE-Kommentar): je Lauf identischer Pixel ein Byte
+ * Laenge (1-255) gefolgt von den 3 Farbbytes. Diese UI besteht fast nur aus
+ * grossen einfarbigen Flaechen (Hintergruende, Buttons, Checkboxen) - genau
+ * dafuer ist Lauflaengenkodierung ideal, ganz ohne zusaetzliche Bibliothek
+ * (kein PNG/zlib noetig). Ausgabepuffer wird auf den unguenstigsten Fall
+ * (kein einziger Lauf laenger als 1 Pixel -> 4 statt 3 Byte/Pixel)
+ * dimensioniert, damit kein Ueberlauf moeglich ist. Rueckgabe NULL bei
+ * fehlendem PSRAM - der Aufrufer faellt dann auf unkomprimiertes Senden
+ * zurueck. */
+static uint8_t *pixel_rle_komprimieren(const uint8_t *pixel, size_t anzahl_pixel, size_t *ausgabe_groesse_aus)
+{
+    uint8_t *ausgabe = heap_caps_malloc(anzahl_pixel * 4, MALLOC_CAP_SPIRAM);
+    if (!ausgabe) {
+        ESP_LOGW(TAG, "Kein PSRAM fuer RLE-Puffer (%u Byte)", (unsigned)(anzahl_pixel * 4));
+        return NULL;
+    }
+
+    size_t out_pos = 0;
+    size_t i = 0;
+    while (i < anzahl_pixel) {
+        const uint8_t *p = &pixel[i * 3];
+        size_t lauf = 1;
+        while (i + lauf < anzahl_pixel && lauf < 255 && memcmp(&pixel[(i + lauf) * 3], p, 3) == 0)
+            lauf++;
+
+        ausgabe[out_pos++] = (uint8_t)lauf;
+        ausgabe[out_pos++] = p[0];
+        ausgabe[out_pos++] = p[1];
+        ausgabe[out_pos++] = p[2];
+        i += lauf;
+    }
+
+    *ausgabe_groesse_aus = out_pos;
+    return ausgabe;
+}
+
+/* Base64-kodiert das BMP (roh oder RLE-komprimiert, siehe "komprimiert") und
+ * gibt es zeilenweise ueber ESP_LOGI aus, eingerahmt von klaren Markierungen.
+ * "komprimiert" landet in der BEGIN-Markierung, damit
+ * tools/screenshot_dekodieren.py weiss, ob die Pixeldaten hinter dem
+ * BMP-Kopf erst noch per RLE entpackt werden muessen. */
+static void screenshot_base64_ausgeben(const uint8_t *bmp, uint32_t datei_groesse, uint32_t w, uint32_t h, bool komprimiert)
 {
     size_t base64_groesse = 0;
     mbedtls_base64_encode(NULL, 0, &base64_groesse, bmp, datei_groesse);
@@ -214,7 +254,7 @@ static void screenshot_base64_ausgeben(const uint8_t *bmp, uint32_t datei_groess
      * (obwohl dieser Task selbst nicht ueberwacht wird, siehe Kommentar
      * oben - das Verhungern eines ANDEREN ueberwachten Tasks reicht auch). */
     const size_t ZEILENBREITE = 120;
-    ESP_LOGI(TAG, "-----BEGIN SCREENSHOT %ux%u-----", (unsigned)w, (unsigned)h);
+    ESP_LOGI(TAG, "-----BEGIN SCREENSHOT %s%ux%u-----", komprimiert ? "RLE " : "", (unsigned)w, (unsigned)h);
     int zeilen_nr = 0;
     for (size_t pos = 0; pos < base64_laenge; pos += ZEILENBREITE) {
         size_t rest = base64_laenge - pos;
@@ -263,7 +303,34 @@ static void screenshot_task(void *arg)
         int32_t breite, hoehe_negativ;
         memcpy(&breite, &bmp[18], 4);
         memcpy(&hoehe_negativ, &bmp[22], 4);
-        screenshot_base64_ausgeben(bmp, datei_groesse, (uint32_t)breite, (uint32_t)(-hoehe_negativ));
+        uint32_t w = (uint32_t)breite;
+        uint32_t h = (uint32_t)(-hoehe_negativ);
+
+        size_t pixel_anzahl = (size_t)w * (size_t)h;
+        size_t rle_groesse = 0;
+        uint8_t *rle_pixel = pixel_rle_komprimieren(bmp + BMP_HEADER_GROESSE, pixel_anzahl, &rle_groesse);
+        uint8_t *sende_puffer = NULL;
+
+        if (rle_pixel) {
+            sende_puffer = heap_caps_malloc(BMP_HEADER_GROESSE + rle_groesse, MALLOC_CAP_SPIRAM);
+            if (sende_puffer) {
+                memcpy(sende_puffer, bmp, BMP_HEADER_GROESSE);
+                memcpy(sende_puffer + BMP_HEADER_GROESSE, rle_pixel, rle_groesse);
+                ESP_LOGI(TAG, "Screenshot komprimiert: %u -> %u Byte Pixeldaten (%u%%)",
+                         (unsigned)(datei_groesse - BMP_HEADER_GROESSE), (unsigned)rle_groesse,
+                         (unsigned)(100 * rle_groesse / (datei_groesse - BMP_HEADER_GROESSE)));
+                screenshot_base64_ausgeben(sende_puffer, BMP_HEADER_GROESSE + rle_groesse, w, h, true);
+                heap_caps_free(sende_puffer);
+            }
+            heap_caps_free(rle_pixel);
+        }
+
+        /* Kein PSRAM fuer RLE- oder Sende-Puffer bekommen (rle_pixel == NULL
+         * oder sende_puffer == NULL) - unkomprimiert senden statt ganz
+         * aufzugeben, dauert nur laenger. */
+        if (!rle_pixel || !sende_puffer)
+            screenshot_base64_ausgeben(bmp, datei_groesse, w, h, false);
+
         heap_caps_free(bmp);
     }
 

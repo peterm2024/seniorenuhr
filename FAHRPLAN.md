@@ -570,6 +570,31 @@ Umweg über Testdaten war nicht mehr nötig.
   Checkliste bei mehreren gleichzeitigen Tabletten) - das braucht Peters Blick/Finger am
   tatsaechlichen Geraet, dafuer gibt es keinen Ferntest. Nur auf Board 1 (Dev), keine
   Produktions-Freigabe.
+- ✅ Nachtrag 24 (08.08.2026) — Feinschliff nach Peters Live-Test des "Heute"-Fensters, plus zwei
+  Nebenbefunde. **Screenshot-Werkzeug beschleunigt:** die Pixeldaten werden vor der seriellen
+  Uebertragung lauflaengenkodiert (RLE, `pixel_rle_komprimieren` in `screenshot_debug.c`,
+  Gegenstueck in `tools/screenshot_dekodieren.py`). Diese UI besteht fast nur aus einfarbigen
+  Flaechen, entsprechend stark komprimiert das - eine Aufnahme dauert statt 2-3 Minuten nur noch
+  rund 15 Sekunden (von Peter gemessen), ganz ohne zusaetzliche Bibliothek. Faellt der PSRAM
+  fuer den Kompressionspuffer aus, wird unkomprimiert gesendet; die BEGIN-Markierung sagt dem
+  Skript, welche Variante vorliegt. **"Heute"-Fenster ueberarbeitet:** feste Fensterhoehe mit
+  scrollbarer Liste (Peters Wunsch nach einer Bildlaufleiste) statt der zuvor mit der
+  Eintragszahl mitwachsenden Hoehe; Kopfzeile einzeilig ("HEUTE  8. August 2026" nebeneinander,
+  Peters Vorschlag - spart rund 40px, die der Liste zugutekommen, jetzt 4 statt 3 sichtbare
+  Zeilen); Notiz aus dem Kalender (ICS-DESCRIPTION) gedaempft unter dem Tablettennamen, wie im
+  Erinnerungsfenster; "X"-Schliessen-Button buendig zur rechten Checkbox-Kante; OK/Abbrechen mit
+  `LV_SIZE_CONTENT` statt fester Breite (bei der seniorengerecht grossen Schrift wurde
+  "Abbrechen" zuvor zu "Abbrecher" abgeschnitten); Listenbereich deckend schwarz, weil die
+  90%-Transparenz des Fensters Uhrzeit und Ueberschriften mitten durch die Zeilen laufen liess.
+  Dahinter steckte ein handfester Layout-Fehler: alle Abstaende waren aus `FENSTER_BREITE`/-hoehe
+  gerechnet, das Panel hat aber rund 20px unsichtbares Innenpolster je Seite - dadurch lief die
+  letzte Zeile in die Buttons und die Liste galt LVGL zugleich als "passt genau", war also gar
+  nicht scrollbar. Jetzt wird das Polster zur Laufzeit gemessen statt geraten (FALLSTRICKE #27).
+  **Abdunkeln kam "ueberraschend":** die 30s-Wachzeit hing an einem Callback auf dem
+  Hauptbildschirm, den Beruehrungen innerhalb der Fenster nie erreichen - sie lief also waehrend
+  der Bedienung ab und schlug erst beim Fensterschliessen schlagartig durch. Ersetzt durch
+  LVGLs globale Inaktivitaets-Uhr `lv_display_get_inactive_time()` (FALLSTRICKE #28).
+  Alles auf Board 1 (Dev) per Screenshot verifiziert; Board 2 hat diesen Stand noch nicht.
 - ⬜ Sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal

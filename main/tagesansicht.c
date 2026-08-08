@@ -42,7 +42,58 @@ LV_FONT_DECLARE(schrift_mittel_40);
 
 #define FENSTER_BREITE       620
 #define FENSTER_HOEHE_TAG    300
-#define FENSTER_HOEHE_HEUTE  440
+/* Zeilenhoehen im "Heute"-Fenster - dieselben Werte tauchen im Zeichnen
+ * (heute_oeffnen_intern) mehrfach auf, deshalb hier einmal benannt statt
+ * als Zauberzahl. */
+/* Kopfhoehe fuer den EINZEILIGEN Kopf ("HEUTE  8. August 2026" nebeneinander,
+ * siehe fenster_grundgeruest_erzeugen mit titel_einzeilig=true): Titel steht
+ * bei y=8 und ist gut 40px hoch, darunter etwas Luft. Der "X"-Button (40px
+ * hoch ab y=6) passt ebenfalls hinein. */
+#define HEUTE_KOPF_HOEHE            62
+#define HEUTE_ZEILE_TABLETTE_HOEHE  70
+#define HEUTE_LEER_HINWEIS_HOEHE    45  /* "Keine Tabletten heute." */
+#define HEUTE_TERMINE_KOPF_HOEHE    38
+#define HEUTE_ZEILE_TERMIN_HOEHE    36
+/* Erste Version passte die Fenster-Hoehe an die Eintrags-Anzahl an - bei
+ * vielen Eintraegen (live beobachtet: 4 Tabletten an einem Tag) wirkte das
+ * trotzdem gequetscht (letzte Zeile klebte direkt an OK/Abbrechen). Peters
+ * Entscheidung: fester Fensterrahmen, Inhalt scrollt bei Bedarf - so bleibt
+ * bei WENIGEN Eintraegen viel Luft und bei VIELEN wird nichts gequetscht.
+ * Sichtbare Listenhoehe als exaktes Vielfaches der Zeilenhoehe, damit die
+ * letzte sichtbare Zeile buendig endet statt angeschnitten; vier Zeilen
+ * passen, seit der Kopf nur noch einzeilig ist (siehe HEUTE_KOPF_HOEHE). */
+#define HEUTE_INHALT_SICHTBAR_HOEHE (4 * HEUTE_ZEILE_TABLETTE_HOEHE)
+/* Abstand zwischen Listen-Unterkante und OK/Abbrechen - es soll IMMER ein
+ * schwarzer Streifen dazwischen bleiben, damit eine angeschnittene Zeile am
+ * unteren Listenrand nie in die Buttons hineinlaeuft (Peters Rueckmeldung). */
+#define HEUTE_INHALT_ABSTAND_UNTEN 20
+/* Benoetigte INHALTS-Hoehe (ohne Rahmen/Innenpolster des Panels). Die
+ * tatsaechliche Fensterhoehe wird daraus zur Laufzeit errechnet, siehe
+ * heute_oeffnen_intern - das Panel hat ein Standard-Innenpolster von rund
+ * 22px je Seite, das frueher genau die hier eingeplanten Abstaende auffrass
+ * (live: letzte Zeile schnitt den OK-Button an, und die Liste galt faelschlich
+ * als "passt genau" und war deshalb gar nicht scrollbar). */
+#define HEUTE_INHALT_GESAMT_HOEHE (HEUTE_KOPF_HOEHE + HEUTE_INHALT_SICHTBAR_HOEHE + \
+                                   HEUTE_INHALT_ABSTAND_UNTEN + OK_ABBRECHEN_HOEHE + \
+                                   OK_ABBRECHEN_RAND_UNTEN)
+/* Rechts reservierter Streifen fuer die Scrollleiste - als pad_right des
+ * Listenbereichs umgesetzt, damit die rechtsbuendigen Checkboxen davor enden
+ * und die Leiste sie nie ueberlagert. Bewusst breit: eine duenne
+ * Standard-Leiste war auf dem Geraet kaum als Bedienelement erkennbar. */
+#define HEUTE_SCROLLLEISTE_BREITE 22
+/* Rechter Rand des "X"-Schliessen-Buttons im "Heute"-Fenster, so gewaehlt,
+ * dass seine rechte Kante exakt mit der rechten Kante der Checkboxen
+ * abschliesst (Peters Wunsch): die Checkboxen enden um den Scrollleisten-
+ * Streifen plus CHECKBOX_RAND vor dem rechten Inhaltsrand. */
+#define HEUTE_X_BUTTON_RAND (HEUTE_SCROLLLEISTE_BREITE + CHECKBOX_RAND)
+/* Uebliche Ecke fuer alle anderen Fenster (ohne Liste/Checkboxen). */
+#define X_BUTTON_RAND_STANDARD 6
+/* Senkrechtes Innenpolster des "Heute"-Panels, bewusst kleiner als der
+ * LVGL-Standard (rund 20px je Seite): mit vier sichtbaren Listenzeilen kam
+ * das Fenster sonst auf 474px und liess bei 480px Bildschirmhoehe nur noch
+ * 3px Rand - es wirkte randlos. Nur dieses Fenster ist betroffen, die
+ * uebrigen behalten das Standardpolster. */
+#define HEUTE_PANEL_POLSTER_V 8
 #define FARBE_FENSTER_TEXT   0xffffff
 #define FARBE_FENSTER_AKZENT 0xffd75f
 #define FARBE_VERGANGEN      0x707a8a /* gedaempftes Grau fuer bereits vergangene Termine */
@@ -232,17 +283,24 @@ static void erinnerung_schliessen_cb(lv_event_t *e)
     lvgl_port_unlock();
 }
 
-/* Baut das gemeinsame Grundgeruest (dunkles Panel + zweizeiliger Kopf +
+/* Baut das gemeinsame Grundgeruest (dunkles Panel + Kopf +
  * "X"-Schliessen-Button) fuer beide Fenstertypen. Muss innerhalb eines
  * bereits gehaltenen LVGL-Locks aufgerufen werden (siehe Aufrufer unten).
  *
- * Der Kopf ist bewusst in zwei kurze Zeilen aufgeteilt (Wochentag/"HEUTE"
- * oben, Datum darunter) statt einer langen kombinierten Zeile - so bleibt
- * links genug Platz, und das "X" kann in die tatsaechliche Ecke wandern,
- * ohne den Text zu ueberlagern (frueher ueberschnitt das "X" bei langen
- * Titeln wie "DIENSTAG, 14. Juli 2026" die letzten Ziffern). */
+ * Der Kopf ist normalerweise in zwei kurze Zeilen aufgeteilt (Wochentag/
+ * "HEUTE" oben, Datum darunter) statt einer langen kombinierten Zeile - so
+ * bleibt links genug Platz, und das "X" kann in die tatsaechliche Ecke
+ * wandern, ohne den Text zu ueberlagern (frueher ueberschnitt das "X" bei
+ * langen Titeln wie "DIENSTAG, 14. Juli 2026" die letzten Ziffern).
+ *
+ * Mit "titel_einzeilig" stehen beide Teile nebeneinander in EINER Zeile -
+ * spart rund 40px Kopfhoehe, die im "Heute"-Fenster der scrollbaren Liste
+ * zugutekommen (Peters Vorschlag). Nur fuer kurze Untertitel geeignet: der
+ * Platz bis zum "X"-Button ist begrenzt, lange Hinweistexte wie im
+ * Update-Fenster brauchen weiterhin die zweizeilige Variante. */
 static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel_oben, const char *titel_unten,
-                                               int32_t hoehe, lv_event_cb_t schliessen_cb)
+                                               int32_t hoehe, lv_event_cb_t schliessen_cb,
+                                               bool titel_einzeilig, int32_t x_button_rand)
 {
     lv_obj_t *panel = lv_obj_create(s_scr);
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -264,13 +322,25 @@ static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel_oben, const cha
     lv_label_set_text(kopf_unten, titel_unten);
     lv_obj_set_style_text_font(kopf_unten, &schrift_klein_28, 0);
     lv_obj_set_style_text_color(kopf_unten, lv_color_hex(FARBE_FENSTER_TEXT), 0);
-    lv_obj_set_pos(kopf_unten, 20, 54);
+    if (titel_einzeilig) {
+        /* Rechts neben den Titel, optische Grundlinien angeglichen: der
+         * kleinere Untertitel wird um die halbe Hoehendifferenz nach unten
+         * gerueckt, damit beide Texte mittig zueinander stehen. Breite des
+         * Titels erst nach lv_obj_update_layout() belastbar. */
+        lv_obj_update_layout(panel);
+        int32_t breite_oben = lv_obj_get_width(kopf_oben);
+        int32_t hoehe_oben  = lv_obj_get_height(kopf_oben);
+        int32_t hoehe_unten = lv_obj_get_height(kopf_unten);
+        lv_obj_set_pos(kopf_unten, 20 + breite_oben + 16, 8 + (hoehe_oben - hoehe_unten) / 2);
+    } else {
+        lv_obj_set_pos(kopf_unten, 20, 54);
+    }
 
     lv_obj_t *btn_schliessen = lv_button_create(panel);
     lv_obj_set_size(btn_schliessen, 40, 40);
     lv_obj_set_style_bg_color(btn_schliessen, lv_color_hex(FARBE_BUTTON_HINTERGRUND), 0);
     lv_obj_set_style_bg_opa(btn_schliessen, LV_OPA_COVER, 0);
-    lv_obj_align(btn_schliessen, LV_ALIGN_TOP_RIGHT, -6, 6);
+    lv_obj_align(btn_schliessen, LV_ALIGN_TOP_RIGHT, -x_button_rand, 6);
     lv_obj_add_event_cb(btn_schliessen, schliessen_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *x_label = lv_label_create(btn_schliessen);
@@ -399,7 +469,8 @@ static void tages_fenster_oeffnen(int tage_versatz, lv_obj_t *button)
     heutefenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
 
     s_tages_fenster = fenster_grundgeruest_erzeugen(zeit_wochentag_gross(&lokal), datum,
-                                                     FENSTER_HOEHE_TAG, tagesfenster_schliessen_cb);
+                                                     FENSTER_HOEHE_TAG, tagesfenster_schliessen_cb, false,
+                                                     X_BUTTON_RAND_STANDARD);
     aktiven_button_setzen(button);
 
     tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_LINKS, "TABLETTEN",
@@ -477,8 +548,17 @@ static void tablette_checkbox_erzeugen(lv_obj_t *parent, int32_t y, int index, b
  * (schliessen_cb kann fuer beide denselben Callback verwenden). */
 static void ok_abbrechen_erzeugen(lv_obj_t *parent, lv_event_cb_t ok_cb, lv_event_cb_t abbrechen_cb)
 {
+    /* Breite per LV_SIZE_CONTENT an die Beschriftung anpassen statt fest auf
+     * OK_ABBRECHEN_BREITE - "Abbrechen" (9 Zeichen) passte bei diesem Projekt-
+     * weit grossen Font (schrift_klein_28, seniorengerecht) bei fester Breite
+     * nicht hinein und wurde zu "Abbrecher" abgeschnitten. OK_ABBRECHEN_BREITE
+     * bleibt als Mindestbreite (per style_min_width) erhalten, damit der kurze
+     * "OK"-Button trotzdem ein grosses, gut treffbares Touch-Ziel bleibt -
+     * dasselbe Muster wie beim "Heute"-Tagesbutton (siehe HEUTE_BTN_PAD). */
     lv_obj_t *btn_abbrechen = lv_button_create(parent);
-    lv_obj_set_size(btn_abbrechen, OK_ABBRECHEN_BREITE, OK_ABBRECHEN_HOEHE);
+    lv_obj_set_size(btn_abbrechen, LV_SIZE_CONTENT, OK_ABBRECHEN_HOEHE);
+    lv_obj_set_style_min_width(btn_abbrechen, OK_ABBRECHEN_BREITE, 0);
+    lv_obj_set_style_pad_hor(btn_abbrechen, 16, 0);
     lv_obj_set_style_bg_color(btn_abbrechen, lv_color_hex(FARBE_ABBRECHEN), 0);
     lv_obj_align(btn_abbrechen, LV_ALIGN_BOTTOM_LEFT, 20, -OK_ABBRECHEN_RAND_UNTEN);
     lv_obj_add_event_cb(btn_abbrechen, abbrechen_cb, LV_EVENT_CLICKED, NULL);
@@ -488,7 +568,9 @@ static void ok_abbrechen_erzeugen(lv_obj_t *parent, lv_event_cb_t ok_cb, lv_even
     lv_obj_center(abbrechen_label);
 
     lv_obj_t *btn_ok = lv_button_create(parent);
-    lv_obj_set_size(btn_ok, OK_ABBRECHEN_BREITE, OK_ABBRECHEN_HOEHE);
+    lv_obj_set_size(btn_ok, LV_SIZE_CONTENT, OK_ABBRECHEN_HOEHE);
+    lv_obj_set_style_min_width(btn_ok, OK_ABBRECHEN_BREITE, 0);
+    lv_obj_set_style_pad_hor(btn_ok, 16, 0);
     lv_obj_set_style_bg_color(btn_ok, lv_color_hex(FARBE_SCHIEBER_EIN), 0);
     lv_obj_align(btn_ok, LV_ALIGN_BOTTOM_RIGHT, -20, -OK_ABBRECHEN_RAND_UNTEN);
     lv_obj_add_event_cb(btn_ok, ok_cb, LV_EVENT_CLICKED, NULL);
@@ -542,11 +624,70 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
     heutefenster_intern_schliessen();
     tagesfenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
 
-    s_heute_fenster = fenster_grundgeruest_erzeugen("HEUTE", datum, FENSTER_HOEHE_HEUTE, heutefenster_schliessen_cb);
+    /* Einzeiliger Kopf ("HEUTE  8. August 2026") - der gesparte Platz kommt
+     * der scrollbaren Liste darunter zugute (Peters Vorschlag). Das "X" wird
+     * buendig zur rechten Checkbox-Kante gesetzt (HEUTE_X_BUTTON_RAND). */
+    s_heute_fenster = fenster_grundgeruest_erzeugen("HEUTE", datum, HEUTE_INHALT_GESAMT_HOEHE,
+                                                     heutefenster_schliessen_cb, true,
+                                                     HEUTE_X_BUTTON_RAND);
     aktiven_button_setzen(aktiver_button);
     lv_obj_add_event_cb(s_heute_fenster, heutefenster_hintergrund_cb, LV_EVENT_PRESSED, NULL);
 
-    int32_t y = 100;
+    /* Fensterhoehe so nachziehen, dass der INHALTSbereich exakt
+     * HEUTE_INHALT_GESAMT_HOEHE hoch wird. Rahmen und Innenpolster des Panels
+     * (rund 22px je Seite) werden dafuer zur Laufzeit gemessen statt geraten -
+     * vorher frass genau dieses Polster die eingeplanten Abstaende auf, sodass
+     * die letzte Zeile in den OK-Button lief. */
+    lv_obj_set_style_pad_top(s_heute_fenster, HEUTE_PANEL_POLSTER_V, 0);
+    lv_obj_set_style_pad_bottom(s_heute_fenster, HEUTE_PANEL_POLSTER_V, 0);
+    lv_obj_update_layout(s_heute_fenster);
+    int32_t rahmen_polster = lv_obj_get_height(s_heute_fenster) - lv_obj_get_content_height(s_heute_fenster);
+    lv_obj_set_height(s_heute_fenster, HEUTE_INHALT_GESAMT_HOEHE + rahmen_polster);
+    lv_obj_center(s_heute_fenster);
+    lv_obj_update_layout(s_heute_fenster);
+
+    /* Scrollbarer Inhaltsbereich zwischen Kopf und OK/Abbrechen - Fenster
+     * bleibt fest, unabhaengig davon wie viele Tabletten/Termine an einem Tag
+     * anfallen. Breite per Prozent (statt aus FENSTER_BREITE gerechnet), damit
+     * das Panel-Innenpolster keine Rolle spielt; der Streifen fuer die
+     * Scrollleiste entsteht als pad_right, wodurch die rechtsbuendigen
+     * Checkboxen davor enden und nie von der Leiste ueberlagert werden. */
+    lv_obj_t *inhalt = lv_obj_create(s_heute_fenster);
+    lv_obj_remove_style_all(inhalt);
+    lv_obj_set_pos(inhalt, 0, HEUTE_KOPF_HOEHE);
+    lv_obj_set_size(inhalt, lv_pct(100), HEUTE_INHALT_SICHTBAR_HOEHE);
+    lv_obj_set_style_pad_right(inhalt, HEUTE_SCROLLLEISTE_BREITE, 0);
+    lv_obj_set_scroll_dir(inhalt, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(inhalt, LV_SCROLLBAR_MODE_AUTO);
+    /* Deckender Hintergrund NUR fuer den Listenbereich: das Fenster selbst
+     * ist bewusst leicht durchscheinend (LV_OPA_90, siehe
+     * fenster_grundgeruest_erzeugen), wodurch die grosse Uhrzeit und die
+     * Uebersicht-Ueberschriften mitten durch die Tabletten-Zeilen liefen -
+     * live als unruhig/schlecht lesbar zurueckgemeldet. Die uebrigen Fenster
+     * behalten ihre Transparenz, nur diese Liste wird undurchsichtig. */
+    lv_obj_set_style_bg_color(inhalt, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(inhalt, LV_OPA_COVER, 0);
+    /* Scrollleiste gross und deutlich - der LVGL-Standard ist ein duenner
+     * Strich, auf diesem Geraet (seniorengerecht grosse Bedienelemente)
+     * kaum als Bildlaufleiste erkennbar. */
+    lv_obj_set_style_bg_color(inhalt, lv_color_hex(FARBE_SCHIEBER_EIN), LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(inhalt, LV_OPA_COVER, LV_PART_SCROLLBAR);
+    lv_obj_set_style_width(inhalt, 14, LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(inhalt, 7, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_right(inhalt, 4, LV_PART_SCROLLBAR);
+
+    /* Verfuegbare Textbreite je Zeile aus der TATSAECHLICHEN Inhaltsbreite
+     * ableiten (nicht aus FENSTER_BREITE): links Rand 20, rechts die Checkbox
+     * samt ihrem Rand, dazwischen etwas Luft. Laengere Texte werden damit
+     * abgeschnitten statt umgebrochen und koennen die Checkbox nie
+     * verschieben (FALLSTRICKE #19/#22). */
+    lv_obj_update_layout(inhalt);
+    int32_t text_breite = lv_obj_get_content_width(inhalt) - 20 - CHECKBOX_RAND - CHECKBOX_GROESSE - 12;
+
+    /* Zeilen buendig bei 0 beginnen - ein Startversatz liesse die letzte der
+     * HEUTE_INHALT_SICHTBAR_HOEHE-Zeilen genau um diesen Betrag angeschnitten
+     * enden (live beobachtet: 8px Versatz schnitt die dritte Checkbox unten ab). */
+    int32_t y = 0;
     bool tablette_vorhanden = false;
     for (int i = 0; i < anzahl; i++) {
         if (!eintraege[i].ist_tablette)
@@ -555,8 +696,8 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
 
         /* Kein "[x] "-Praefix mehr noetig - die Checkbox rechts zeigt den
          * (vorlaeufigen) Zustand, siehe tablette_checkbox_erzeugen. */
-        char inhalt[ZEILE_MAX];
-        eintrag_zeile_formatieren(&eintraege[i], false, inhalt, sizeof inhalt);
+        char inhalt_zeile[ZEILE_MAX];
+        eintrag_zeile_formatieren(&eintraege[i], false, inhalt_zeile, sizeof inhalt_zeile);
 
         uint32_t farbe;
         switch (kalender_tablette_status(&eintraege[i], true, jetzt_minuten)) {
@@ -566,23 +707,40 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
         default:                             farbe = FARBE_FENSTER_TEXT; break;
         }
 
-        lv_obj_t *label = lv_label_create(s_heute_fenster);
-        lv_label_set_text(label, inhalt);
+        /* Notiz aus dem Kalender (ICS-DESCRIPTION, z. B. "nuechtern") unter
+         * dem Namen, gedaempft - wie im Erinnerungsfenster. Ohne Notiz steht
+         * der Name allein und mittig in der Zeile. */
+        bool hat_notiz = eintraege[i].beschreibung[0] != '\0';
+
+        lv_obj_t *label = lv_label_create(inhalt);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(label, text_breite, 32);
+        lv_obj_set_pos(label, 20, y + (hat_notiz ? 4 : 18));
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
-        lv_obj_set_pos(label, 20, y + 12);
+        lv_label_set_text(label, inhalt_zeile);
 
-        tablette_checkbox_erzeugen(s_heute_fenster, y + (70 - CHECKBOX_GROESSE) / 2, i, eintraege[i].bestaetigt);
+        if (hat_notiz) {
+            lv_obj_t *notiz = lv_label_create(inhalt);
+            lv_label_set_long_mode(notiz, LV_LABEL_LONG_DOT);
+            lv_obj_set_size(notiz, text_breite, 30);
+            lv_obj_set_pos(notiz, 20, y + 36);
+            lv_obj_set_style_text_font(notiz, &schrift_klein_28, 0);
+            lv_obj_set_style_text_color(notiz, lv_color_hex(FARBE_VERGANGEN), 0);
+            lv_label_set_text(notiz, eintraege[i].beschreibung);
+        }
 
-        y += 70;
+        tablette_checkbox_erzeugen(inhalt, y + (HEUTE_ZEILE_TABLETTE_HOEHE - CHECKBOX_GROESSE) / 2, i, eintraege[i].bestaetigt);
+
+        y += HEUTE_ZEILE_TABLETTE_HOEHE;
     }
     if (!tablette_vorhanden) {
-        lv_obj_t *label = lv_label_create(s_heute_fenster);
+        lv_obj_t *label = lv_label_create(inhalt);
         lv_label_set_text(label, "Keine Tabletten heute.");
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
         lv_obj_set_pos(label, 20, y + 8);
-        y += 45;
+        y += HEUTE_LEER_HINWEIS_HOEHE;
     }
 
     bool termin_ueberschrift_da = false;
@@ -590,26 +748,26 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
         if (eintraege[i].ist_tablette)
             continue;
         if (!termin_ueberschrift_da) {
-            lv_obj_t *ueberschrift = lv_label_create(s_heute_fenster);
+            lv_obj_t *ueberschrift = lv_label_create(inhalt);
             lv_label_set_text(ueberschrift, "TERMINE");
             lv_obj_set_style_text_font(ueberschrift, &schrift_klein_28, 0);
             lv_obj_set_style_text_color(ueberschrift, lv_color_hex(FARBE_FENSTER_AKZENT), 0);
             lv_obj_set_pos(ueberschrift, 20, y + 8);
-            y += 38;
+            y += HEUTE_TERMINE_KOPF_HOEHE;
             termin_ueberschrift_da = true;
         }
-        char inhalt[ZEILE_MAX];
-        eintrag_zeile_formatieren(&eintraege[i], false, inhalt, sizeof inhalt);
+        char inhalt_zeile[ZEILE_MAX];
+        eintrag_zeile_formatieren(&eintraege[i], false, inhalt_zeile, sizeof inhalt_zeile);
         bool vergangen = !eintraege[i].ganztags &&
                           (eintraege[i].stunde * 60 + eintraege[i].minute) < jetzt_minuten;
-        lv_obj_t *label = lv_label_create(s_heute_fenster);
-        lv_label_set_text(label, inhalt);
+        lv_obj_t *label = lv_label_create(inhalt);
+        lv_label_set_text(label, inhalt_zeile);
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(vergangen ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
         if (vergangen)
             lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
         lv_obj_set_pos(label, 20, y + 8);
-        y += 36;
+        y += HEUTE_ZEILE_TERMIN_HOEHE;
     }
 
     if (tablette_vorhanden)
@@ -685,7 +843,8 @@ void tagesansicht_erinnerung_zeigen(void)
 
     s_erinnerung_fenster = fenster_grundgeruest_erzeugen(n == 1 ? "TABLETTE NEHMEN" : "TABLETTEN NEHMEN",
                                                           "Bitte bestaetigen",
-                                                          FENSTER_HOEHE_ERINNERUNG, erinnerung_schliessen_cb);
+                                                          FENSTER_HOEHE_ERINNERUNG, erinnerung_schliessen_cb, false,
+                                                          X_BUTTON_RAND_STANDARD);
 
     int32_t y = 100;
     int gezeigt = 0;
@@ -790,7 +949,8 @@ void tagesansicht_update_fenster_zeigen(void)
 
     s_update_fenster = fenster_grundgeruest_erzeugen("AKTUALISIERUNG",
                                                        "Bitte kurz warten - das Geraet startet danach neu",
-                                                       FENSTER_HOEHE_UPDATE, update_fenster_schliessen_cb);
+                                                       FENSTER_HOEHE_UPDATE, update_fenster_schliessen_cb, false,
+                                                       X_BUTTON_RAND_STANDARD);
 
     s_update_balken = lv_bar_create(s_update_fenster);
     lv_obj_set_size(s_update_balken, FENSTER_BREITE - 40, 28);
