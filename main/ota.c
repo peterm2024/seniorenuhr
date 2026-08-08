@@ -14,8 +14,12 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lwip/inet.h"
+#include "lwip/netdb.h"
+#include "lwip/sockets.h"
 
 static const char *TAG = "ota";
 
@@ -57,8 +61,13 @@ static const char *TAG = "ota";
 /* Erste Pruefung erst nach etwas Anlaufzeit (Boot nicht zusaetzlich
  * belasten, WLAN/Kalender sollen zuerst stehen), danach alle 30 Minuten -
  * ein neues Release ist kein staendiges Ereignis, taeglich mehrfach zu
- * pruefen braechte nur unnoetigen Datenverkehr. */
-#define OTA_ERSTE_PRUEFUNG_MS (3 * 60 * 1000)
+ * pruefen braechte nur unnoetigen Datenverkehr.
+ *
+ * Die Anlaufzeit lag anfangs bei 3 Minuten. Der Boot ist nach rund 20
+ * Sekunden durch (Log: "Start: Uhr laeuft"), eine Minute laesst also
+ * reichlich Luft - und drei Minuten hiessen bei jedem Neustart drei Minuten
+ * Warten, bevor sich ueberhaupt zeigt, ob das Update-Symbol kommt. */
+#define OTA_ERSTE_PRUEFUNG_MS (60 * 1000)
 #define OTA_INTERVALL_MS      (30 * 60 * 1000)
 /* Wie oft der Task nachsieht, ob im Einstellungen-Menue ein Update
  * angestossen wurde - kurz genug, dass der Tipp sich sofort anfuehlt. */
@@ -288,8 +297,52 @@ static void rollback_bestaetigen_falls_noetig(void)
  * etwas bereitsteht (fuer das Update-Symbol auf dem Hauptbildschirm), true =
  * herunterladen und einspielen. Die Trennung ist Peters Entscheidung -
  * automatisch installiert wird nichts mehr, damit ein Update nie
- * unangekuendigt bei seinen Eltern landet. */
-static void ota_durchlauf(bool installieren, const char *version)
+ * unangekuendigt bei seinen Eltern landet.
+ *
+ * Rueckgabe: true, sobald die Version des neuen Images gelesen werden konnte
+ * - also ein belastbares Urteil vorliegt. false heisst "keine Aussage
+ * moeglich" (Verbindung gescheitert) und ist der Anlass fuer einen erneuten
+ * Anlauf, siehe pruefung_mit_wiederholung. */
+/* Diagnose vor jedem Verbindungsversuch. Anlass: das Geraet meldete
+ * "Failed to open new connection in specified timeout" fuer github.com,
+ * waehrend derselbe Abruf vom PC im selben Netz mit HTTP 200 durchlief und
+ * der Kalender-Download (ebenfalls HTTPS) 80 Sekunden zuvor geklappt hatte.
+ * Ohne diese beiden Zahlen bleibt unentscheidbar, ob es an der Namens-
+ * aufloesung, am fehlenden Speicher oder an der Gegenstelle liegt. */
+static void verbindungsdiagnose(const char *host)
+{
+    struct addrinfo hinweise = { .ai_family = AF_INET, .ai_socktype = SOCK_STREAM };
+    struct addrinfo *ergebnis = NULL;
+    int64_t start_us = esp_timer_get_time();
+    int fehler = getaddrinfo(host, "443", &hinweise, &ergebnis);
+    int64_t dauer_ms = (esp_timer_get_time() - start_us) / 1000;
+
+    if (fehler != 0 || ergebnis == NULL) {
+        ESP_LOGW(TAG, "Diagnose: Namensaufloesung fuer %s fehlgeschlagen (%d) nach %lld ms",
+                 host, fehler, dauer_ms);
+    } else {
+        char ip[16] = "?";
+        struct sockaddr_in *adr = (struct sockaddr_in *)ergebnis->ai_addr;
+        inet_ntoa_r(adr->sin_addr, ip, sizeof ip);
+        ESP_LOGI(TAG, "Diagnose: %s -> %s (%lld ms)", host, ip, dauer_ms);
+        freeaddrinfo(ergebnis);
+    }
+
+    ESP_LOGI(TAG, "Diagnose: frei intern %u Byte (groesster Block %u), PSRAM %u Byte",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
+    /* Empfangsstaerke: der Verdacht ist, dass die grosse Zertifikatskette
+     * von GitHub auf einer schwachen Funkstrecke haengen bleibt, waehrend
+     * kleine Abrufe (DNS, der 3 KB grosse Kalender) durchkommen. Beim Boot
+     * meldete das WLAN -68 dBm - grenzwertig genug, um das zu pruefen. */
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK)
+        ESP_LOGI(TAG, "Diagnose: WLAN %s, RSSI %d dBm, Kanal %d", ap.ssid, ap.rssi, ap.primary);
+}
+
+static bool ota_durchlauf(bool installieren, const char *version)
 {
     /* Ohne Versionsangabe die "latest"-URL, sonst gezielt das Asset des
      * gewaehlten Tags - so laesst sich auch eine AELTERE Version wieder
@@ -305,10 +358,16 @@ static void ota_durchlauf(bool installieren, const char *version)
     else
         snprintf(url, sizeof url, "%s", OTA_FIRMWARE_URL);
 
+    verbindungsdiagnose("github.com");
+
     esp_http_client_config_t http_cfg = {
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
+        /* 15 s reichten nicht: der Verbindungsaufbau lief mehrfach genau
+         * hinein ("Failed to open new connection in specified timeout"),
+         * waehrend derselbe Abruf zu anderen Zeitpunkten durchkam. Ein
+         * Hintergrundabruf hat es nicht eilig - lieber warten als aufgeben. */
+        .timeout_ms = 30000,
         .buffer_size = 4096,
         /* ENTSCHEIDEND, und leicht zu verwechseln: "Out of buffer" kam beim
          * Download aus dem SENDE-Puffer, nicht aus dem Empfangspuffer.
@@ -331,14 +390,14 @@ static void ota_durchlauf(bool installieren, const char *version)
     esp_err_t err = esp_https_ota_begin(&ota_cfg, &handle);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Update-Pruefung fehlgeschlagen: %s", esp_err_to_name(err));
-        return;
+        return false;
     }
 
     esp_app_desc_t neues_image;
     if (esp_https_ota_get_img_desc(handle, &neues_image) != ESP_OK) {
         ESP_LOGW(TAG, "Konnte Versionsinfo des neuen Images nicht lesen - abgebrochen");
         esp_https_ota_abort(handle);
-        return;
+        return false;
     }
 
     const char *laufende_version = esp_app_get_description()->version;
@@ -359,14 +418,14 @@ static void ota_durchlauf(bool installieren, const char *version)
     if (gleich) {
         ESP_LOGI(TAG, "Version %s laeuft bereits - nichts zu tun", laufende_version);
         esp_https_ota_abort(handle);
-        return;
+        return true;
     }
 
     if (!installieren) {
         ESP_LOGI(TAG, "Neue Version verfuegbar: %s (laufend: %s) - wartet auf Bestaetigung im Einstellungen-Menue",
                  neues_image.version, laufende_version);
         esp_https_ota_abort(handle);
-        return;
+        return true;
     }
 
     ESP_LOGI(TAG, "Neue Version gefunden: %s -> %s - lade herunter", laufende_version, neues_image.version);
@@ -391,12 +450,37 @@ static void ota_durchlauf(bool installieren, const char *version)
     if (err != ESP_OK || !vollstaendig || abschluss_err != ESP_OK) {
         ESP_LOGW(TAG, "Update fehlgeschlagen (perform=%s, vollstaendig=%d, finish=%s) - bleibe auf %s",
                  esp_err_to_name(err), vollstaendig, esp_err_to_name(abschluss_err), laufende_version);
-        return;
+        return true; /* Urteil stand fest, nur das Einspielen scheiterte */
     }
 
     ESP_LOGI(TAG, "Update erfolgreich (%s) - Neustart in 3s", neues_image.version);
     vTaskDelay(pdMS_TO_TICKS(3000));
     esp_restart();
+    return true;
+}
+
+/* Der Abruf bei GitHub ist gelegentlich flatterhaft - live beobachtet:
+ * derselbe Aufruf lieferte einmal sauber die Versionsinfo und wenige Minuten
+ * spaeter "Complete headers were not received", die Verbindung wurde also vor
+ * den Antwortkoepfen geschlossen. Ohne Wiederholung kostete ein einzelner
+ * solcher Aussetzer volle 30 Minuten ohne Update-Symbol; die Versionsliste
+ * kam im selben Durchlauf durch, es lag also nicht am WLAN. */
+#define OTA_PRUEFUNG_VERSUCHE 3
+#define OTA_PRUEFUNG_PAUSE_MS (20 * 1000)
+
+static void pruefung_mit_wiederholung(void)
+{
+    for (int versuch = 1; versuch <= OTA_PRUEFUNG_VERSUCHE; versuch++) {
+        if (ota_durchlauf(false, NULL))
+            return;
+        if (versuch < OTA_PRUEFUNG_VERSUCHE) {
+            ESP_LOGI(TAG, "Update-Pruefung ohne Ergebnis (Versuch %d von %d) - neuer Anlauf in %d s",
+                     versuch, OTA_PRUEFUNG_VERSUCHE, OTA_PRUEFUNG_PAUSE_MS / 1000);
+            vTaskDelay(pdMS_TO_TICKS(OTA_PRUEFUNG_PAUSE_MS));
+        }
+    }
+    ESP_LOGW(TAG, "Update-Pruefung nach %d Versuchen aufgegeben - naechster Anlauf in %d Minuten",
+             OTA_PRUEFUNG_VERSUCHE, OTA_INTERVALL_MS / 60000);
 }
 
 static void ota_task(void *arg)
@@ -406,8 +490,8 @@ static void ota_task(void *arg)
     rollback_bestaetigen_falls_noetig();
 
     vTaskDelay(pdMS_TO_TICKS(OTA_ERSTE_PRUEFUNG_MS));
-    ota_durchlauf(false, NULL); /* erste Pruefung, nur melden */
-    ota_versionen_abfragen();   /* Auswahlliste fuers Einstellungen-Menue fuellen */
+    pruefung_mit_wiederholung(); /* erste Pruefung, nur melden */
+    ota_versionen_abfragen();    /* Auswahlliste fuers Einstellungen-Menue fuellen */
 
     /* In kurzen Schritten warten statt einmal 30 Minuten am Stueck, damit
      * ein per Einstellungen-Menue angestossenes Update nicht bis zum
@@ -436,7 +520,7 @@ static void ota_task(void *arg)
 
         naechste_pruefung_ms -= OTA_ANSTOSS_ABFRAGE_MS;
         if (naechste_pruefung_ms <= 0) {
-            ota_durchlauf(false, NULL);
+            pruefung_mit_wiederholung();
             ota_versionen_abfragen();
             naechste_pruefung_ms = OTA_INTERVALL_MS;
         }

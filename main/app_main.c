@@ -15,6 +15,7 @@
 #include "anzeige.h"
 #include "einrichtung.h"
 #include "einstellungen.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
 #include "esp_system.h"
@@ -646,17 +647,76 @@ static status_icon_t s_status_kalender;
  * Firmware bereitsteht (Peters Wunsch) - es ist also selbst schon die
  * Meldung, nicht bloss ein Zustandsanzeiger, und bleibt sonst unsichtbar. */
 static status_icon_t s_status_update;
-/* Wird durch Antippen des Update-Symbols gesetzt und vom Haupt-Task
- * abgeholt (siehe Schleife am Ende von app_main). Das Einstellungen-Menue
- * ist ein blockierender Ablauf und darf deshalb nicht im LVGL-Callback
- * laufen. */
-static volatile bool s_einstellungen_gewuenscht = false;
 static lv_obj_t *s_update_tippflaeche;
+
+/* Stack des Einstellungen-Tasks. MUSS aus dem internen SRAM kommen (Standard
+ * von xTaskCreate): der WLAN-Ablauf schreibt NVS, und waehrend eines
+ * Flash-Zugriffs ist der Cache eingefroren, PSRAM also unerreichbar (siehe
+ * ota.c). Interner SRAM ist aber genau die knappe Ressource dieses Projekts
+ * (FALLSTRICKE #20/#25/#29) - live gemessen waren nach dem Boot nur noch
+ * 19707 Byte frei, davon der groesste zusammenhaengende Block 8704 Byte.
+ * Ein fester Wunsch von 12 KB scheiterte damit schlicht.
+ *
+ * Deshalb zwei Groessen: bevorzugt der grosszuegige Wert (der Ablauf lief
+ * frueher auf dem 16-KB-Stack des Haupt-Tasks), zur Not der kleinere. Die
+ * Log-Zeile beim Schliessen nennt die tatsaechlich uebrig gebliebene
+ * Reserve - erst damit laesst sich der noetige Wert belegen statt raten. */
+static const uint32_t EINSTELLUNGEN_STACK_VARIANTEN[] = {12288, 8192};
+
+static volatile bool s_einstellungen_task_laeuft = false;
+
+static void uhr_tick(lv_timer_t *timer);
+static bool einstellungen_bildschirm_verarbeiten(void);
+
+/* Das Einstellungen-Menue ist ein blockierender Ablauf: er darf weder im
+ * LVGL-Callback laufen (Task-Watchdog, FALLSTRICKE #16) noch in einer
+ * Dauerschleife am Ende von app_main. Letzteres war der Fehler der ersten
+ * Fassung - der Haupt-Task blieb dann fuer immer am Leben und belegte
+ * dauerhaft seine 16 KB internen SRAM. Genau daran scheiterte anschliessend
+ * der OTA-Task ("OTA-Task konnte nicht gestartet werden", siehe ota.c), also
+ * ausgerechnet die Funktion, wegen der das Menue ueberhaupt erreichbar sein
+ * soll. Ein Task auf Zuruf kostet nur waehrend der Menue-Nutzung Speicher. */
+static void einstellungen_task(void *arg)
+{
+    (void)arg;
+    netz_watchdog_pausieren(true);
+    (void)einstellungen_bildschirm_verarbeiten(); /* Demo-Modus hier ohne Belang */
+    lvgl_port_lock(0);
+    lv_screen_load(s_bildschirm); /* zurueck zur Uhr */
+    lvgl_port_unlock();
+    einrichtung_einstellungen_aufraeumen();
+    netz_watchdog_pausieren(false);
+    /* Anzeige sofort auffrischen statt bis zum naechsten Sekundentakt zu
+     * warten. uhr_tick ruehrt LVGL an und laeuft sonst im LVGL-Task - hier
+     * also unter dessen Sperre (rekursiv, verschachtelt somit gefahrlos). */
+    lvgl_port_lock(0);
+    uhr_tick(NULL);
+    lvgl_port_unlock();
+    ESP_LOGI(TAG, "Einstellungen-Menue geschlossen (Stack-Reserve: %u Byte)",
+             (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
+    s_einstellungen_task_laeuft = false;
+    vTaskDelete(NULL);
+}
 
 static void update_symbol_geklickt_cb(lv_event_t *e)
 {
     (void)e;
-    s_einstellungen_gewuenscht = true;
+    if (s_einstellungen_task_laeuft)
+        return;
+    s_einstellungen_task_laeuft = true;
+    for (size_t i = 0; i < sizeof(EINSTELLUNGEN_STACK_VARIANTEN) / sizeof(EINSTELLUNGEN_STACK_VARIANTEN[0]); i++) {
+        if (xTaskCreate(einstellungen_task, "einstellungen", EINSTELLUNGEN_STACK_VARIANTEN[i],
+                        NULL, 4, NULL) == pdPASS) {
+            ESP_LOGI(TAG, "Einstellungen-Menue geoeffnet (Stack %u Byte)",
+                     (unsigned)EINSTELLUNGEN_STACK_VARIANTEN[i]);
+            return;
+        }
+    }
+    s_einstellungen_task_laeuft = false;
+    ESP_LOGW(TAG, "Einstellungen-Menue konnte nicht geoeffnet werden "
+                  "(intern frei: %u Byte, groesster Block %u Byte)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 }
 static lv_obj_t *s_status_fenster;
 static lv_timer_t *s_status_fenster_timer;
@@ -1175,10 +1235,13 @@ static void ui_aufbauen(void)
      * unsichtbar und erscheint erst, wenn eine neue Firmware bereitsteht
      * (siehe uhr_tick). Kein Durchstrich: es gibt hier kein "kaputt", das
      * Symbol ist entweder da oder nicht. */
-    /* Links genug Abstand zur Tippflaeche der Status-Symbole (beginnt bei
-     * x=620) - sonst laege das Symbol teilweise darunter und Antippen
-     * oeffnete das Status-Fenster statt des Update-Wegs. */
-    status_icon_erzeugen(&s_status_update, s_bildschirm, 560);
+    /* Im selben 50px-Raster wie die drei Status-Symbole (650/700/750) - das
+     * Update-Symbol ist damit sichtbar Teil derselben Reihe. Der erste
+     * Versuch setzte es auf x=560, um Abstand zur Tippflaeche der
+     * Status-Symbole zu halten; auf dem Geraet lag es dann aber mitten im
+     * Wochentag ("SAMSTAG" reicht bei 72px-Schrift bis x=587). Die
+     * Tippflaechen-Grenze wird stattdessen mitverschoben (siehe unten). */
+    status_icon_erzeugen(&s_status_update, s_bildschirm, 600);
     status_glyph_update_erzeugen(&s_status_update);
     lv_obj_add_flag(s_status_update.container, LV_OBJ_FLAG_HIDDEN);
 
@@ -1190,8 +1253,8 @@ static void ui_aufbauen(void)
      * anfangen kann. Wird zusammen mit dem Symbol ein-/ausgeblendet. */
     s_update_tippflaeche = lv_obj_create(s_bildschirm);
     lv_obj_remove_style_all(s_update_tippflaeche);
-    lv_obj_set_pos(s_update_tippflaeche, 540, 0);
-    lv_obj_set_size(s_update_tippflaeche, 80, 64);
+    lv_obj_set_pos(s_update_tippflaeche, 565, 0);
+    lv_obj_set_size(s_update_tippflaeche, 640 - 565, 64);
     lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(s_update_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_HIDDEN);
@@ -1218,8 +1281,10 @@ static void ui_aufbauen(void)
      * wo sonst nichts anderes liegt. */
     lv_obj_t *status_tippflaeche = lv_obj_create(s_bildschirm);
     lv_obj_remove_style_all(status_tippflaeche);
-    lv_obj_set_pos(status_tippflaeche, 620, 0);
-    lv_obj_set_size(status_tippflaeche, 800 - 620, 64);
+    /* Beginnt bei 640, damit die beiden Tippflaechen luecken- und
+     * ueberschneidungsfrei aneinander liegen (Update: 565..640). */
+    lv_obj_set_pos(status_tippflaeche, 640, 0);
+    lv_obj_set_size(status_tippflaeche, 800 - 640, 64);
     lv_obj_add_flag(status_tippflaeche, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(status_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(status_tippflaeche, status_detail_oeffnen_cb, LV_EVENT_CLICKED, NULL);
@@ -2139,27 +2204,9 @@ void app_main(void)
      * verzoegern (siehe ota.h). */
     ota_starten();
 
-    /* app_main kehrt bewusst NICHT zurueck: der Haupt-Task bleibt als
-     * Fahrer fuer das Einstellungen-Menue am Leben. Frueher endete er hier,
-     * womit das Menue nur waehrend des Bootens (ueber das Zahnrad des
-     * Startbildschirms) erreichbar war - das Update-Symbol erscheint aber
-     * erst danach, es fuehrte also ins Leere.
-     *
-     * Der Ablauf muss hier laufen und nicht im Klick-Callback: er
-     * blockiert, solange das Menue offen ist, und wuerde im LVGL-Task den
-     * Task-Watchdog ausloesen (FALLSTRICKE #16). */
-    for (;;) {
-        if (s_einstellungen_gewuenscht) {
-            s_einstellungen_gewuenscht = false;
-            netz_watchdog_pausieren(true);
-            (void)einstellungen_bildschirm_verarbeiten(); /* Demo-Modus hier ohne Belang */
-            lvgl_port_lock(0);
-            lv_screen_load(s_bildschirm); /* zurueck zur Uhr */
-            lvgl_port_unlock();
-            einrichtung_einstellungen_aufraeumen();
-            netz_watchdog_pausieren(false);
-            uhr_tick(NULL); /* Anzeige sofort auffrischen statt bis zum naechsten Sekundentakt zu warten */
-        }
-        vTaskDelay(pdMS_TO_TICKS(200));
-    }
+    /* app_main MUSS hier zurueckkehren: erst dadurch gibt der Idle-Task die
+     * 16 KB internen SRAM des Haupt-Task-Stacks frei, und nur so bekommt der
+     * gerade angestossene OTA-Task seine 8 KB (siehe ota.c). Das
+     * Einstellungen-Menue laeuft deshalb in einem eigenen Task auf Zuruf
+     * (siehe einstellungen_task) statt in einer Schleife an dieser Stelle. */
 }
