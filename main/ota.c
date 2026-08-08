@@ -81,6 +81,12 @@ static char s_meldung[80] = "";
 /* Wie lange eine Abschlussmeldung stehen bleibt, bevor sich das Fenster
  * schliesst - lange genug zum Lesen, ohne im Weg zu stehen. */
 #define OTA_MELDUNG_STEHENZEIT_MS (12 * 1000)
+/* Bewaehrungsfrist fuer eine frisch eingespielte Version: so lange darf sie
+ * brauchen, um WLAN und Kalender zum Laufen zu bringen. Grosszuegig, weil ein
+ * langsamer Router oder ein zaeher Kalender-Abruf kein Rueckfallgrund sein
+ * soll - aber endlich, damit ein dauerhaft unbrauchbarer Stand nicht ewig
+ * bestehen bleibt. */
+#define OTA_BEWAEHRUNG_MS (10 * 60 * 1000)
 /* Ergebnis der letzten Pruefung. Installiert wird NIE von selbst (Peters
  * Entscheidung) - das Geraet meldet nur, dass etwas bereitsteht, und wartet
  * auf den Update-Button im Einstellungen-Menue. */
@@ -284,9 +290,35 @@ static void rollback_bestaetigen_falls_noetig(void)
     if (zustand != ESP_OTA_IMG_PENDING_VERIFY)
         return;
 
-    ESP_LOGI(TAG, "Frisch per OTA eingespielt - warte auf WLAN + Kalender, bevor die Version bestaetigt wird");
-    while (!(netz_ist_verbunden() && kalender_anzeige_version() != 0))
+    ESP_LOGI(TAG, "Frisch per OTA eingespielt - warte bis zu %d Minuten auf WLAN + Kalender, "
+                  "bevor die Version bestaetigt wird", OTA_BEWAEHRUNG_MS / 60000);
+
+    int64_t gewartet_ms = 0;
+    while (!(netz_ist_verbunden() && kalender_anzeige_version() != 0)) {
         vTaskDelay(pdMS_TO_TICKS(2000));
+        gewartet_ms += 2000;
+        if (gewartet_ms >= OTA_BEWAEHRUNG_MS) {
+            /* Hier lag die eigentliche Luecke: vorher wurde ohne Zeitgrenze
+             * gewartet. Eine Firmware, die zwar startet, aber kein Netz
+             * bekommt, wurde damit weder bestaetigt NOCH zurueckgenommen -
+             * das Geraet lief einfach dauerhaft offline weiter. Genau das ist
+             * beim ersten echten Update passiert: die Release-Binary enthaelt
+             * nur Platzhalter statt der Zugangsdaten aus secrets.h, und ohne
+             * Netz kann auch nie wieder ein Update nachkommen. Peter konnte
+             * am Geraet von Hand zurueckschalten - seine Eltern koennten das
+             * nicht.
+             *
+             * Diese Funktion startet das Geraet neu; der Bootloader nimmt
+             * dabei automatisch die vorherige, bewaehrte Version. */
+            ESP_LOGE(TAG, "Neue Version binnen %d Minuten nicht brauchbar (WLAN verbunden: %d, "
+                          "Kalender geladen: %d) - Rueckkehr zur vorherigen Version",
+                     OTA_BEWAEHRUNG_MS / 60000, netz_ist_verbunden(),
+                     kalender_anzeige_version() != 0);
+            vTaskDelay(pdMS_TO_TICKS(500)); /* Log noch rausschreiben lassen */
+            esp_ota_mark_app_invalid_rollback_and_reboot();
+            return; /* unerreichbar */
+        }
+    }
 
     esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
     if (err == ESP_OK)

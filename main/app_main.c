@@ -693,7 +693,15 @@ static void einstellungen_task(void *arg)
 {
     (void)arg;
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        /* Nicht unbegrenzt blockieren: derselbe Task erledigt nebenbei die
+         * aufgeschobene Netz-Arbeit. Sie faellt im WLAN-Ereignis-Handler an,
+         * darf dort aber nicht ausgefuehrt werden (Task "sys_evt" hat nur
+         * 2304 Byte Stack - siehe netz.h). Hier stehen 8 KB zur Verfuegung,
+         * und der Task tut sonst nichts. */
+        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)) == 0) {
+            netz_wartung_ausfuehren();
+            continue;
+        }
         s_einstellungen_offen = true;
 
         netz_watchdog_pausieren(true);

@@ -712,7 +712,22 @@ void einrichtung_einstellungen_zeigen(void)
 
     s_einstellungen_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_einstellungen_screen, lv_color_black(), 0);
-    lv_obj_remove_flag(s_einstellungen_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
+
+    /* Anders als der Uhren-Bildschirm (der bewusst unverschiebbar ist, sonst
+     * laesst sich die Anzeige versehentlich wegziehen - siehe
+     * app_main.c/ui_aufbauen) darf DIESER Bildschirm senkrecht scrollen: der
+     * Inhalt ist ueber die Zeit gewachsen und passt nicht mehr auf 480 Pixel.
+     * Per Screenshot belegt: der Signalbalken war halb abgeschnitten, der
+     * Hinweis auf die Weboberflaeche lag komplett ausserhalb des Bildes und
+     * war damit unerreichbar. Nur LV_DIR_VER - seitwaerts soll sich nichts
+     * bewegen. */
+    lv_obj_set_scroll_dir(s_einstellungen_screen, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_einstellungen_screen, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_bg_color(s_einstellungen_screen, lv_color_hex(0x2196f3), LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(s_einstellungen_screen, LV_OPA_COVER, LV_PART_SCROLLBAR);
+    lv_obj_set_style_width(s_einstellungen_screen, 14, LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(s_einstellungen_screen, 7, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_right(s_einstellungen_screen, 4, LV_PART_SCROLLBAR);
 
     lv_obj_t *titel = lv_label_create(s_einstellungen_screen);
     lv_label_set_text(titel, "Einstellungen");
@@ -785,10 +800,15 @@ void einrichtung_einstellungen_zeigen(void)
         lv_obj_set_style_pad_row(versionszeile, 10, 0);
         lv_obj_align(versionszeile, LV_ALIGN_TOP_LEFT, 30, naechste_y);
 
-        char laufend_text[48];
-        snprintf(laufend_text, sizeof laufend_text, "Version %s -", ota_laufende_version());
+        /* Kurz halten! Vorher stand hier die komplette laufende Version samt
+         * Git-Hash, gefolgt von einem ins Leere laufenden " -". Die Zeile
+         * brach dadurch um, schob den Signalbalken halb aus dem Bild und den
+         * Hinweis auf die Weboberfläche ganz heraus (per Screenshot
+         * aufgefallen). Die laufende Version steht jetzt unten bei den
+         * uebrigen Statusangaben - sie ist eine Information, keine
+         * Bedienhilfe. */
         lv_obj_t *laufend = lv_label_create(versionszeile);
-        lv_label_set_text(laufend, laufend_text);
+        lv_label_set_text(laufend, "Andere Version:");
         lv_obj_set_style_text_font(laufend, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(laufend, lv_color_white(), 0);
 
@@ -808,6 +828,12 @@ void einrichtung_einstellungen_zeigen(void)
         lv_dropdown_set_options(s_versionen_dropdown, optionen);
         lv_obj_set_width(s_versionen_dropdown, 200);
         lv_obj_set_style_text_font(s_versionen_dropdown, &schrift_klein_28, 0);
+        /* Ohne das zeichnet LVGL sein Standard-Pfeilsymbol, das in der
+         * Montserrat-Schrift dieses Projekts fehlt - auf dem Geraet erschien
+         * dort ein leeres Kaestchen (per Screenshot aufgefallen). Dieselbe
+         * Ursache wie beim fehlenden Haken-Symbol, siehe "[x] "-Praefix bei
+         * den Tabletten. */
+        lv_dropdown_set_symbol(s_versionen_dropdown, NULL);
 
         einstellungen_nav_button_erzeugen(versionszeile, "Installieren",
                                            einstellungen_version_waehlen_cb);
@@ -844,15 +870,17 @@ void einrichtung_einstellungen_zeigen(void)
      * waehrend einer laufenden Sitzung praktisch nie. */
     char ip_text[16];
     netz_ip_text(ip_text, sizeof ip_text);
-    char hinweis_text[160];
+    char hinweis_text[224];
     if (ip_text[0])
         snprintf(hinweis_text, sizeof hinweis_text,
                  "Kalender-Adresse per Browser aendern:\n"
                  "Handy: http://seniorenuhr.local/\n"
-                 "Windows-PC: http://%s/", ip_text);
+                 "Windows-PC: http://%s/\n"
+                 "Laufende Firmware: %s", ip_text, ota_laufende_version());
     else
         snprintf(hinweis_text, sizeof hinweis_text,
-                 "Kalender-Adresse per Browser aendern - verfuegbar, sobald WLAN verbunden ist.");
+                 "Kalender-Adresse per Browser aendern - verfuegbar, sobald WLAN verbunden ist.\n"
+                 "Laufende Firmware: %s", ota_laufende_version());
 
     lv_obj_t *hinweis = lv_label_create(s_einstellungen_screen);
     lv_label_set_text(hinweis, hinweis_text);

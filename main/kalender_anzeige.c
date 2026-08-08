@@ -212,6 +212,17 @@ static void task_funktion(void *arg)
                 neuen_kalender_uebernehmen(puffer, laenge);
                 s_frisch = true;
                 einstellungen_letzter_kalender_sync_setzen(time(NULL));
+                /* Erst jetzt ist bewiesen, dass die Adresse wirklich taugt -
+                 * also festhalten, damit sie ein Firmware-Update ueberlebt.
+                 * Dieselbe Ueberlegung wie beim WLAN (siehe netz.c): die
+                 * Release-Firmware enthaelt statt der privaten Adresse nur
+                 * den Platzhalter aus secrets.example.h, ein Geraet ohne
+                 * gespeicherte Adresse stuende nach jedem Update ohne
+                 * Kalender da. Der NVS wird von OTA nicht angefasst.
+                 * Schreibt nur beim ersten Mal (siehe einstellungen.c). */
+                char benutzte_url[EINSTELLUNGEN_KALENDER_URL_MAX];
+                einstellungen_kalender_url_effektiv(benutzte_url, sizeof benutzte_url);
+                einstellungen_kalender_url_sichern(benutzte_url);
                 s_naechster_abruf_us = jetzt_us + ABRUF_INTERVALL_US;
                 if (zeit_ist_synchron())
                     fuer_heute_neu_parsen();

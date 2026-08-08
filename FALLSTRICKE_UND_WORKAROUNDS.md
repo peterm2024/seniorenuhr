@@ -544,3 +544,171 @@ genuegt: jede `CONFIG_`-Zeile der Defaults gegen `sdkconfig` gegenpruefen und Ab
 melden. Besonders heikel bei Sicherheitsnetzen, die man erst im Ernstfall vermisst - der
 Rollback-Schutz waere genau dann aufgefallen, wenn ein fehlerhaftes Update das Geraet weit
 entfernt lahmgelegt haette.
+
+## 30. Endlosschleife in app_main() legte den OTA-Task lahm - das Update-Symbol erschien nie
+
+**Problem:** Nach dem Flashen erschien weder das Update-Symbol auf dem Hauptbildschirm noch die
+Versions-Auswahlliste im Einstellungen-Menue, obwohl kurz zuvor noch
+`ota: Neue Version verfuegbar: v0.9.0` im Log gestanden hatte.
+
+**Ursache:** Im Log stand bei JEDEM Boot `W ota: OTA-Task konnte nicht gestartet werden - Updates
+bleiben bis zum naechsten Neustart aus`. Es gab also gar keine Pruefung. Ausgeloest hatte das die
+unmittelbar vorhergehende Aenderung: um das Einstellungen-Menue nach dem Booten erreichbar zu
+machen, blieb `app_main()` als Endlosschleife am Leben. Damit gibt der Idle-Task dessen 16 KB
+internen SRAM (`CONFIG_ESP_MAIN_TASK_STACK_SIZE`) nie frei - genau das, worauf der 5 s spaeter
+startende OTA-Task fuer seine 8 KB angewiesen ist (siehe #25). Der Zusammenhang war in ota.c
+sogar auskommentiert und wurde trotzdem uebersehen.
+
+**Loesung:** `app_main()` kehrt wieder zurueck; der Menue-Ablauf laeuft in einem eigenen Task
+(siehe #31).
+
+**Lehre:** Interner SRAM ist die knappe Ressource dieses Projekts (#20, #25, #26, #29). **Jede
+Aenderung, die einen Task dauerhaft am Leben haelt, kostet dessen kompletten Stack aus genau
+diesem Topf.** Vor so einer Aenderung pruefen, wer sonst noch internen SRAM braucht - und wann.
+Und: Ein Fehler, der bei JEDEM Boot identisch auftritt, steht meist woertlich im Log. Erst lesen,
+dann Hypothesen bilden.
+
+## 31. Task-Stack aus dem Heap ist eine Lotterie - statisch im .bss ist die Loesung
+
+**Problem:** Das Einstellungen-Menue liess sich per Tipp nicht mehr oeffnen. Der Callback feuerte
+sauber (im Log belegt), aber `xTaskCreate` scheiterte - erst mit 12 KB Wunsch (groesster freier
+interner Block: 8704 Byte), nach dem eingebauten Rueckfall auch mit 8 KB (5632 Byte).
+
+**Ursache:** Der Task wurde auf Zuruf erzeugt, also ausgerechnet im laufenden Betrieb, wenn der
+interne SRAM am staerksten zerstueckelt ist. Frei waren insgesamt ~17 KB, der groesste
+zusammenhaengende Block aber nur ein Drittel davon.
+
+**Loesung:** Stack statisch als `StackType_t`-Array im `.bss` plus `xTaskCreateStatic`. Der Platz
+steht beim Binden fest, kann nicht fragmentieren, das Erzeugen kann nicht fehlschlagen. Weil er
+ohnehin dauerhaft belegt ist, lebt der Task auch dauerhaft und wartet blockierend per
+`ulTaskNotifyTake` - das erspart zugleich den heiklen Fall, dass ein zweiter Tipp den Task neu
+anlegt, waehrend der alte noch abgeraeumt wird.
+
+**Gegenfinanziert durch Messen statt Schaetzen:** Der Kalender-Task hatte 16 KB, dimensioniert
+BEVOR sein grosses `ics_termin_t`-Array in den PSRAM wanderte (#26). Gemessen waren davon 10060
+Byte nie angefasst, der echte Bedarf lag bei gut 6,3 KB - gekuerzt auf 10 KB, nach dem Umbau mit
+4076 Byte Reserve bestaetigt.
+
+**Messmethode (ohne zusaetzliche Konfiguration):**
+
+```c
+TaskHandle_t t = xTaskGetHandle("kalender");
+if (t)
+    ESP_LOGI(TAG, "ungenutzte Reserve: %u Byte",
+             (unsigned)(uxTaskGetStackHighWaterMark(t) * sizeof(StackType_t)));
+```
+
+Braucht **kein** `CONFIG_FREERTOS_USE_TRACE_FACILITY`.
+
+**Wichtige Einschraenkung:** Der Wert sagt nur etwas aus, wenn der Task seine Arbeit auch getan
+hat. Der `httpd`-Task meldete ~6,9 KB ungenutzt - allerdings nur, weil in dem Durchlauf niemand
+die Weboberflaeche aufgerufen hatte. Genau dort gab es frueher einen Stack-Overflow (#18). Eine
+Messung an einem untaetigen Task misst nichts.
+
+## 32. Nach dem ersten OTA-Update war kein WLAN mehr moeglich - Release-Firmware enthaelt nur Platzhalter
+
+**Problem:** Das erste echte OTA-Update lief technisch einwandfrei durch (Download, Einspielen,
+Neustart) - danach hatte das Geraet keine Internetverbindung mehr. Der Weg zurueck gelang nur
+von Hand ueber die Versions-Auswahlliste im Menue.
+
+**Ursache:** Der Release-Workflow ersetzt `main/secrets.h` bewusst durch `secrets.example.h`,
+damit kein echtes WLAN-Passwort in einer oeffentlichen Binary landet. In der Release-Firmware
+steht deshalb `WLAN_SSID "Netzwerkname eintragen"`. Ein Geraet, das kein gespeichertes Profil im
+NVS hat und ueber `secrets.h` verbindet (im Log: `Zugangsdaten: secrets.h (im Scan gefunden)`),
+verliert damit **mit jedem Update** seinen Netzzugang.
+
+**Der gefaehrliche Teil:** Ohne Netz kommt nie wieder ein Update an. Das Geraet kann sich aus
+diesem Zustand nicht selbst befreien - es braucht ein USB-Kabel oder manuelle WLAN-Eingabe am
+Touchscreen. Bei einem Geraet weit entfernt bedeutet das eine Fahrt.
+
+**Zweite Ursache, gleich daneben:** Die Rollback-Bestaetigung prueft zwar korrekt auf WLAN UND
+Kalender, wartete darauf aber **ohne Zeitgrenze**. Eine Firmware, die zwar startet, aber kein
+Netz bekommt, wurde damit weder bestaetigt noch zurueckgenommen - das Geraet lief einfach
+dauerhaft offline weiter. Der Sicherheitsgurt war angelegt, aber nicht eingerastet.
+
+**Loesung:** (1) Sobald eine Verbindung ueber `secrets.h` nachweislich steht (erst bei
+`IP_EVENT_STA_GOT_IP`, also nur mit funktionierenden Daten - Platzhalter koennen sich so nie
+einnisten), wandern die Zugangsdaten einmalig in den NVS. Die Partition wird von OTA nicht
+angefasst, das ueberlebt jedes Update. (2) Bewaehrungsfrist von 10 Minuten; laeuft sie ab, ruft
+das Geraet `esp_ota_mark_app_invalid_rollback_and_reboot()` und der Bootloader holt die
+vorherige Version zurueck.
+
+**Lehre:** Wenn ein Build-Schritt bewusst etwas aus der Firmware entfernt (hier: Zugangsdaten),
+dann durchdenken, worauf das laufende Geraet sonst noch angewiesen ist. Und: Ein Rollback-Netz,
+das auf eine Bedingung wartet, braucht immer eine Zeitgrenze - sonst wartet es im Ernstfall ewig.
+
+## 33. "stack overflow in task sys_evt" - im Ereignis-Handler ist fast kein Stack
+
+**Problem:** Direkt nach dem Fix aus #32 stuerzte das Geraet ab. Die Absturz-Blackbox zeigte beim
+naechsten Boot "Programmabsturz", der serielle Log den Grund:
+`***ERROR*** A stack overflow in task sys_evt has been detected.`
+
+**Ursache:** Der neue NVS-Schreibweg haengt am WLAN-Ereignis-Handler, und der laeuft im Task
+`sys_evt` mit **2304 Byte** Stack (`CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE`). Die Aufrufkette
+legt drei `wlan_profil_t[5]`-Arrays uebereinander an - `wlan_profil_t` ist 98 Byte, macht
+490 Byte je Array, zusammen ~1470 Byte, zuzueglich allem was NVS selbst braucht. Der Ueberlauf
+war rechnerisch unvermeidlich.
+
+**Loesung:** Der Handler setzt nur noch einen Merker (`netz_wartung_faellig()`), ausgefuehrt wird
+die Arbeit in einem Task mit ordentlichem Stack - hier der ohnehin wartende Einstellungen-Task
+mit 8 KB (siehe #31), der dafuer mit Zeitgrenze statt unbegrenzt blockiert.
+
+**Lehre:** Ereignis-Handler (WLAN, IP, esp_timer) laufen auf fremden, knapp bemessenen Stacks -
+dort gehoert nur Zustand gesetzt, keine Arbeit erledigt. Das ist zugleich die vierte Wiederholung
+desselben Musters in diesem Projekt (#8, #24, #26): **bei jedem Stack-Array `[N]` die Rechnung
+Anzahl x Groesse gegenpruefen, und dabei die ganze Aufrufkette betrachten, nicht die einzelne
+Funktion.**
+
+## 34. Fenster auf dem falschen Screen erzeugt - der Update-Knopf wirkte tot
+
+**Problem:** Der Update-Knopf im Einstellungen-Menue schien wirkungslos. Im Log loeste er sauber
+aus (`Update im Einstellungen-Menue angestossen`), auf dem Bildschirm passierte nichts.
+
+**Zwei unabhaengige Ursachen:**
+1. Das Fortschrittsfenster wurde per `lv_obj_create(s_scr)` auf dem **Uhren-Bildschirm** erzeugt.
+   Angestossen wird das Update aber aus dem Einstellungen-Menue, einem eigenen Screen - das
+   Fenster war dort selbst bei laufendem Download unsichtbar.
+2. Das Fenster erschien ueberhaupt erst, wenn der Download bereits lief (`s_laeuft` wurde erst
+   nach erfolgreichem Verbindungsaufbau gesetzt). Scheiterte schon die Verbindung, gab es nie
+   irgendeine Rueckmeldung.
+
+**Loesung:** Fenster per `lv_obj_set_parent(..., lv_layer_top())` ueber alle Screens legen
+(dasselbe Muster wie beim Screenshot-Button). `s_laeuft` steht ab dem Tastendruck, mit
+Klartext-Meldung statt Prozentbalken, solange es noch keinen Fortschritt gibt.
+
+**Lehre:** Bei Overlays immer fragen, auf WELCHEM Screen sie liegen und welcher gerade geladen
+ist. Und: **Ein Knopf, der schweigend scheitert, ist schlimmer als einer, der eine Fehlermeldung
+zeigt** - erst recht bei Nutzern, die nicht ins Log sehen koennen. Jede Aktion braucht sichtbare
+Rueckmeldung ab dem ersten Moment, nicht erst wenn sie gelingt.
+
+## 35. Serieller Mitschnitt: ohne `python -u` bleibt die Log-Datei minutenlang leer
+
+**Problem:** Ein im Hintergrund laufender Mitschnitt
+(`python -m esp_idf_monitor ... | Out-File log.txt`) schrieb ueber eine Stunde lang **0 Byte**.
+Screenshots und Log-Zeilen schienen nicht anzukommen; erst beim Beenden des Prozesses fielen auf
+einen Schlag 42 KB heraus.
+
+**Ursache:** Python puffert seine Ausgabe blockweise, sobald sie nicht auf ein Terminal geht.
+
+**Loesung:** `python -u -m esp_idf_monitor --no-reset --port COM3 build/seniorenuhr.elf`.
+
+**Nebenbei zwei Werkzeug-Fallen:** `tools/screenshot_dekodieren.py` nimmt bei mehreren
+Screenshots im Log den ERSTEN - fuer den neuesten den Abschnitt ab der letzten
+`-----BEGIN SCREENSHOT`-Zeile in eine eigene Datei schneiden. Und beim Durchsuchen der Logs mit
+`grep` das Flag `-a` verwenden: die Dateien enthalten NUL-Bytes, sonst meldet grep nur
+"Binary file matches".
+
+## 36. LVGL-Dropdown zeigte ein leeres Kaestchen statt eines Pfeils
+
+**Problem:** Im Versions-Auswahlfeld des Einstellungen-Menues stand rechts ein leeres Rechteck.
+
+**Ursache:** LVGL zeichnet dort standardmaessig `LV_SYMBOL_DOWN`. Die Schriften dieses Projekts
+sind Montserrat-Ableitungen **ohne Symbolglyphen** - die Glyphe fehlt und wird als "Tofu"-Box
+dargestellt. Genau dieselbe Ursache, aus der die abgehakten Tabletten mit `"[x] "` statt einem
+Haken angezeigt werden.
+
+**Loesung:** `lv_dropdown_set_symbol(dd, NULL)`.
+
+**Lehre:** Jedes LVGL-Widget, das von sich aus ein Symbol zeichnet, ist in diesem Projekt
+verdaechtig. Bei neuen Widgets gezielt darauf achten und das Symbol abschalten oder durch Text
+ersetzen.

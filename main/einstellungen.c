@@ -98,6 +98,18 @@ void einstellungen_kalender_url_setzen(const char *url)
     nvs_close(h);
 }
 
+void einstellungen_kalender_url_sichern(const char *url)
+{
+    /* Nur wenn noch nichts gespeichert ist: eine vom Benutzer bewusst
+     * gesetzte Adresse darf nie ueberschrieben werden. */
+    if (s_kalender_url[0])
+        return;
+    if (url == NULL || url[0] == '\0')
+        return;
+    einstellungen_kalender_url_setzen(url);
+    ESP_LOGI(TAG, "Kalender-Adresse gesichert - sie bleibt damit auch nach einem Firmware-Update erhalten");
+}
+
 time_t einstellungen_letzte_anzeige(void) { return s_letzte_anzeige; }
 
 void einstellungen_letzte_anzeige_setzen(time_t zeitstempel)

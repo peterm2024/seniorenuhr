@@ -73,6 +73,23 @@ esp_err_t kalender_holen(char **puffer, size_t *laenge)
         .buffer_size = 2048,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    /* esp_http_client_init() liefert bei einer unbrauchbaren Adresse NULL
+     * (fehlendes Schema, Leerzeichen, leerer String). Ohne diese Pruefung
+     * lief das NULL direkt in esp_http_client_perform() und riss das Geraet
+     * mit "Guru Meditation Error: LoadProhibited" um.
+     *
+     * Live passiert nach dem ersten erfolgreichen OTA-Update: die
+     * Release-Firmware enthaelt statt der privaten Kalender-Adresse den
+     * Platzhalter aus secrets.example.h ("Private iCal-Adresse aus Google
+     * Kalender eintragen") - keine gueltige URL. Betrifft aber genauso jede
+     * vertippte Adresse aus dem Web-Formular: eine falsche Eingabe darf das
+     * Geraet nie zum Absturz bringen, sondern hoechstens den Abruf
+     * scheitern lassen. */
+    if (client == NULL) {
+        ESP_LOGW(TAG, "Kalender-Adresse unbrauchbar - Abruf uebersprungen (Adresse: \"%s\")", url);
+        free(p.puffer);
+        return ESP_ERR_INVALID_ARG;
+    }
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);

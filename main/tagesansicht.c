@@ -963,7 +963,10 @@ void tagesansicht_erinnerung_zeigen(void)
 
 /* ---- Update-Hinweisfenster (waehrend eines laufenden OTA-Downloads) --- */
 
-#define FENSTER_HOEHE_UPDATE 200
+/* Hoch genug fuer eine zweizeilige Meldung unter dem Balken - die laengste
+ * ("Keine Verbindung zu GitHub - bitte spaeter erneut versuchen") braucht bei
+ * der grossen Seniorenschrift zwei Zeilen. */
+#define FENSTER_HOEHE_UPDATE 250
 
 static lv_obj_t *s_update_fenster;
 static lv_obj_t *s_update_balken;
@@ -1020,9 +1023,12 @@ void tagesansicht_update_fenster_zeigen(void)
     lv_obj_set_parent(s_update_fenster, lv_layer_top());
     lv_obj_center(s_update_fenster);
 
+    /* Breiten per lv_pct statt aus FENSTER_BREITE gerechnet: das Panel hat
+     * rund 20px unsichtbares Innenpolster je Seite, "FENSTER_BREITE - 40"
+     * ragte also ueber die nutzbare Flaeche hinaus (FALLSTRICKE #27). */
     s_update_balken = lv_bar_create(s_update_fenster);
-    lv_obj_set_size(s_update_balken, FENSTER_BREITE - 40, 28);
-    lv_obj_set_pos(s_update_balken, 20, 110);
+    lv_obj_set_size(s_update_balken, lv_pct(100), 28);
+    lv_obj_set_pos(s_update_balken, 0, 110);
     lv_bar_set_range(s_update_balken, 0, 100);
     lv_bar_set_value(s_update_balken, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(s_update_balken, lv_color_hex(FARBE_SCHIEBER_AUS), LV_PART_MAIN);
@@ -1030,11 +1036,20 @@ void tagesansicht_update_fenster_zeigen(void)
     lv_obj_set_style_radius(s_update_balken, 8, LV_PART_MAIN);
     lv_obj_set_style_radius(s_update_balken, 8, LV_PART_INDICATOR);
 
+    /* Feste Breite mit Umbruch. Frueher stand hier ein Label ohne Breite -
+     * das genuegte fuer "12 %" oder "Laedt...", seit hier aber ganze Saetze
+     * erscheinen ("Verbinde mit GitHub (Versuch 1 von 3)...", Fehlermeldungen)
+     * lief der Text ueber den Fensterrand hinaus und wurde abgeschnitten.
+     * Von Peter am Geraet gesehen - im Screenshot war der Satz nicht mehr
+     * lesbar. Zentriert, weil der Text mal kurz ("40 %") und mal lang ist. */
     s_update_prozent_label = lv_label_create(s_update_fenster);
     lv_label_set_text(s_update_prozent_label, "Laedt...");
+    lv_label_set_long_mode(s_update_prozent_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_update_prozent_label, lv_pct(100));
+    lv_obj_set_style_text_align(s_update_prozent_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(s_update_prozent_label, &schrift_klein_28, 0);
     lv_obj_set_style_text_color(s_update_prozent_label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
-    lv_obj_set_pos(s_update_prozent_label, 20, 150);
+    lv_obj_set_pos(s_update_prozent_label, 0, 150);
 
     lvgl_port_unlock();
 }

@@ -56,6 +56,12 @@ static const char *TAG = "netz";
 
 static esp_netif_t *s_sta_netif;
 static volatile bool s_verbunden = false;
+/* Beruht die laufende Verbindung auf den einkompilierten Zugangsdaten? Dann
+ * werden sie nach dem ersten Erfolg in den NVS uebernommen, damit sie ein
+ * Firmware-Update ueberleben (siehe secrets_profil_uebernehmen). */
+static volatile bool s_quelle_ist_secrets = false;
+/* Aufgeschobene Arbeit aus dem Ereignis-Handler heraus - siehe dort. */
+static volatile bool s_wartung_faellig = false;
 static volatile bool s_war_verbunden = false; /* schon je eine IP bekommen? */
 static volatile bool s_watchdog_pausiert = false;
 static volatile int64_t s_watchdog_grenze_us = WATCHDOG_GRENZE_KURZ_US;
@@ -253,6 +259,22 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
         s_war_verbunden = true;
         s_getrennt_seit_us = 0;
         ESP_LOGI(TAG, "WLAN verbunden, IP-Adresse erhalten");
+        /* Erst jetzt ist bewiesen, dass die Zugangsdaten stimmen. Steht die
+         * Verbindung ueber secrets.h, sollen sie in den NVS - sonst waere das
+         * Geraet nach dem naechsten Update ohne Netz (die Release-Firmware
+         * enthaelt nur Platzhalter).
+         *
+         * Hier wird aber NUR ein Merker gesetzt, nicht geschrieben: dieser
+         * Handler laeuft im Task "sys_evt" mit gerade einmal 2304 Byte Stack
+         * (CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE). Der Schreibweg legt drei
+         * wlan_profil_t[5]-Arrays uebereinander an (je 490 Byte) und sprengte
+         * ihn prompt - live als "stack overflow in task sys_evt" abgestuerzt.
+         * Ausgefuehrt wird die Arbeit deshalb in einem Task mit
+         * ordentlichem Stack, siehe netz_wartung_ausfuehren(). */
+        if (s_quelle_ist_secrets) {
+            s_quelle_ist_secrets = false;
+            s_wartung_faellig = true;
+        }
         /* Bei jeder (Wieder-)Verbindung aufgerufen - webkonfig_start() ist
          * intern gegen Mehrfachstart abgesichert, startet also nur beim
          * allerersten Erfolg wirklich. Hier statt in app_main(), damit die
@@ -382,7 +404,10 @@ static esp_err_t profil_liste_schreiben(const wlan_profil_t *liste, int anzahl)
     return err;
 }
 
-esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort)
+/* Legt ein Profil im NVS ab, OHNE neu zu starten. Der Neustart gehoert zur
+ * Benutzer-Eingabe (netz_zugangsdaten_speichern), nicht zum stillen Merken
+ * einer bereits funktionierenden Verbindung. */
+static esp_err_t zugangsdaten_ablegen(const char *ssid, const char *passwort, int *anzahl_aus)
 {
     wlan_profil_t liste[WLAN_PROFIL_MAX];
     int anzahl = profil_liste_lesen(liste, WLAN_PROFIL_MAX);
@@ -409,12 +434,65 @@ esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort)
     }
 
     esp_err_t err = profil_liste_schreiben(liste, anzahl);
+    if (err == ESP_OK && anzahl_aus)
+        *anzahl_aus = anzahl;
+    return err;
+}
+
+esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort)
+{
+    int anzahl = 0;
+    esp_err_t err = zugangsdaten_ablegen(ssid, passwort, &anzahl);
     if (err != ESP_OK)
         return err;
 
     ESP_LOGI(TAG, "WLAN-Zugangsdaten gespeichert (%d bekannte Netze) - starte neu", anzahl);
     esp_restart();
     return ESP_OK; /* unerreichbar */
+}
+
+/* Uebernimmt die einkompilierten Zugangsdaten aus secrets.h einmalig in den
+ * NVS, sobald sie sich als funktionierend erwiesen haben.
+ *
+ * Anlass ist ein echter Vorfall: nach dem ersten erfolgreichen OTA-Update
+ * hatte das Geraet kein WLAN mehr. Der Release-Workflow ersetzt secrets.h
+ * bewusst durch Platzhalter ("Netzwerkname eintragen"), damit kein echtes
+ * Passwort in einer oeffentlichen Binary landet - ein Geraet, das nur an
+ * secrets.h haengt, verliert damit aber mit jedem Update seinen Netzzugang.
+ * Und ohne Netz kommt nie wieder ein Update an: es kaeme nur noch per Kabel
+ * oder durch manuelle Eingabe am Touchscreen zurueck.
+ *
+ * Im NVS ueberleben die Daten jedes Update (die Partition wird von OTA nicht
+ * angefasst). Damit ist das Geraet nach dem ersten erfolgreichen Verbinden
+ * unabhaengig davon, was in der jeweiligen Firmware einkompiliert ist. */
+static void secrets_profil_uebernehmen(void)
+{
+    wlan_profil_t liste[WLAN_PROFIL_MAX];
+    int anzahl = profil_liste_lesen(liste, WLAN_PROFIL_MAX);
+    for (int i = 0; i < anzahl; i++)
+        if (strcmp(liste[i].ssid, WLAN_SSID) == 0)
+            return; /* schon bekannt */
+
+    int neu = 0;
+    if (zugangsdaten_ablegen(WLAN_SSID, WLAN_PASSWORT, &neu) == ESP_OK)
+        ESP_LOGI(TAG, "Zugangsdaten aus secrets.h in den NVS uebernommen (%d bekannte Netze) - "
+                      "das WLAN bleibt damit auch nach einem Firmware-Update erhalten", neu);
+}
+
+bool netz_wartung_faellig(void)
+{
+    return s_wartung_faellig;
+}
+
+/* Darf NUR aus einem Task mit ordentlichem Stack aufgerufen werden (>= 4 KB),
+ * niemals aus einem Ereignis-Handler: der Weg in den NVS haelt drei
+ * wlan_profil_t[5]-Arrays gleichzeitig auf dem Stack. */
+void netz_wartung_ausfuehren(void)
+{
+    if (!s_wartung_faellig)
+        return;
+    s_wartung_faellig = false;
+    secrets_profil_uebernehmen();
 }
 
 /* Sucht per WLAN-Scan unter den sichtbaren Netzen nach einem bekannten
@@ -537,6 +615,10 @@ void netz_start(void)
     wifi_config_t wifi_cfg;
     const char *quelle;
     beste_konfiguration_ermitteln(&wifi_cfg, &quelle);
+    /* Merken, ob diese Verbindung auf den einkompilierten Zugangsdaten
+     * beruht - nur dann lohnt es, sie nach dem Erfolg in den NVS zu
+     * uebernehmen (siehe secrets_profil_uebernehmen). */
+    s_quelle_ist_secrets = (strcmp((char *)wifi_cfg.sta.ssid, WLAN_SSID) == 0);
     wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_cfg.sta.pmf_cfg.capable = true;
     wifi_cfg.sta.pmf_cfg.required = false;

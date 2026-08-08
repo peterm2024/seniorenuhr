@@ -26,6 +26,21 @@ void netz_start(void);
 /* true, sobald das Board aktuell eine IP-Adresse hat. */
 bool netz_ist_verbunden(void);
 
+/* Aufgeschobene Netz-Arbeit, die im Ereignis-Handler anfaellt, dort aber
+ * nicht erledigt werden darf: der Task "sys_evt" hat nur 2304 Byte Stack,
+ * und der Weg in den NVS haelt drei wlan_profil_t[5]-Arrays gleichzeitig
+ * darauf (live als "stack overflow in task sys_evt" abgestuerzt).
+ *
+ * Konkret geht es darum, die einkompilierten Zugangsdaten aus secrets.h in
+ * den NVS zu uebernehmen, sobald sie sich als funktionierend erwiesen haben -
+ * sonst verliert das Geraet mit jedem OTA-Update sein WLAN, weil die
+ * Release-Firmware nur Platzhalter enthaelt.
+ *
+ * netz_wartung_ausfuehren() regelmaessig aus einem Task mit ordentlichem
+ * Stack aufrufen (>= 4 KB); ohne anstehende Arbeit kehrt es sofort zurueck. */
+bool netz_wartung_faellig(void);
+void netz_wartung_ausfuehren(void);
+
 /* Aktuelle WLAN-Signalstaerke in dBm (negativ, naeher an 0 = besser), oder
  * 0 wenn gerade nicht verbunden. Fuer eine Vor-Ort-Diagnose schwacher
  * Empfangsqualitaet (siehe Einstellungen-Menue in einrichtung.c). */

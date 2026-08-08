@@ -32,6 +32,18 @@ void einstellungen_kalender_url_effektiv(char *puffer, size_t puffer_groesse);
  * secrets.h-Default). */
 void einstellungen_kalender_url_setzen(const char *url);
 
+/* Haelt eine Adresse fest, die sich nachweislich bewaehrt hat (erfolgreicher
+ * Download). Tut nichts, wenn bereits eine gespeichert ist - eine bewusst
+ * gesetzte Adresse wird nie ueberschrieben.
+ *
+ * Zweck: die Release-Firmware enthaelt statt der privaten Kalender-Adresse
+ * nur den Platzhalter aus secrets.example.h. Ein Geraet, das seine Adresse
+ * ausschliesslich einkompiliert hatte, stuende nach jedem OTA-Update ohne
+ * Kalender da - und stuerzte sogar ab, weil die Platzhalter-Zeichenkette
+ * keine gueltige URL ist (siehe kalender_holen.c). Der NVS wird von OTA
+ * nicht angefasst, dort ueberlebt sie jedes Update. */
+void einstellungen_kalender_url_sichern(const char *url);
+
 /* Zuletzt auf dem Hauptbildschirm angezeigter Zeitstempel - Grundlage fuer
  * die Vorbelegung der manuellen Datumseingabe (siehe einrichtung.h), damit
  * man nach einem Stromausfall nicht von 1970 aus rechnen muss. Schreibt
