@@ -37,7 +37,15 @@
  * Schalter nur den Screenshot-Button. NICHT betroffen: der Demo-Modus im
  * Einstellungsmenue - der bleibt bewusst auch auf dem Eltern-Geraet
  * verfuegbar (Peters Wunsch). */
+/* Per #ifndef, damit der Release-Build den Wert ueber eine
+ * Compiler-Definition auf 0 ziehen kann (siehe main/CMakeLists.txt und
+ * .github/workflows/release.yml), OHNE diese Datei zu veraendern. Vorher
+ * tat das ein "sed -i" im Workflow - dadurch galt der Arbeitsbaum als
+ * veraendert und "git describe" lieferte "v0.9.0-dirty" statt "v0.9.0",
+ * was die Zuordnung Version <-> Release-Tag zerstoerte. */
+#ifndef ENTWICKLUNGSWERKZEUGE
 #define ENTWICKLUNGSWERKZEUGE 1
+#endif
 
 /* Nach der letzten Beruehrung bleibt die Anzeige so lange im Tag-Modus,
  * bevor sie abends/nachts wieder abdunkelt. */

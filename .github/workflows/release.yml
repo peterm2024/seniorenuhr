@@ -50,7 +50,11 @@ jobs:
           # jedes Release hiesse "1", das Geraet saehe nach dem ersten
           # Update nie wieder eine neue Version.
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          sed -i 's/#define ENTWICKLUNGSWERKZEUGE 1/#define ENTWICKLUNGSWERKZEUGE 0/' main/app_main.c
+          # PRODUKTIONS_BUILD schaltet die Entwicklungswerkzeuge per
+          # Compiler-Definition ab (siehe main/CMakeLists.txt) - bewusst
+          # OHNE Datei-Eingriff: ein "sed -i" machte den Arbeitsbaum dirty
+          # und "git describe" lieferte dann "v0.9.0-dirty" statt "v0.9.0".
+          export PRODUKTIONS_BUILD=1
           . "$IDF_PATH/export.sh"
           idf.py build
 
