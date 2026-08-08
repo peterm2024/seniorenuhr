@@ -1,6 +1,7 @@
 #include "einrichtung.h"
 #include "einstellungen.h"
 #include "netz.h"
+#include "ota.h"
 #include "zeit.h"
 
 #include <stdio.h>
@@ -597,6 +598,43 @@ static void einstellungen_demo_cb(lv_event_t *e)
     s_einstellungen_aktion = EINSTELLUNGEN_AKTION_DEMO;
 }
 
+static void einstellungen_update_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_UPDATE;
+}
+
+static void einstellungen_version_zurueck_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_VERSION_ZURUECK;
+}
+
+/* Auswahlliste aller im Download-Repo veroeffentlichten Versionen. Anders
+ * als das Zurueckschalten zwischen den zwei App-Partitionen kann hiermit
+ * JEDE veroeffentlichte Version geholt werden - sie wird frisch
+ * heruntergeladen (Peters Fall: eine Version gefaellt zunaechst nicht,
+ * spaeter will man ein Feature daraus dann doch). */
+static lv_obj_t *s_versionen_dropdown;
+static char s_gewaehlte_version[OTA_VERSION_MAX];
+
+const char *einrichtung_einstellungen_gewaehlte_version(void)
+{
+    return s_gewaehlte_version;
+}
+
+static void einstellungen_version_waehlen_cb(lv_event_t *e)
+{
+    (void)e;
+    if (!s_versionen_dropdown)
+        return;
+    int index = (int)lv_dropdown_get_selected(s_versionen_dropdown);
+    if (index < 0 || index >= ota_versionen_anzahl())
+        return;
+    snprintf(s_gewaehlte_version, sizeof s_gewaehlte_version, "%s", ota_version_name(index));
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_VERSION_WAEHLEN;
+}
+
 static void einstellungen_schliessen_cb(lv_event_t *e)
 {
     (void)e;
@@ -668,6 +706,10 @@ void einrichtung_einstellungen_zeigen(void)
         s_einstellungen_screen = NULL;
     }
 
+    /* Zeiger auf Kinder des soeben geloeschten Screens ungueltig machen -
+     * das Dropdown wird weiter unten nur unter Bedingungen neu angelegt. */
+    s_versionen_dropdown = NULL;
+
     s_einstellungen_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_einstellungen_screen, lv_color_black(), 0);
     lv_obj_remove_flag(s_einstellungen_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
@@ -700,11 +742,81 @@ void einrichtung_einstellungen_zeigen(void)
     einstellungen_nav_button_erzeugen(reihe, "Kalender-Adresse aendern", einstellungen_kalenderurl_cb);
     einstellungen_nav_button_erzeugen(reihe, "Demo-Modus", einstellungen_demo_cb);
 
+    /* Update-Buttons nur, wenn sie tatsaechlich etwas bewirken - ein
+     * dauerhaft sichtbarer, aber wirkungsloser Knopf waere fuer die
+     * eigentlichen Nutzer nur verwirrend. Die Versionsnummer steht mit in
+     * der Beschriftung, damit man sieht, worauf man sich einlaesst. */
+    char beschriftung[64];
+    if (ota_update_verfuegbar()) {
+        snprintf(beschriftung, sizeof beschriftung, "Update auf %s installieren",
+                 ota_verfuegbare_version());
+        einstellungen_nav_button_erzeugen(reihe, beschriftung, einstellungen_update_cb);
+    }
+    char vorherige[32];
+    if (ota_vorherige_version(vorherige, sizeof vorherige)) {
+        snprintf(beschriftung, sizeof beschriftung, "Zurueck auf %s", vorherige);
+        einstellungen_nav_button_erzeugen(reihe, beschriftung, einstellungen_version_zurueck_cb);
+    }
+
+    /* Liste im Hintergrund auffrischen (telefoniert - darf nie hier im
+     * LVGL-Kontext passieren). Angezeigt wird der zuletzt geholte Stand;
+     * beim naechsten Oeffnen ist er aktuell. */
+    ota_versionen_auffrischen();
+
     /* Tatsaechliche Hoehe der Reihe erst nach dem Layout-Durchlauf bekannt
-     * (haengt davon ab, ob die drei Buttons in eine oder zwei Zeilen
-     * passen) - siehe FALLSTRICKE_UND_WORKAROUNDS.md #11. */
+     * (haengt davon ab, ob die Buttons in eine oder zwei Zeilen passen) -
+     * siehe FALLSTRICKE_UND_WORKAROUNDS.md #11. */
     lv_obj_update_layout(reihe);
-    int32_t schalter_y = 64 + lv_obj_get_height(reihe) + 20;
+    int32_t naechste_y = 64 + lv_obj_get_height(reihe) + 14;
+
+    /* Versions-Auswahl: laufende Version + Liste aller veroeffentlichten.
+     * Erscheint nur, wenn die Liste bereits abgerufen werden konnte (WLAN,
+     * und der Hintergrund-Task war schon dran) - sonst stuende hier ein
+     * leeres Bedienelement ohne Sinn. */
+    if (ota_versionen_anzahl() > 0) {
+        lv_obj_t *versionszeile = lv_obj_create(s_einstellungen_screen);
+        lv_obj_remove_style_all(versionszeile);
+        lv_obj_remove_flag(versionszeile, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(versionszeile, 740, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(versionszeile, LV_FLEX_FLOW_ROW_WRAP);
+        lv_obj_set_flex_align(versionszeile, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                               LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(versionszeile, 14, 0);
+        lv_obj_set_style_pad_row(versionszeile, 10, 0);
+        lv_obj_align(versionszeile, LV_ALIGN_TOP_LEFT, 30, naechste_y);
+
+        char laufend_text[48];
+        snprintf(laufend_text, sizeof laufend_text, "Version %s -", ota_laufende_version());
+        lv_obj_t *laufend = lv_label_create(versionszeile);
+        lv_label_set_text(laufend, laufend_text);
+        lv_obj_set_style_text_font(laufend, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(laufend, lv_color_white(), 0);
+
+        /* Optionen einmalig beim Aufbau setzen (nie waehrend die Liste
+         * offen ist - siehe der Fallstrick beim WLAN-Dropdown oben). */
+        char optionen[OTA_VERSIONEN_MAX * (OTA_VERSION_MAX + 1)];
+        size_t pos = 0;
+        optionen[0] = '\0';
+        for (int i = 0; i < ota_versionen_anzahl(); i++) {
+            int n = snprintf(optionen + pos, sizeof optionen - pos, "%s%s",
+                             i ? "\n" : "", ota_version_name(i));
+            if (n < 0 || (size_t)n >= sizeof optionen - pos)
+                break;
+            pos += (size_t)n;
+        }
+        s_versionen_dropdown = lv_dropdown_create(versionszeile);
+        lv_dropdown_set_options(s_versionen_dropdown, optionen);
+        lv_obj_set_width(s_versionen_dropdown, 200);
+        lv_obj_set_style_text_font(s_versionen_dropdown, &schrift_klein_28, 0);
+
+        einstellungen_nav_button_erzeugen(versionszeile, "Installieren",
+                                           einstellungen_version_waehlen_cb);
+
+        lv_obj_update_layout(versionszeile);
+        naechste_y += lv_obj_get_height(versionszeile) + 14;
+    }
+
+    int32_t schalter_y = naechste_y;
 
     einstellungen_schalter_zeile(s_einstellungen_screen, schalter_y, "Signalton bei Erinnerungen",
                                   einstellungen_buzzer_aktiv(), einstellungen_buzzer_cb);

@@ -66,7 +66,7 @@ LV_FONT_DECLARE(schrift_mittel_40);
 /* Abstand zwischen Listen-Unterkante und OK/Abbrechen - es soll IMMER ein
  * schwarzer Streifen dazwischen bleiben, damit eine angeschnittene Zeile am
  * unteren Listenrand nie in die Buttons hineinlaeuft (Peters Rueckmeldung). */
-#define HEUTE_INHALT_ABSTAND_UNTEN 20
+#define LISTE_ABSTAND_UNTEN 20
 /* Benoetigte INHALTS-Hoehe (ohne Rahmen/Innenpolster des Panels). Die
  * tatsaechliche Fensterhoehe wird daraus zur Laufzeit errechnet, siehe
  * heute_oeffnen_intern - das Panel hat ein Standard-Innenpolster von rund
@@ -74,18 +74,18 @@ LV_FONT_DECLARE(schrift_mittel_40);
  * (live: letzte Zeile schnitt den OK-Button an, und die Liste galt faelschlich
  * als "passt genau" und war deshalb gar nicht scrollbar). */
 #define HEUTE_INHALT_GESAMT_HOEHE (HEUTE_KOPF_HOEHE + HEUTE_INHALT_SICHTBAR_HOEHE + \
-                                   HEUTE_INHALT_ABSTAND_UNTEN + OK_ABBRECHEN_HOEHE + \
+                                   LISTE_ABSTAND_UNTEN + OK_ABBRECHEN_HOEHE + \
                                    OK_ABBRECHEN_RAND_UNTEN)
 /* Rechts reservierter Streifen fuer die Scrollleiste - als pad_right des
  * Listenbereichs umgesetzt, damit die rechtsbuendigen Checkboxen davor enden
  * und die Leiste sie nie ueberlagert. Bewusst breit: eine duenne
  * Standard-Leiste war auf dem Geraet kaum als Bedienelement erkennbar. */
-#define HEUTE_SCROLLLEISTE_BREITE 22
+#define LISTE_SCROLLLEISTE_BREITE 22
 /* Rechter Rand des "X"-Schliessen-Buttons im "Heute"-Fenster, so gewaehlt,
  * dass seine rechte Kante exakt mit der rechten Kante der Checkboxen
  * abschliesst (Peters Wunsch): die Checkboxen enden um den Scrollleisten-
  * Streifen plus CHECKBOX_RAND vor dem rechten Inhaltsrand. */
-#define HEUTE_X_BUTTON_RAND (HEUTE_SCROLLLEISTE_BREITE + CHECKBOX_RAND)
+#define LISTE_X_BUTTON_RAND (LISTE_SCROLLLEISTE_BREITE + CHECKBOX_RAND)
 /* Uebliche Ecke fuer alle anderen Fenster (ohne Liste/Checkboxen). */
 #define X_BUTTON_RAND_STANDARD 6
 /* Senkrechtes Innenpolster des "Heute"-Panels, bewusst kleiner als der
@@ -93,7 +93,7 @@ LV_FONT_DECLARE(schrift_mittel_40);
  * das Fenster sonst auf 474px und liess bei 480px Bildschirmhoehe nur noch
  * 3px Rand - es wirkte randlos. Nur dieses Fenster ist betroffen, die
  * uebrigen behalten das Standardpolster. */
-#define HEUTE_PANEL_POLSTER_V 8
+#define FENSTER_POLSTER_V 8
 #define FARBE_FENSTER_TEXT   0xffffff
 #define FARBE_FENSTER_AKZENT 0xffd75f
 #define FARBE_VERGANGEN      0x707a8a /* gedaempftes Grau fuer bereits vergangene Termine */
@@ -114,6 +114,10 @@ LV_FONT_DECLARE(schrift_mittel_40);
 #define CHECKBOX_RAND     20
 #define FARBE_SCHIEBER_AUS 0x4a5568 /* auch fuer die leere Checkbox und den Update-Fortschrittsbalken */
 #define FARBE_SCHIEBER_EIN 0x3aa655 /* auch fuer die angehakte Checkbox, den OK-Button und den Update-Fortschrittsbalken */
+/* Bestaetigt, aber erst NACH Ablauf des Einnahme-Fensters - bewusst ein
+ * eigener Ton statt des Golds (FARBE_TABLETTE_FAELLIG, bedeutet "faellig")
+ * oder des Rots (FARBE_TABLETTE_UEBERFAELLIG, bedeutet "noch offen"). */
+#define FARBE_BESTAETIGT_SPAET 0xff9800
 #define FARBE_ABBRECHEN     FARBE_TABLETTE_UEBERFAELLIG /* dasselbe Rot wie ueberfaellige Tabletten */
 
 #define OK_ABBRECHEN_BREITE 150
@@ -128,14 +132,27 @@ LV_FONT_DECLARE(schrift_mittel_40);
  * waere derselbe Fehler wie eine nie quittierte Fehlermeldung: es verdeckt
  * genau die Anzeige, um die es beim Geraet eigentlich geht. */
 #define ERINNERUNG_ANZEIGEDAUER_MS   (90 * 1000)
-/* Zeilenhoehe pro Tablette (Name + optionale Beschreibung + Checkbox) und
- * maximale Anzahl gleichzeitig sichtbarer Zeilen - bei mehr Tabletten als
- * ERINNERUNG_ZEILEN_MAX zeigt die letzte Zeile "+N weitere" (siehe
- * tagesfenster_spalte_zeichnen fuer dasselbe Muster). Fenster-Hoehe deckt
- * Kopf (100px) + ERINNERUNG_ZEILEN_MAX Zeilen + OK/Abbrechen-Zeile. */
+/* Kopfhoehe fuer den ZWEIZEILIGEN Kopf ("TABLETTEN NEHMEN" / "Bitte
+ * bestaetigen") - dieses Fenster behaelt die zweizeilige Variante, weil beide
+ * Texte nebeneinander breiter waeren als das Fenster. */
+#define ERINNERUNG_KOPF_HOEHE        100
+/* Zeilenhoehe pro Tablette (Name + optionale Notiz + Checkbox) und Anzahl
+ * ohne Scrollen sichtbarer Zeilen. Frueher zeigte die letzte Zeile bei mehr
+ * Tabletten "+N weitere" - das ist mit dem scrollbaren Listenbereich
+ * hinfaellig UND war schaedlich: die zusaetzlichen Tabletten liessen sich in
+ * diesem Fenster gar nicht bestaetigen, obwohl genau das sein Zweck ist. */
 #define ERINNERUNG_ZEILE_HOEHE       78
 #define ERINNERUNG_ZEILEN_MAX        3
-#define FENSTER_HOEHE_ERINNERUNG     (100 + ERINNERUNG_ZEILEN_MAX * ERINNERUNG_ZEILE_HOEHE + 90)
+#define ERINNERUNG_INHALT_SICHTBAR_HOEHE (ERINNERUNG_ZEILEN_MAX * ERINNERUNG_ZEILE_HOEHE)
+/* Benoetigte INHALTShoehe, exakt wie beim "Heute"-Fenster aufgebaut - die
+ * echte Fensterhoehe entsteht daraus zur Laufzeit (siehe
+ * fenster_mit_inhaltshoehe_erzeugen). Die frueher fest gesetzte Hoehe hatte
+ * das Panel-Innenpolster nicht eingerechnet, wodurch die dritte Zeile 22px
+ * unter den OK-Button rutschte (FALLSTRICKE #27, von Peter per Screenshot
+ * belegt). */
+#define ERINNERUNG_INHALT_GESAMT_HOEHE (ERINNERUNG_KOPF_HOEHE + ERINNERUNG_INHALT_SICHTBAR_HOEHE + \
+                                        LISTE_ABSTAND_UNTEN + OK_ABBRECHEN_HOEHE + \
+                                        OK_ABBRECHEN_RAND_UNTEN)
 
 /* Titel (ICS_TITEL_MAX) plus Platz fuer "HH:MM  "-Prefix. */
 #define ZEILE_MAX (ICS_TITEL_MAX + 16)
@@ -180,6 +197,10 @@ typedef struct {
  * bestaetigten Status (siehe Kommentar bei CHECKBOX_GROESSE). */
 static tablette_checkbox_t s_checkboxen[KALENDER_EINTRAEGE_MAX];
 static bool s_pending[KALENDER_EINTRAEGE_MAX];
+/* true, wenn die Bestaetigung dieser Zeile ausserhalb des erlaubten
+ * Einnahme-Fensters erfolgt(e) - dann ist die Checkbox bernstein statt
+ * gruen (siehe checkbox_stellung_anwenden). */
+static bool s_verspaetet[KALENDER_EINTRAEGE_MAX];
 
 static void tagesfenster_intern_schliessen(void)
 {
@@ -491,9 +512,20 @@ static void tag_button_cb(lv_event_t *e)
 
 /* ---- Heute-Fenster (mit Bestaetigungs-Schaltern, 5min Inaktivitaet) - */
 
-static void checkbox_stellung_anwenden(lv_obj_t *box, bool markiert)
+/* Gruen = im erlaubten Einnahme-Fenster bestaetigt, Bernstein = danach
+ * bestaetigt ("zu spaet genommen"), Grau = offen. Die Unterscheidung macht
+ * die Einnahme ehrlich nachvollziehbar, ohne jemanden am Bestaetigen zu
+ * hindern: eine verspaetet genommene Tablette MUSS abhakbar bleiben, sonst
+ * erinnert das Geraet endlos weiter und der Datensatz wird noch falscher.
+ * Das Bestaetigen VOR der Einnahmezeit ist dagegen ganz unterbunden - dort
+ * gibt es gar keine Checkbox (siehe tabletten_zeile_zeichnen), denn eine
+ * noch nicht faellige Tablette kann man nicht genommen haben. */
+static void checkbox_stellung_anwenden(lv_obj_t *box, bool markiert, bool verspaetet)
 {
-    lv_obj_set_style_bg_color(box, lv_color_hex(markiert ? FARBE_SCHIEBER_EIN : FARBE_SCHIEBER_AUS), 0);
+    uint32_t farbe = !markiert     ? FARBE_SCHIEBER_AUS
+                     : verspaetet  ? FARBE_BESTAETIGT_SPAET
+                                   : FARBE_SCHIEBER_EIN;
+    lv_obj_set_style_bg_color(box, lv_color_hex(farbe), 0);
 }
 
 /* Aendert NUR s_pending - der eigentliche Bestaetigungs-Aufruf
@@ -504,7 +536,7 @@ static void checkbox_geklickt_cb(lv_event_t *e)
 {
     tablette_checkbox_t *c = (tablette_checkbox_t *)lv_event_get_user_data(e);
     s_pending[c->index] = !s_pending[c->index];
-    checkbox_stellung_anwenden(c->box, s_pending[c->index]);
+    checkbox_stellung_anwenden(c->box, s_pending[c->index], s_verspaetet[c->index]);
 
     lvgl_port_lock(0);
     if (s_heute_fenster_timer)
@@ -521,7 +553,8 @@ static void checkbox_geklickt_cb(lv_event_t *e)
  * dem Rand-Insets-Fallstrick der Status-Symbole, siehe app_main.c).
  * lv_obj_align kennt die tatsaechliche rechte Kante des Panels und ist
  * dagegen immun. `y` ist die Y-Position innerhalb der jeweiligen Zeile. */
-static void tablette_checkbox_erzeugen(lv_obj_t *parent, int32_t y, int index, bool markiert)
+static void tablette_checkbox_erzeugen(lv_obj_t *parent, int32_t y, int index, bool markiert,
+                                        bool verspaetet)
 {
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_remove_style_all(box);
@@ -533,7 +566,8 @@ static void tablette_checkbox_erzeugen(lv_obj_t *parent, int32_t y, int index, b
     lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(box, 3, 0);
     lv_obj_set_style_border_color(box, lv_color_hex(FARBE_FENSTER_TEXT), 0);
-    checkbox_stellung_anwenden(box, markiert);
+    s_verspaetet[index] = verspaetet;
+    checkbox_stellung_anwenden(box, markiert, verspaetet);
 
     s_checkboxen[index].box = box;
     s_checkboxen[index].index = index;
@@ -541,6 +575,132 @@ static void tablette_checkbox_erzeugen(lv_obj_t *parent, int32_t y, int index, b
 
     lv_obj_add_flag(box, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(box, checkbox_geklickt_cb, LV_EVENT_CLICKED, &s_checkboxen[index]);
+}
+
+/* --- Gemeinsame Bausteine der beiden Tabletten-Listenfenster --------------
+ *
+ * "Heute"- und Erinnerungsfenster zeigen dieselbe Sache (Tabletten mit
+ * Checkbox zum Bestaetigen) und hatten dafuer lange zwei getrennte
+ * Zeichen-Schleifen. Die sind auseinandergelaufen: das Erinnerungsfenster
+ * faerbte Namen fest gold statt nach Faelligkeit, hatte keinen scrollbaren
+ * Bereich und rechnete seine Hoehe ohne das Panel-Innenpolster - alle drei
+ * von Peter per Screenshot-Vergleich der beiden Fenster entdeckt. Deshalb
+ * jetzt gemeinsame Helfer statt Kopien. */
+
+/* Erzeugt das Fenster-Grundgeruest und zieht seine Hoehe so nach, dass der
+ * nutzbare INHALTSbereich genau "inhalt_hoehe" hoch ist. Rahmen und
+ * Innenpolster werden gemessen statt geraten (FALLSTRICKE #27). */
+static lv_obj_t *fenster_mit_inhaltshoehe_erzeugen(const char *titel_oben, const char *titel_unten,
+                                                    int32_t inhalt_hoehe, lv_event_cb_t schliessen_cb,
+                                                    bool titel_einzeilig, int32_t x_button_rand)
+{
+    lv_obj_t *fenster = fenster_grundgeruest_erzeugen(titel_oben, titel_unten, inhalt_hoehe,
+                                                       schliessen_cb, titel_einzeilig, x_button_rand);
+    lv_obj_set_style_pad_top(fenster, FENSTER_POLSTER_V, 0);
+    lv_obj_set_style_pad_bottom(fenster, FENSTER_POLSTER_V, 0);
+    lv_obj_update_layout(fenster);
+    int32_t rahmen_polster = lv_obj_get_height(fenster) - lv_obj_get_content_height(fenster);
+    lv_obj_set_height(fenster, inhalt_hoehe + rahmen_polster);
+    lv_obj_center(fenster);
+    lv_obj_update_layout(fenster);
+    return fenster;
+}
+
+/* Scrollbarer, deckender Listenbereich mit gut sichtbarer Bildlaufleiste.
+ * Breite per Prozent und Scrollleisten-Streifen als pad_right, damit das
+ * Panel-Innenpolster keine Rolle spielt und rechtsbuendige Checkboxen immer
+ * davor enden. Deckender Hintergrund, weil das Fenster selbst leicht
+ * durchscheinend ist (LV_OPA_90) und Uhrzeit/Ueberschriften sonst mitten
+ * durch die Zeilen laufen. */
+static lv_obj_t *scroll_liste_erzeugen(lv_obj_t *parent, int32_t y, int32_t hoehe)
+{
+    lv_obj_t *liste = lv_obj_create(parent);
+    lv_obj_remove_style_all(liste);
+    lv_obj_set_pos(liste, 0, y);
+    lv_obj_set_size(liste, lv_pct(100), hoehe);
+    lv_obj_set_style_pad_right(liste, LISTE_SCROLLLEISTE_BREITE, 0);
+    lv_obj_set_scroll_dir(liste, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(liste, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_bg_color(liste, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(liste, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(liste, lv_color_hex(FARBE_SCHIEBER_EIN), LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(liste, LV_OPA_COVER, LV_PART_SCROLLBAR);
+    lv_obj_set_style_width(liste, 14, LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(liste, 7, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_right(liste, 4, LV_PART_SCROLLBAR);
+    lv_obj_update_layout(liste);
+    return liste;
+}
+
+/* Verfuegbare Textbreite je Zeile aus der TATSAECHLICHEN Inhaltsbreite:
+ * links Rand 20, rechts Checkbox samt Rand, dazwischen Luft. Zu lange Texte
+ * werden dadurch abgeschnitten statt umgebrochen und koennen die Checkbox
+ * nie verschieben (FALLSTRICKE #19/#22). */
+static int32_t listen_text_breite(lv_obj_t *liste)
+{
+    return lv_obj_get_content_width(liste) - 20 - CHECKBOX_RAND - CHECKBOX_GROESSE - 12;
+}
+
+/* Zeichnet EINE Tabletten-Zeile: Name in der Faelligkeitsfarbe, darunter
+ * (falls vorhanden) die Notiz aus dem Kalender gedaempft, rechts die
+ * Checkbox. Die Y-Abstaende werden aus der Zeilenhoehe abgeleitet, damit
+ * beide Fenster ihre eigene Zeilenhoehe behalten koennen. */
+#define ZEILE_NAME_HOEHE  32
+#define ZEILE_NOTIZ_HOEHE 30
+static void tabletten_zeile_zeichnen(lv_obj_t *liste, int32_t y, int32_t zeilen_hoehe,
+                                      int32_t text_breite, const kalender_tag_eintrag_t *eintrag,
+                                      int index, int jetzt_minuten)
+{
+    char inhalt[ZEILE_MAX];
+    eintrag_zeile_formatieren(eintrag, false, inhalt, sizeof inhalt);
+
+    kalender_tablette_status_t status = kalender_tablette_status(eintrag, true, jetzt_minuten);
+    uint32_t farbe;
+    switch (status) {
+    case KALENDER_TABLETTE_ABGEHAKT:     farbe = FARBE_VERGANGEN; break;
+    case KALENDER_TABLETTE_FAELLIG:      farbe = FARBE_TABLETTE_FAELLIG; break;
+    case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; break;
+    default:                             farbe = FARBE_FENSTER_TEXT; break;
+    }
+
+    bool hat_notiz = eintrag->beschreibung[0] != '\0';
+    int32_t block_hoehe = hat_notiz ? (ZEILE_NAME_HOEHE + ZEILE_NOTIZ_HOEHE) : ZEILE_NAME_HOEHE;
+    int32_t name_y = y + (zeilen_hoehe - block_hoehe) / 2;
+
+    lv_obj_t *name = lv_label_create(liste);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(name, text_breite, ZEILE_NAME_HOEHE);
+    lv_obj_set_pos(name, 20, name_y);
+    lv_obj_set_style_text_font(name, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(name, lv_color_hex(farbe), 0);
+    lv_label_set_text(name, inhalt);
+
+    if (hat_notiz) {
+        lv_obj_t *notiz = lv_label_create(liste);
+        lv_label_set_long_mode(notiz, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(notiz, text_breite, ZEILE_NOTIZ_HOEHE);
+        lv_obj_set_pos(notiz, 20, name_y + ZEILE_NAME_HOEHE);
+        lv_obj_set_style_text_font(notiz, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(notiz, lv_color_hex(FARBE_VERGANGEN), 0);
+        lv_label_set_text(notiz, eintrag->beschreibung);
+    }
+
+    /* Checkbox NUR ab der Einnahmezeit - vorher gibt es bewusst gar keine
+     * (Peters Entscheidung): eine noch nicht faellige Tablette kann man nicht
+     * genommen haben, und ohne Bedienelement kann sie auch nicht versehentlich
+     * oder vorsorglich abgehakt werden. Eine bereits bestaetigte Zeile behaelt
+     * ihre Checkbox immer, damit ein Fehltipp auch spaeter noch korrigierbar
+     * bleibt. */
+    if (status != KALENDER_TABLETTE_ZUKUNFT || eintrag->bestaetigt) {
+        /* "Verspaetet" ist unabhaengig vom aktuellen Pending-Zustand: bereits
+         * bestaetigte Zeilen behalten ihre gespeicherte Bewertung, ein NEUES
+         * Haekchen zaehlt als verspaetet, sobald das Fenster abgelaufen ist. */
+        bool verspaetet = eintrag->bestaetigt
+                               ? !kalender_tablette_puenktlich_bestaetigt(eintrag)
+                               : (jetzt_minuten >= kalender_tablette_fenster_ende(eintrag));
+        tablette_checkbox_erzeugen(liste, y + (zeilen_hoehe - CHECKBOX_GROESSE) / 2, index,
+                                    eintrag->bestaetigt, verspaetet);
+    }
 }
 
 /* Baut das gemeinsame gruene OK-/rote Abbrechen-Button-Paar unten im
@@ -585,9 +745,21 @@ static void ok_abbrechen_erzeugen(lv_obj_t *parent, lv_event_cb_t ok_cb, lv_even
  * gemeinsame Grundlage fuer den OK-Button beider Fenster. */
 static void checkboxen_uebernehmen(void)
 {
+    /* Uhrzeit des OK-Tipps als Einnahme-Zeitpunkt festhalten - das ist der
+     * Moment, in dem die Bestaetigung tatsaechlich wirksam wird (ein blosser
+     * Checkbox-Tipp davor ist noch widerrufbar). -1, falls die Uhr nicht
+     * synchron ist; dann gilt die Einnahme als puenktlich, statt jemandem
+     * eine Verspaetung anzuhaengen, die nur an der unbekannten Zeit liegt. */
+    int jetzt_minuten = -1;
+    if (zeit_ist_synchron()) {
+        time_t jetzt = time(NULL);
+        struct tm lokal;
+        localtime_r(&jetzt, &lokal);
+        jetzt_minuten = lokal.tm_hour * 60 + lokal.tm_min;
+    }
     for (int i = 0; i < KALENDER_EINTRAEGE_MAX; i++)
         if (s_checkboxen[i].box)
-            kalender_anzeige_tablette_bestaetigen(i, s_pending[i]);
+            kalender_anzeige_tablette_bestaetigen(i, s_pending[i], jetzt_minuten);
 }
 
 static void heutefenster_hintergrund_cb(lv_event_t *e)
@@ -626,63 +798,16 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
 
     /* Einzeiliger Kopf ("HEUTE  8. August 2026") - der gesparte Platz kommt
      * der scrollbaren Liste darunter zugute (Peters Vorschlag). Das "X" wird
-     * buendig zur rechten Checkbox-Kante gesetzt (HEUTE_X_BUTTON_RAND). */
-    s_heute_fenster = fenster_grundgeruest_erzeugen("HEUTE", datum, HEUTE_INHALT_GESAMT_HOEHE,
-                                                     heutefenster_schliessen_cb, true,
-                                                     HEUTE_X_BUTTON_RAND);
+     * buendig zur rechten Checkbox-Kante gesetzt (LISTE_X_BUTTON_RAND). */
+    s_heute_fenster = fenster_mit_inhaltshoehe_erzeugen("HEUTE", datum, HEUTE_INHALT_GESAMT_HOEHE,
+                                                         heutefenster_schliessen_cb, true,
+                                                         LISTE_X_BUTTON_RAND);
     aktiven_button_setzen(aktiver_button);
     lv_obj_add_event_cb(s_heute_fenster, heutefenster_hintergrund_cb, LV_EVENT_PRESSED, NULL);
 
-    /* Fensterhoehe so nachziehen, dass der INHALTSbereich exakt
-     * HEUTE_INHALT_GESAMT_HOEHE hoch wird. Rahmen und Innenpolster des Panels
-     * (rund 22px je Seite) werden dafuer zur Laufzeit gemessen statt geraten -
-     * vorher frass genau dieses Polster die eingeplanten Abstaende auf, sodass
-     * die letzte Zeile in den OK-Button lief. */
-    lv_obj_set_style_pad_top(s_heute_fenster, HEUTE_PANEL_POLSTER_V, 0);
-    lv_obj_set_style_pad_bottom(s_heute_fenster, HEUTE_PANEL_POLSTER_V, 0);
-    lv_obj_update_layout(s_heute_fenster);
-    int32_t rahmen_polster = lv_obj_get_height(s_heute_fenster) - lv_obj_get_content_height(s_heute_fenster);
-    lv_obj_set_height(s_heute_fenster, HEUTE_INHALT_GESAMT_HOEHE + rahmen_polster);
-    lv_obj_center(s_heute_fenster);
-    lv_obj_update_layout(s_heute_fenster);
-
-    /* Scrollbarer Inhaltsbereich zwischen Kopf und OK/Abbrechen - Fenster
-     * bleibt fest, unabhaengig davon wie viele Tabletten/Termine an einem Tag
-     * anfallen. Breite per Prozent (statt aus FENSTER_BREITE gerechnet), damit
-     * das Panel-Innenpolster keine Rolle spielt; der Streifen fuer die
-     * Scrollleiste entsteht als pad_right, wodurch die rechtsbuendigen
-     * Checkboxen davor enden und nie von der Leiste ueberlagert werden. */
-    lv_obj_t *inhalt = lv_obj_create(s_heute_fenster);
-    lv_obj_remove_style_all(inhalt);
-    lv_obj_set_pos(inhalt, 0, HEUTE_KOPF_HOEHE);
-    lv_obj_set_size(inhalt, lv_pct(100), HEUTE_INHALT_SICHTBAR_HOEHE);
-    lv_obj_set_style_pad_right(inhalt, HEUTE_SCROLLLEISTE_BREITE, 0);
-    lv_obj_set_scroll_dir(inhalt, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(inhalt, LV_SCROLLBAR_MODE_AUTO);
-    /* Deckender Hintergrund NUR fuer den Listenbereich: das Fenster selbst
-     * ist bewusst leicht durchscheinend (LV_OPA_90, siehe
-     * fenster_grundgeruest_erzeugen), wodurch die grosse Uhrzeit und die
-     * Uebersicht-Ueberschriften mitten durch die Tabletten-Zeilen liefen -
-     * live als unruhig/schlecht lesbar zurueckgemeldet. Die uebrigen Fenster
-     * behalten ihre Transparenz, nur diese Liste wird undurchsichtig. */
-    lv_obj_set_style_bg_color(inhalt, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(inhalt, LV_OPA_COVER, 0);
-    /* Scrollleiste gross und deutlich - der LVGL-Standard ist ein duenner
-     * Strich, auf diesem Geraet (seniorengerecht grosse Bedienelemente)
-     * kaum als Bildlaufleiste erkennbar. */
-    lv_obj_set_style_bg_color(inhalt, lv_color_hex(FARBE_SCHIEBER_EIN), LV_PART_SCROLLBAR);
-    lv_obj_set_style_bg_opa(inhalt, LV_OPA_COVER, LV_PART_SCROLLBAR);
-    lv_obj_set_style_width(inhalt, 14, LV_PART_SCROLLBAR);
-    lv_obj_set_style_radius(inhalt, 7, LV_PART_SCROLLBAR);
-    lv_obj_set_style_pad_right(inhalt, 4, LV_PART_SCROLLBAR);
-
-    /* Verfuegbare Textbreite je Zeile aus der TATSAECHLICHEN Inhaltsbreite
-     * ableiten (nicht aus FENSTER_BREITE): links Rand 20, rechts die Checkbox
-     * samt ihrem Rand, dazwischen etwas Luft. Laengere Texte werden damit
-     * abgeschnitten statt umgebrochen und koennen die Checkbox nie
-     * verschieben (FALLSTRICKE #19/#22). */
-    lv_obj_update_layout(inhalt);
-    int32_t text_breite = lv_obj_get_content_width(inhalt) - 20 - CHECKBOX_RAND - CHECKBOX_GROESSE - 12;
+    lv_obj_t *inhalt = scroll_liste_erzeugen(s_heute_fenster, HEUTE_KOPF_HOEHE,
+                                              HEUTE_INHALT_SICHTBAR_HOEHE);
+    int32_t text_breite = listen_text_breite(inhalt);
 
     /* Zeilen buendig bei 0 beginnen - ein Startversatz liesse die letzte der
      * HEUTE_INHALT_SICHTBAR_HOEHE-Zeilen genau um diesen Betrag angeschnitten
@@ -693,45 +818,8 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
         if (!eintraege[i].ist_tablette)
             continue;
         tablette_vorhanden = true;
-
-        /* Kein "[x] "-Praefix mehr noetig - die Checkbox rechts zeigt den
-         * (vorlaeufigen) Zustand, siehe tablette_checkbox_erzeugen. */
-        char inhalt_zeile[ZEILE_MAX];
-        eintrag_zeile_formatieren(&eintraege[i], false, inhalt_zeile, sizeof inhalt_zeile);
-
-        uint32_t farbe;
-        switch (kalender_tablette_status(&eintraege[i], true, jetzt_minuten)) {
-        case KALENDER_TABLETTE_ABGEHAKT:     farbe = FARBE_VERGANGEN; break;
-        case KALENDER_TABLETTE_FAELLIG:      farbe = FARBE_TABLETTE_FAELLIG; break;
-        case KALENDER_TABLETTE_UEBERFAELLIG: farbe = FARBE_TABLETTE_UEBERFAELLIG; break;
-        default:                             farbe = FARBE_FENSTER_TEXT; break;
-        }
-
-        /* Notiz aus dem Kalender (ICS-DESCRIPTION, z. B. "nuechtern") unter
-         * dem Namen, gedaempft - wie im Erinnerungsfenster. Ohne Notiz steht
-         * der Name allein und mittig in der Zeile. */
-        bool hat_notiz = eintraege[i].beschreibung[0] != '\0';
-
-        lv_obj_t *label = lv_label_create(inhalt);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-        lv_obj_set_size(label, text_breite, 32);
-        lv_obj_set_pos(label, 20, y + (hat_notiz ? 4 : 18));
-        lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
-        lv_label_set_text(label, inhalt_zeile);
-
-        if (hat_notiz) {
-            lv_obj_t *notiz = lv_label_create(inhalt);
-            lv_label_set_long_mode(notiz, LV_LABEL_LONG_DOT);
-            lv_obj_set_size(notiz, text_breite, 30);
-            lv_obj_set_pos(notiz, 20, y + 36);
-            lv_obj_set_style_text_font(notiz, &schrift_klein_28, 0);
-            lv_obj_set_style_text_color(notiz, lv_color_hex(FARBE_VERGANGEN), 0);
-            lv_label_set_text(notiz, eintraege[i].beschreibung);
-        }
-
-        tablette_checkbox_erzeugen(inhalt, y + (HEUTE_ZEILE_TABLETTE_HOEHE - CHECKBOX_GROESSE) / 2, i, eintraege[i].bestaetigt);
-
+        tabletten_zeile_zeichnen(inhalt, y, HEUTE_ZEILE_TABLETTE_HOEHE, text_breite,
+                                  &eintraege[i], i, jetzt_minuten);
         y += HEUTE_ZEILE_TABLETTE_HOEHE;
     }
     if (!tablette_vorhanden) {
@@ -841,58 +929,29 @@ void tagesansicht_erinnerung_zeigen(void)
     heutefenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
     tagesfenster_intern_schliessen();
 
-    s_erinnerung_fenster = fenster_grundgeruest_erzeugen(n == 1 ? "TABLETTE NEHMEN" : "TABLETTEN NEHMEN",
-                                                          "Bitte bestaetigen",
-                                                          FENSTER_HOEHE_ERINNERUNG, erinnerung_schliessen_cb, false,
-                                                          X_BUTTON_RAND_STANDARD);
+    /* Zweizeiliger Kopf (beide Texte nebeneinander waeren breiter als das
+     * Fenster), aber sonst derselbe Aufbau wie das "Heute"-Fenster: gemessene
+     * Fensterhoehe, scrollbare Liste, "X" buendig zu den Checkboxen. */
+    s_erinnerung_fenster = fenster_mit_inhaltshoehe_erzeugen(n == 1 ? "TABLETTE NEHMEN" : "TABLETTEN NEHMEN",
+                                                              "Bitte bestaetigen",
+                                                              ERINNERUNG_INHALT_GESAMT_HOEHE,
+                                                              erinnerung_schliessen_cb, false,
+                                                              LISTE_X_BUTTON_RAND);
 
-    int32_t y = 100;
-    int gezeigt = 0;
+    lv_obj_t *liste = scroll_liste_erzeugen(s_erinnerung_fenster, ERINNERUNG_KOPF_HOEHE,
+                                             ERINNERUNG_INHALT_SICHTBAR_HOEHE);
+    int32_t text_breite = listen_text_breite(liste);
+
+    /* ALLE faelligen Tabletten in die scrollbare Liste - kein "+N weitere"
+     * mehr: die abgeschnittenen liessen sich frueher hier gar nicht
+     * bestaetigen, obwohl genau das der Zweck des Fensters ist. */
+    int32_t y = 0;
     for (int k = 0; k < n; k++) {
-        if (gezeigt >= ERINNERUNG_ZEILEN_MAX - (n > ERINNERUNG_ZEILEN_MAX ? 1 : 0))
-            break;
         int i = indizes[k];
-        int32_t breite = FENSTER_BREITE - 40 - CHECKBOX_GROESSE - 20;
-
-        /* Name + Uhrzeit ueber die vorhandene Formatierfunktion - dieselbe
-         * "HH:MM  Titel"-Zeile wie ueberall sonst in diesem Modul.
-         * Abschneiden statt umbrechen (FALLSTRICKE #22/#19): ein langer
-         * Name darf die Checkbox nicht verschieben. */
-        char inhalt[ZEILE_MAX];
-        eintrag_zeile_formatieren(&eintraege[i], false, inhalt, sizeof inhalt);
-
-        lv_obj_t *name = lv_label_create(s_erinnerung_fenster);
-        lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-        lv_obj_set_size(name, breite, 32);
-        lv_obj_set_pos(name, 20, y);
-        lv_obj_set_style_text_font(name, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(name, lv_color_hex(FARBE_FENSTER_AKZENT), 0);
-        lv_label_set_text(name, inhalt);
-
-        if (eintraege[i].beschreibung[0]) {
-            lv_obj_t *beschreibung = lv_label_create(s_erinnerung_fenster);
-            lv_label_set_long_mode(beschreibung, LV_LABEL_LONG_DOT);
-            lv_obj_set_size(beschreibung, breite, 30);
-            lv_obj_set_pos(beschreibung, 20, y + 32);
-            lv_obj_set_style_text_font(beschreibung, &schrift_klein_28, 0);
-            lv_obj_set_style_text_color(beschreibung, lv_color_hex(FARBE_VERGANGEN), 0);
-            lv_label_set_text(beschreibung, eintraege[i].beschreibung);
-        }
-
-        tablette_checkbox_erzeugen(s_erinnerung_fenster, y + (ERINNERUNG_ZEILE_HOEHE - CHECKBOX_GROESSE) / 2,
-                                    i, eintraege[i].bestaetigt);
+        tabletten_zeile_zeichnen(liste, y, ERINNERUNG_ZEILE_HOEHE, text_breite,
+                                  &eintraege[i], i, jetzt_minuten);
 
         y += ERINNERUNG_ZEILE_HOEHE;
-        gezeigt++;
-    }
-    if (n > gezeigt) {
-        lv_obj_t *mehr = lv_label_create(s_erinnerung_fenster);
-        char text[24];
-        snprintf(text, sizeof text, "+%d weitere", n - gezeigt);
-        lv_label_set_text(mehr, text);
-        lv_obj_set_style_text_font(mehr, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(mehr, lv_color_hex(FARBE_VERGANGEN), 0);
-        lv_obj_set_pos(mehr, 20, y);
     }
 
     ok_abbrechen_erzeugen(s_erinnerung_fenster, erinnerung_ok_cb, erinnerung_schliessen_cb);

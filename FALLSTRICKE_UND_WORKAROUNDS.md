@@ -513,3 +513,34 @@ strukturell lueckenhaft - jedes neu hinzugefuegte Bedienelement muesste daran de
 Framework eine globale Inaktivitaetszeit anbietet, ist sie der richtige Anker. Und: ein
 Sonderfall, der einen Fehler nur VERDECKT ("Fenster offen => immer hell"), macht ihn beim
 Wegfallen dieses Sonderfalls umso verwirrender.
+
+## 29. sdkconfig.defaults wirkt NICHT auf eine bereits vorhandene sdkconfig - Rollback-Schutz war monatelang aus
+
+**Problem:** `sdkconfig.defaults` schrieb seit dem OTA-Umbau
+`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` vor, mit dem Kommentar "fuer ein Geraet, das weit
+entfernt bei den Eltern steht, die wichtigste einzelne Absicherung des ganzen OTA-Vorhabens".
+In der tatsaechlich wirksamen `sdkconfig` stand aber `# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is
+not set`. Die Absicherung war damit in JEDER lokal gebauten Firmware inaktiv - auch in der, die
+frisch auf das Geraet der Eltern geflasht wurde.
+
+**Ursache:** `sdkconfig.defaults` ist eine Vorlage fuer die ERSTERZEUGUNG von `sdkconfig`. Ist
+`sdkconfig` bereits vorhanden (bei diesem Projekt der Normalfall, die Datei ist gitignored und
+lebt lokal weiter), gewinnen deren Werte - neu hinzugefuegte Zeilen in `sdkconfig.defaults`
+werden schlicht ignoriert, ohne Warnung. Die Zeile war also von Anfang an wirkungslos.
+
+**Wichtige Differenzierung:** Der GitHub-Actions-Build ist NICHT betroffen. Er checkt frisch aus,
+hat also keine `sdkconfig` (gitignored) und erzeugt sie aus den Defaults - Release-Binaries hatten
+den Rollback-Schutz immer. Falsch waren ausschliesslich die lokal gebauten und per USB geflashten
+Stande. Genau deshalb faellt so etwas nicht auf: die "offizielle" Firmware ist korrekt, nur die
+Entwickler-Builds weichen ab.
+
+**Loesung:** `sdkconfig` geloescht und per `idf.py reconfigure` neu erzeugen lassen. Vorher gegen
+die alte Datei diffen - hier war die Rollback-Zeile die EINZIGE Abweichung, ein Neuerzeugen also
+gefahrlos. Danach beide Boards neu flashen.
+
+**Lehre:** Nach jeder Aenderung an `sdkconfig.defaults` pruefen, ob der Wert auch in `sdkconfig`
+angekommen ist - eine Zeile dort ist keine Garantie, sondern nur ein Wunsch. Ein Einzeiler
+genuegt: jede `CONFIG_`-Zeile der Defaults gegen `sdkconfig` gegenpruefen und Abweichungen
+melden. Besonders heikel bei Sicherheitsnetzen, die man erst im Ernstfall vermisst - der
+Rollback-Schutz waere genau dann aufgefallen, wenn ein fehlerhaftes Update das Geraet weit
+entfernt lahmgelegt haette.

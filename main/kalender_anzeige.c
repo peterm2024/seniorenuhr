@@ -81,6 +81,7 @@ static void eintrag_uebernehmen(kalender_tag_eintrag_t *ziel, const ics_termin_t
     ziel->ganztags = quelle->ganztags;
     ziel->ist_tablette = quelle->ist_tablette;
     ziel->bestaetigt = false;
+    ziel->bestaetigt_minute = -1;
 }
 
 static void fuer_heute_neu_parsen(void)
@@ -136,13 +137,16 @@ static void fuer_heute_neu_parsen(void)
                 if (s_heute_eintraege[a].ist_tablette &&
                     strcmp(s_heute_eintraege[a].titel, neue_eintraege[i].titel) == 0) {
                     neue_eintraege[i].bestaetigt = s_heute_eintraege[a].bestaetigt;
+                    neue_eintraege[i].bestaetigt_minute = s_heute_eintraege[a].bestaetigt_minute;
                     break;
                 }
             }
         }
     } else if (s_letzter_tag_schluessel == -1) {
         static char s_titel_gespeichert[KALENDER_EINTRAEGE_MAX][ICS_TITEL_MAX];
+        static int s_minute_gespeichert[KALENDER_EINTRAEGE_MAX];
         int n_gespeichert = kalender_speicher_bestaetigungen_lesen(schluessel, s_titel_gespeichert,
+                                                                    s_minute_gespeichert,
                                                                     KALENDER_EINTRAEGE_MAX);
         for (int i = 0; i < neue_anzahl; i++) {
             if (!neue_eintraege[i].ist_tablette)
@@ -150,6 +154,7 @@ static void fuer_heute_neu_parsen(void)
             for (int b = 0; b < n_gespeichert; b++) {
                 if (strcmp(s_titel_gespeichert[b], neue_eintraege[i].titel) == 0) {
                     neue_eintraege[i].bestaetigt = true;
+                    neue_eintraege[i].bestaetigt_minute = s_minute_gespeichert[b];
                     break;
                 }
             }
@@ -262,11 +267,15 @@ int kalender_anzeige_heutige_eintraege(kalender_tag_eintrag_t *ziel, int max)
     return anzahl;
 }
 
-void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt)
+void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt, int jetzt_minuten)
 {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     if (index >= 0 && index < s_heute_anzahl) {
         s_heute_eintraege[index].bestaetigt = bestaetigt;
+        /* Uhrzeit nur beim Bestaetigen merken; beim Zuruecknehmen wieder
+         * loeschen, damit eine spaetere erneute Bestaetigung nicht die alte
+         * (womoeglich puenktliche) Zeit erbt. */
+        s_heute_eintraege[index].bestaetigt_minute = bestaetigt ? jetzt_minuten : -1;
 
         /* Sofort auf Flash sichern, damit ein unerwarteter Neustart
          * (Stromausfall/Panic) eine bereits genommene Tablette nicht
@@ -274,16 +283,40 @@ void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt)
          * der Boot-Neustart-Reflex wurde deswegen schon abgeschaltet,
          * aber ein Reset kann trotzdem vorkommen). */
         static char s_titel_bestaetigt[KALENDER_EINTRAEGE_MAX][ICS_TITEL_MAX];
+        static int s_minute_bestaetigt[KALENDER_EINTRAEGE_MAX];
         int anzahl_bestaetigt = 0;
         for (int i = 0; i < s_heute_anzahl; i++) {
-            if (s_heute_eintraege[i].ist_tablette && s_heute_eintraege[i].bestaetigt)
-                snprintf(s_titel_bestaetigt[anzahl_bestaetigt++], ICS_TITEL_MAX, "%.*s",
+            if (s_heute_eintraege[i].ist_tablette && s_heute_eintraege[i].bestaetigt) {
+                snprintf(s_titel_bestaetigt[anzahl_bestaetigt], ICS_TITEL_MAX, "%.*s",
                          ICS_TITEL_MAX - 1, s_heute_eintraege[i].titel);
+                s_minute_bestaetigt[anzahl_bestaetigt] = s_heute_eintraege[i].bestaetigt_minute;
+                anzahl_bestaetigt++;
+            }
         }
         kalender_speicher_bestaetigungen_schreiben(s_letzter_tag_schluessel, s_titel_bestaetigt,
-                                                    anzahl_bestaetigt);
+                                                    s_minute_bestaetigt, anzahl_bestaetigt);
     }
     xSemaphoreGive(s_mutex);
+}
+
+int kalender_tablette_fenster_ende(const kalender_tag_eintrag_t *eintrag)
+{
+    int soll_minuten = eintrag->stunde * 60 + eintrag->minute;
+    return eintrag->hat_ende ? eintrag->end_stunde * 60 + eintrag->end_minute
+                             : soll_minuten + KALENDER_TABLETTE_UEBERFAELLIG_MIN;
+}
+
+bool kalender_tablette_puenktlich_bestaetigt(const kalender_tag_eintrag_t *eintrag)
+{
+    if (!eintrag->bestaetigt)
+        return false;
+    /* Ganztaegige Tabletten haben kein sinnvolles Zeitfenster, und ohne
+     * bekannte Bestaetigungszeit (alte Speicherdatei, oder Uhr war beim
+     * Abhaken nicht synchron) wird zugunsten des Nutzers "puenktlich"
+     * angenommen - lieber kein Vorwurf als ein falscher. */
+    if (eintrag->ganztags || eintrag->bestaetigt_minute < 0)
+        return true;
+    return eintrag->bestaetigt_minute < kalender_tablette_fenster_ende(eintrag);
 }
 
 void kalender_anzeige_jetzt_pruefen(void)
@@ -307,10 +340,7 @@ kalender_tablette_status_t kalender_tablette_status(const kalender_tag_eintrag_t
      * (main/ics_parser.h), gilt sie bis dahin als "faellig", statt der
      * sonst festen 60-Minuten-Schwelle - passend zu Terminen, die selbst
      * schon ein Zeitfenster vorgeben (z. B. "8:00-8:30 Uhr nuechtern"). */
-    int grenze_minuten = eintrag->hat_ende
-                              ? eintrag->end_stunde * 60 + eintrag->end_minute
-                              : soll_minuten + KALENDER_TABLETTE_UEBERFAELLIG_MIN;
-    if (jetzt_minuten >= grenze_minuten)
+    if (jetzt_minuten >= kalender_tablette_fenster_ende(eintrag))
         return KALENDER_TABLETTE_UEBERFAELLIG;
     return KALENDER_TABLETTE_FAELLIG;
 }

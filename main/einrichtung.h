@@ -54,7 +54,20 @@ typedef enum {
      * abwarten oder das Datum von Hand einstellen zu muessen (siehe
      * app_main.c). */
     EINSTELLUNGEN_AKTION_DEMO,
+    /* Firmware-Update ausdruecklich einspielen bzw. auf die vorherige
+     * Version zurueckschalten (siehe ota.h). Beide Buttons erscheinen nur,
+     * wenn sie ueberhaupt etwas bewirken koennen - ein Update nur bei
+     * gemeldeter neuer Version, das Zurueckschalten nur, wenn die zweite
+     * App-Partition ein gueltiges Image enthaelt. */
+    EINSTELLUNGEN_AKTION_UPDATE,
+    EINSTELLUNGEN_AKTION_VERSION_ZURUECK,
+    /* Eine gezielt aus der Auswahlliste gewaehlte Version installieren -
+     * welche, liefert einrichtung_einstellungen_gewaehlte_version(). */
+    EINSTELLUNGEN_AKTION_VERSION_WAEHLEN,
 } einstellungen_aktion_t;
+
+/* Nur nach EINSTELLUNGEN_AKTION_VERSION_WAEHLEN aussagekraeftig. */
+const char *einrichtung_einstellungen_gewaehlte_version(void);
 
 void einrichtung_einstellungen_zeigen(void);
 einrichtung_status_t einrichtung_einstellungen_status(void);

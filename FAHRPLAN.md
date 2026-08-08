@@ -595,6 +595,31 @@ Umweg über Testdaten war nicht mehr nötig.
   der Bedienung ab und schlug erst beim Fensterschliessen schlagartig durch. Ersetzt durch
   LVGLs globale Inaktivitaets-Uhr `lv_display_get_inactive_time()` (FALLSTRICKE #28).
   Alles auf Board 1 (Dev) per Screenshot verifiziert; Board 2 hat diesen Stand noch nicht.
+- ✅ Nachtrag 25 (08.08.2026) — Einnahme-Bestaetigung ehrlich gemacht, OTA auf ausdrueckliche
+  Bestaetigung umgestellt. **Tabletten:** Peters Unterscheidung der beiden Fenster (Uebersicht vs.
+  Aufforderung) fuehrte zu einer schaerferen Regel gegen "Bescheissen": VOR der Einnahmezeit gibt
+  es gar keine Checkbox mehr (nicht bloss gesperrt - was nicht da ist, kann auch nicht
+  versehentlich abgehakt werden), im gueltigen Zeitfenster ist sie gruen, danach bernstein.
+  Verspaetetes Bestaetigen bleibt bewusst moeglich - eine Sperre wuerde nur endlose Erinnerungen
+  und einen noch falscheren Datensatz erzeugen. Dafuer speichert `kalender_speicher` jetzt die
+  Bestaetigungs-UHRZEIT mit (Format `<minute>	<titel>`, altes Format wird weiter gelesen); ohne
+  sie waere eine puenktlich genommene Tablette eine Stunde spaeter faelschlich als verspaetet
+  erschienen. Nebenprodukt: die Uhrzeiten sind das Rohmaterial fuer eine spaetere Auswertung
+  "wann wurde was genommen". **OTA:** installiert wird nichts mehr von selbst. Geprueft wird
+  weiterhin alle 30 Minuten, gefundene Updates melden sich nur noch als neues Symbol (Pfeil nach
+  unten) links neben den Status-Symbolen; eingespielt wird erst auf Tipp im Einstellungen-Menue.
+  Dort ausserdem eine Auswahlliste ALLER veroeffentlichten Versionen (GitHub-API, cJSON, Antwort
+  im PSRAM) - damit laesst sich gezielt auch eine aeltere Version zurueckholen, was mit dem
+  blossen Umschalten zwischen den zwei App-Partitionen nicht ginge (Peters Szenario: 235 gefaellt
+  nicht, spaeter will man ein Feature daraus doch). Moeglich nur, weil Anti-Rollback bewusst aus
+  bleibt. Die API-Abfrage laeuft im Hintergrund-Task, nie im LVGL-Kontext. **Zwei Funde
+  unterwegs:** (1) Der Rollback-Schutz war in allen LOKAL gebauten Firmwares inaktiv -
+  `sdkconfig.defaults` wirkt nicht auf eine bereits vorhandene `sdkconfig` (FALLSTRICKE #29);
+  CI-Builds waren korrekt, nur die per USB geflashten Stande nicht. (2) Das Quellcode-Repo ist
+  privat, dessen Release-Assets sind ohne Token nicht ladbar - OTA haette also nie funktioniert.
+  Geloest ueber ein zweites, oeffentliches Repo `peterm2024/seniorenuhr-firmware`, das
+  ausschliesslich Binaries mit Platzhalter-Zugangsdaten enthaelt; der Release-Workflow laedt per
+  fein granularem PAT (`FIRMWARE_REPO_TOKEN`) dorthin hoch. Kein Token in der Firmware.
 - ⬜ Sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal

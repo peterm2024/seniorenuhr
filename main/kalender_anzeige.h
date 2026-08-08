@@ -30,6 +30,14 @@ typedef struct {
     bool ganztags;
     bool ist_tablette;
     bool bestaetigt;
+    /* Uhrzeit der Bestaetigung als Minuten seit Mitternacht, -1 wenn
+     * unbestaetigt (oder aus einer alten Speicherdatei ohne Zeitangabe
+     * uebernommen). Wird mitgespeichert, damit "im erlaubten Fenster
+     * bestaetigt" (gruen) und "zu spaet bestaetigt" (bernstein) auch nach
+     * einem Neustart noch unterscheidbar sind - ohne die Uhrzeit wuerde eine
+     * puenktlich genommene Tablette spaeter faelschlich als verspaetet
+     * gelten, weil nur noch "jetzt" bekannt waere. */
+    int bestaetigt_minute;
 } kalender_tag_eintrag_t;
 
 void kalender_task_starten(void);
@@ -51,8 +59,23 @@ bool kalender_anzeige_frisch(void);
 int kalender_anzeige_heutige_eintraege(kalender_tag_eintrag_t *ziel, int max);
 
 /* Bestaetigt/entbestaetigt die Tablette an Index `index` (Index aus
- * kalender_anzeige_heutige_eintraege()). */
-void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt);
+ * kalender_anzeige_heutige_eintraege()). `jetzt_minuten` ist die aktuelle
+ * Uhrzeit in Minuten seit Mitternacht (-1, falls unbekannt) und wird beim
+ * Bestaetigen mitgespeichert, damit spaeter erkennbar bleibt, ob es
+ * innerhalb des erlaubten Einnahme-Fensters geschah. */
+void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt, int jetzt_minuten);
+
+/* Ende des erlaubten Einnahme-Fensters in Minuten seit Mitternacht: die
+ * DTEND-Uhrzeit, falls im Kalender gesetzt, sonst
+ * KALENDER_TABLETTE_UEBERFAELLIG_MIN nach der Soll-Zeit. Oeffentlich, weil
+ * die Anzeige damit entscheidet, ob eine Bestaetigung noch als puenktlich
+ * gilt - dieselbe Schwelle wie in kalender_tablette_status(). */
+int kalender_tablette_fenster_ende(const kalender_tag_eintrag_t *eintrag);
+
+/* true, wenn die Tablette bestaetigt ist UND das nachweislich innerhalb des
+ * erlaubten Fensters geschah. Bei Bestaetigungen ohne bekannte Uhrzeit
+ * (alte Speicherdatei) wird zugunsten des Nutzers "puenktlich" angenommen. */
+bool kalender_tablette_puenktlich_bestaetigt(const kalender_tag_eintrag_t *eintrag);
 
 /* Faelligkeitsstatus einer Tablette - gemeinsam fuer alle Anzeigeorte
  * (Hauptuebersicht in app_main.c, "Heute"-Fenster in tagesansicht.c), damit

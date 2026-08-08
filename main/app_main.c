@@ -634,6 +634,10 @@ typedef struct {
 static status_icon_t s_status_wlan;
 static status_icon_t s_status_zeit;
 static status_icon_t s_status_kalender;
+/* Links VOR den drei Verbindungs-Symbolen; erscheint nur, wenn eine neue
+ * Firmware bereitsteht (Peters Wunsch) - es ist also selbst schon die
+ * Meldung, nicht bloss ein Zustandsanzeiger, und bleibt sonst unsichtbar. */
+static status_icon_t s_status_update;
 static lv_obj_t *s_status_fenster;
 static lv_timer_t *s_status_fenster_timer;
 
@@ -739,6 +743,34 @@ static void status_glyph_zeit_erzeugen(status_icon_t *icon)
 }
 
 /* Kalender-Symbol: abgerundetes Rechteck + Kopfleiste. */
+/* Pfeil nach unten auf eine Grundlinie - das gelaeufige "Herunterladen/
+ * Aktualisieren"-Zeichen. Bewusst dieselbe Ring-Optik wie die drei
+ * Verbindungs-Symbole, damit es sich in die Reihe einfuegt statt als
+ * Fremdkoerper zu wirken. */
+static void status_glyph_update_erzeugen(status_icon_t *icon)
+{
+    static const lv_point_precise_t schaft[2] = {{17, 8}, {17, 21}};
+    lv_obj_t *linie = lv_line_create(icon->container);
+    lv_line_set_points(linie, schaft, 2);
+    lv_obj_set_style_line_width(linie, 3, 0);
+    lv_obj_set_style_line_rounded(linie, true, 0);
+    status_icon_teil_hinzufuegen(icon, linie);
+
+    static const lv_point_precise_t spitze[3] = {{11, 15}, {17, 22}, {23, 15}};
+    lv_obj_t *pfeil = lv_line_create(icon->container);
+    lv_line_set_points(pfeil, spitze, 3);
+    lv_obj_set_style_line_width(pfeil, 3, 0);
+    lv_obj_set_style_line_rounded(pfeil, true, 0);
+    status_icon_teil_hinzufuegen(icon, pfeil);
+
+    static const lv_point_precise_t boden[2] = {{10, 26}, {24, 26}};
+    lv_obj_t *grundlinie = lv_line_create(icon->container);
+    lv_line_set_points(grundlinie, boden, 2);
+    lv_obj_set_style_line_width(grundlinie, 3, 0);
+    lv_obj_set_style_line_rounded(grundlinie, true, 0);
+    status_icon_teil_hinzufuegen(icon, grundlinie);
+}
+
 static void status_glyph_kalender_erzeugen(status_icon_t *icon)
 {
     lv_obj_t *rahmen = lv_obj_create(icon->container);
@@ -1119,6 +1151,14 @@ static void ui_aufbauen(void)
      * Button rechts, oeffnen Tages-/Heute-Fenster mit Terminen/Tabletten. */
     tagesansicht_erstellen(s_bildschirm);
 
+    /* Update-Hinweis links vor den Verbindungs-Symbolen - startet
+     * unsichtbar und erscheint erst, wenn eine neue Firmware bereitsteht
+     * (siehe uhr_tick). Kein Durchstrich: es gibt hier kein "kaputt", das
+     * Symbol ist entweder da oder nicht. */
+    status_icon_erzeugen(&s_status_update, s_bildschirm, 600);
+    status_glyph_update_erzeugen(&s_status_update);
+    lv_obj_add_flag(s_status_update.container, LV_OBJ_FLAG_HIDDEN);
+
     /* Live-Status rechts oben: spiegelt WLAN/Zeit/Kalender aus dem
      * Startbildschirm, durchgestrichen bei fehlender Konnektivitaet. */
     status_icon_erzeugen(&s_status_wlan, s_bildschirm, 650);
@@ -1190,6 +1230,9 @@ static void modus_anwenden(anzeige_modus_t modus)
     status_icon_farbe_setzen(&s_status_wlan, lv_color_hex(FARBE_ICON_HELLGRAU));
     status_icon_farbe_setzen(&s_status_zeit, lv_color_hex(FARBE_ICON_HELLGRAU));
     status_icon_farbe_setzen(&s_status_kalender, lv_color_hex(FARBE_ICON_HELLGRAU));
+    /* Update-Symbol in der Akzentfarbe statt im Grau der Verbindungs-Symbole:
+     * es ist eine Aufforderung ("ins Menue gehen"), kein Dauerzustand. */
+    status_icon_farbe_setzen(&s_status_update, lv_color_hex(FARBE_AKZENT));
     tagesansicht_sichtbarkeit_setzen(details_sichtbar);
 
     if (details_sichtbar) {
@@ -1209,6 +1252,10 @@ static void modus_anwenden(anzeige_modus_t modus)
         lv_obj_add_flag(s_status_zeit.container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_status_kalender.container, LV_OBJ_FLAG_HIDDEN);
     }
+    /* Sichtbarkeit des Update-Symbols bewusst NICHT hier, sondern im
+     * Sekunden-Tick (uhr_tick) - diese Funktion laeuft nur bei
+     * Moduswechseln und wuerde ein neu eintreffendes Update zu spaet
+     * anzeigen. */
 
     lvgl_port_unlock();
 }
@@ -1458,6 +1505,19 @@ static void uhr_tick(lv_timer_t *timer)
         status_icon_ok_setzen(&s_status_kalender, kalender_ok);
         letzter_kalender_ok = kalender_ok;
     }
+
+    /* Update-Symbol hier statt in modus_anwenden pruefen: jene Funktion
+     * laeuft nur bei einem MODUSwechsel, ein waehrend des Tages
+     * eintreffendes Update wuerde sonst erst Stunden spaeter sichtbar. */
+    static bool letztes_update_sichtbar = false;
+    bool update_sichtbar = (modus != MODUS_NACHT) && ota_update_verfuegbar();
+    if (einmalig || update_sichtbar != letztes_update_sichtbar) {
+        if (update_sichtbar)
+            lv_obj_remove_flag(s_status_update.container, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(s_status_update.container, LV_OBJ_FLAG_HIDDEN);
+        letztes_update_sichtbar = update_sichtbar;
+    }
     einmalig = false;
 
     /* Termine/Tabletten: Text wird bei jedem Tick neu gebaut (billig, nur
@@ -1658,6 +1718,28 @@ static bool einstellungen_bildschirm_verarbeiten(void)
                      DEMO_TAG, DEMO_MONAT, DEMO_JAHR, DEMO_STUNDE, DEMO_MINUTE);
             zeit_manuell_setzen(DEMO_TAG, DEMO_MONAT, DEMO_JAHR, DEMO_STUNDE, DEMO_MINUTE);
             return true;
+        case EINSTELLUNGEN_AKTION_UPDATE:
+            /* Nur anstossen - der Download laeuft im OTA-Hintergrund-Task
+             * und startet das Geraet danach selbst neu. Das Menue bleibt
+             * offen; das Fortschrittsfenster erscheint ueber uhr_tick,
+             * sobald der Download tatsaechlich losgelaufen ist. */
+            ESP_LOGI(TAG, "Update im Einstellungen-Menue angestossen (auf %s)", ota_verfuegbare_version());
+            ota_installation_anstossen();
+            break;
+        case EINSTELLUNGEN_AKTION_VERSION_WAEHLEN: {
+            const char *gewaehlt = einrichtung_einstellungen_gewaehlte_version();
+            ESP_LOGI(TAG, "Version %s aus der Auswahlliste angefordert (laufend: %s)",
+                     gewaehlt, ota_laufende_version());
+            ota_version_installieren(gewaehlt);
+            break;
+        }
+        case EINSTELLUNGEN_AKTION_VERSION_ZURUECK:
+            if (ota_auf_vorherige_version_wechseln() == ESP_OK) {
+                ESP_LOGI(TAG, "Zurueck auf vorherige Version - Neustart");
+                vTaskDelay(pdMS_TO_TICKS(500)); /* Log noch rausschreiben lassen */
+                esp_restart();
+            }
+            break;
         case EINSTELLUNGEN_AKTION_WLAN: {
             einrichtung_wlan_zeigen();
             einrichtung_status_t wlan_status;

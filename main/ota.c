@@ -2,10 +2,14 @@
 #include "kalender_anzeige.h"
 #include "netz.h"
 
+#include <stdio.h>
 #include <string.h>
 
+#include "cJSON.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
+#include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -38,11 +42,17 @@ static const char *TAG = "ota";
  * Fragmentierung durch den Boot-Trubel hat sich gelegt. */
 #define OTA_START_VERZOEGERUNG_US (5 * 1000 * 1000)
 
-/* GitHub liefert unter ".../releases/latest/download/<Datei>" immer das
- * Asset des NEUESTEN Releases - eine feste URL genuegt, keine API, kein
- * JSON-Parser, kein Rate-Limit. Wird vom Workflow .github/workflows/
- * release.yml bei jedem "git tag vX.Y.Z" neu befuellt. */
-#define OTA_FIRMWARE_URL "https://github.com/peterm2024/seniorenuhr/releases/latest/download/seniorenuhr.bin"
+/* Heruntergeladen wird aus einem SEPARATEN, OEFFENTLICHEN Repo, nicht aus
+ * dem privaten Quellcode-Repo: Release-Assets eines privaten Repos lassen
+ * sich nur mit Zugangstoken laden, und ein Token in der Firmware waere aus
+ * mehreren Gruenden schlecht (steckt im Binary, laeuft ab). Das
+ * Download-Repo enthaelt nur fertige Binaries mit Platzhalter-Zugangsdaten
+ * (siehe .github/workflows/release.yml), also nichts Schuetzenswertes.
+ *
+ * "releases/latest/download/<Datei>" liefert immer das Asset des NEUESTEN
+ * Releases - fuer die Pruefung genuegt diese feste URL ohne API-Aufruf. */
+#define OTA_REPO "peterm2024/seniorenuhr-firmware"
+#define OTA_FIRMWARE_URL "https://github.com/" OTA_REPO "/releases/latest/download/seniorenuhr.bin"
 
 /* Erste Pruefung erst nach etwas Anlaufzeit (Boot nicht zusaetzlich
  * belasten, WLAN/Kalender sollen zuerst stehen), danach alle 30 Minuten -
@@ -50,12 +60,195 @@ static const char *TAG = "ota";
  * pruefen braechte nur unnoetigen Datenverkehr. */
 #define OTA_ERSTE_PRUEFUNG_MS (3 * 60 * 1000)
 #define OTA_INTERVALL_MS      (30 * 60 * 1000)
+/* Wie oft der Task nachsieht, ob im Einstellungen-Menue ein Update
+ * angestossen wurde - kurz genug, dass der Tipp sich sofort anfuehlt. */
+#define OTA_ANSTOSS_ABFRAGE_MS 1000
 
 static volatile bool s_laeuft = false;
 static volatile int s_fortschritt_prozent = -1;
+/* Ergebnis der letzten Pruefung. Installiert wird NIE von selbst (Peters
+ * Entscheidung) - das Geraet meldet nur, dass etwas bereitsteht, und wartet
+ * auf den Update-Button im Einstellungen-Menue. */
+static volatile bool s_update_verfuegbar = false;
+static char s_verfuegbare_version[32] = "";
+/* Wird vom Einstellungen-Menue gesetzt und vom OTA-Task abgeholt - der
+ * Download darf nicht im LVGL-Task laufen (Task-Watchdog, FALLSTRICKE #16
+ * und #19). */
+static volatile bool s_installation_gewuenscht = false;
+/* Gezielt gewaehlte Version aus der Auswahlliste (leer = "neueste"). Nur
+ * gueltig, solange s_installation_gewuenscht gesetzt ist. */
+static char s_gewuenschte_version[OTA_VERSION_MAX] = "";
+
+/* Zwischenspeicher der zuletzt abgefragten Release-Liste. Wird nur beim
+ * Oeffnen des Einstellungen-Menues aktualisiert, nicht periodisch - die
+ * Liste aendert sich hoechstens alle paar Wochen. */
+static char s_versionen[OTA_VERSIONEN_MAX][OTA_VERSION_MAX];
+static int s_versionen_anzahl = 0;
+/* Vom Einstellungen-Menue gesetzt, vom Hintergrund-Task abgeholt. Die
+ * API-Abfrage darf NIE im LVGL-Task laufen - sie dauert Sekunden und wuerde
+ * den Task-Watchdog ausloesen (FALLSTRICKE #16/#19). */
+static volatile bool s_versionen_abfrage_gewuenscht = false;
 
 bool ota_laeuft(void) { return s_laeuft; }
 int ota_fortschritt_prozent(void) { return s_fortschritt_prozent; }
+bool ota_update_verfuegbar(void) { return s_update_verfuegbar; }
+const char *ota_verfuegbare_version(void) { return s_verfuegbare_version; }
+const char *ota_laufende_version(void) { return esp_app_get_description()->version; }
+void ota_installation_anstossen(void) { s_installation_gewuenscht = true; }
+
+/* Die zweite App-Partition haelt genau eine weitere Version: die zuvor
+ * laufende (bzw. die zuletzt heruntergeladene). Mehr als zwei sind
+ * prinzipbedingt nicht moeglich - das Board hat nur ota_0 und ota_1 (siehe
+ * partitions.csv). Eine Versions-Auswahlliste kann es deshalb nicht geben,
+ * nur dieses Zurueckschalten. */
+bool ota_vorherige_version(char *puffer, size_t puffer_groesse)
+{
+    const esp_partition_t *andere = esp_ota_get_next_update_partition(NULL);
+    if (!andere)
+        return false;
+
+    esp_app_desc_t beschreibung;
+    if (esp_ota_get_partition_description(andere, &beschreibung) != ESP_OK)
+        return false; /* Slot noch leer (nie ein Update eingespielt) */
+
+    /* Als ungueltig markierte Images (z. B. nach automatischem Rollback)
+     * nicht anbieten - dorthin zurueckzuschalten wuerde nur erneut
+     * fehlschlagen. */
+    esp_ota_img_states_t zustand;
+    if (esp_ota_get_state_partition(andere, &zustand) == ESP_OK &&
+        (zustand == ESP_OTA_IMG_INVALID || zustand == ESP_OTA_IMG_ABORTED))
+        return false;
+
+    snprintf(puffer, puffer_groesse, "%s", beschreibung.version);
+    return true;
+}
+
+/* Holt die Release-Liste des Download-Repos ueber die GitHub-API und
+ * uebernimmt die Versionsnamen (tag_name) in s_versionen. GitHub liefert
+ * sie bereits nach Datum absteigend, die neueste steht also vorn.
+ *
+ * Bewusst nur auf ausdrueckliche Anfrage (Oeffnen des Einstellungen-Menues)
+ * statt periodisch: die Liste aendert sich hoechstens alle paar Wochen, und
+ * die API erlaubt unangemeldet nur 60 Abfragen pro Stunde.
+ *
+ * Antwort landet komplett im PSRAM - bei 10 Releases sind das einige
+ * Kilobyte JSON, die im knappen internen SRAM nichts zu suchen haben
+ * (FALLSTRICKE #20). */
+#define OTA_API_ANTWORT_MAX (24 * 1024)
+
+int ota_versionen_abfragen(void)
+{
+    s_versionen_anzahl = 0;
+
+    char url[160];
+    snprintf(url, sizeof url,
+             "https://api.github.com/repos/" OTA_REPO "/releases?per_page=%d", OTA_VERSIONEN_MAX);
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 15000,
+        .buffer_size = 2048,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client)
+        return 0;
+    /* GitHub verlangt einen User-Agent, sonst wird die Anfrage abgewiesen. */
+    esp_http_client_set_header(client, "User-Agent", "seniorenuhr");
+    esp_http_client_set_header(client, "Accept", "application/vnd.github+json");
+
+    char *antwort = heap_caps_malloc(OTA_API_ANTWORT_MAX, MALLOC_CAP_SPIRAM);
+    if (!antwort) {
+        ESP_LOGW(TAG, "Kein PSRAM fuer die Release-Liste");
+        esp_http_client_cleanup(client);
+        return 0;
+    }
+
+    int gelesen = 0;
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err == ESP_OK) {
+        esp_http_client_fetch_headers(client);
+        int n;
+        while (gelesen < OTA_API_ANTWORT_MAX - 1 &&
+               (n = esp_http_client_read(client, antwort + gelesen,
+                                          OTA_API_ANTWORT_MAX - 1 - gelesen)) > 0)
+            gelesen += n;
+        esp_http_client_close(client);
+    } else {
+        ESP_LOGW(TAG, "Release-Liste nicht erreichbar: %s", esp_err_to_name(err));
+    }
+    esp_http_client_cleanup(client);
+
+    if (gelesen <= 0) {
+        heap_caps_free(antwort);
+        return 0;
+    }
+    antwort[gelesen] = '\0';
+
+    cJSON *wurzel = cJSON_Parse(antwort);
+    heap_caps_free(antwort);
+    if (!wurzel || !cJSON_IsArray(wurzel)) {
+        ESP_LOGW(TAG, "Release-Liste unlesbar");
+        cJSON_Delete(wurzel);
+        return 0;
+    }
+
+    cJSON *eintrag;
+    cJSON_ArrayForEach(eintrag, wurzel) {
+        if (s_versionen_anzahl >= OTA_VERSIONEN_MAX)
+            break;
+        /* Entwuerfe und Vorabversionen ueberspringen - auf dem Geraet
+         * seiner Eltern hat nur Fertiges etwas verloren. */
+        if (cJSON_IsTrue(cJSON_GetObjectItem(eintrag, "draft")) ||
+            cJSON_IsTrue(cJSON_GetObjectItem(eintrag, "prerelease")))
+            continue;
+        cJSON *tag = cJSON_GetObjectItem(eintrag, "tag_name");
+        if (!cJSON_IsString(tag) || !tag->valuestring[0])
+            continue;
+        snprintf(s_versionen[s_versionen_anzahl], OTA_VERSION_MAX, "%s", tag->valuestring);
+        s_versionen_anzahl++;
+    }
+    cJSON_Delete(wurzel);
+
+    ESP_LOGI(TAG, "%d Version(en) im Download-Repo gefunden", s_versionen_anzahl);
+    return s_versionen_anzahl;
+}
+
+int ota_versionen_anzahl(void) { return s_versionen_anzahl; }
+void ota_versionen_auffrischen(void) { s_versionen_abfrage_gewuenscht = true; }
+
+const char *ota_version_name(int index)
+{
+    if (index < 0 || index >= s_versionen_anzahl)
+        return "";
+    return s_versionen[index];
+}
+
+void ota_version_installieren(const char *version)
+{
+    snprintf(s_gewuenschte_version, sizeof s_gewuenschte_version, "%s", version ? version : "");
+    s_installation_gewuenscht = true;
+}
+
+esp_err_t ota_auf_vorherige_version_wechseln(void)
+{
+    const esp_partition_t *andere = esp_ota_get_next_update_partition(NULL);
+    if (!andere)
+        return ESP_ERR_NOT_FOUND;
+
+    esp_app_desc_t beschreibung;
+    if (esp_ota_get_partition_description(andere, &beschreibung) != ESP_OK)
+        return ESP_ERR_NOT_FOUND;
+
+    esp_err_t err = esp_ota_set_boot_partition(andere);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Konnte nicht auf %s zurueckschalten: %s",
+                 beschreibung.version, esp_err_to_name(err));
+        return err;
+    }
+    ESP_LOGI(TAG, "Zurueck auf Version %s - Neustart", beschreibung.version);
+    return ESP_OK;
+}
 
 /* Laeuft die App gerade zum ersten Mal nach einem OTA-Update (Zustand
  * "pending verify", siehe CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE in
@@ -87,12 +280,31 @@ static void rollback_bestaetigen_falls_noetig(void)
 /* Ein Durchlauf: verbindet, vergleicht die Version im Bildkopf des neuen
  * Images (esp_https_ota_get_img_desc, noch VOR dem eigentlichen Download)
  * gegen die laufende Version - bei Gleichstand wird abgebrochen, ohne
- * ueberhaupt Flash zu beschreiben. Erst bei einer abweichenden Version
- * folgt der eigentliche Download samt Fortschrittsmeldung. */
-static void ota_pruefen_und_aktualisieren(void)
+ * ueberhaupt Flash zu beschreiben.
+ *
+ * `installieren` entscheidet, was danach passiert: false = nur merken, dass
+ * etwas bereitsteht (fuer das Update-Symbol auf dem Hauptbildschirm), true =
+ * herunterladen und einspielen. Die Trennung ist Peters Entscheidung -
+ * automatisch installiert wird nichts mehr, damit ein Update nie
+ * unangekuendigt bei seinen Eltern landet. */
+static void ota_durchlauf(bool installieren, const char *version)
 {
+    /* Ohne Versionsangabe die "latest"-URL, sonst gezielt das Asset des
+     * gewaehlten Tags - so laesst sich auch eine AELTERE Version wieder
+     * einspielen (Peters Fall: Update gefaellt nicht, spaeter aber doch ein
+     * Feature daraus). Moeglich ist das nur, weil Anti-Rollback bewusst
+     * ausgeschaltet bleibt (CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK, siehe
+     * sdkconfig.defaults) - waere es aktiv, wuerde der Bootloader jede
+     * aeltere Version abweisen. */
+    char url[200];
+    if (version && version[0])
+        snprintf(url, sizeof url,
+                 "https://github.com/" OTA_REPO "/releases/download/%s/seniorenuhr.bin", version);
+    else
+        snprintf(url, sizeof url, "%s", OTA_FIRMWARE_URL);
+
     esp_http_client_config_t http_cfg = {
-        .url = OTA_FIRMWARE_URL,
+        .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 15000,
         .buffer_size = 2048,
@@ -115,8 +327,29 @@ static void ota_pruefen_und_aktualisieren(void)
     }
 
     const char *laufende_version = esp_app_get_description()->version;
-    if (strncmp(neues_image.version, laufende_version, sizeof neues_image.version) == 0) {
-        ESP_LOGI(TAG, "Keine neue Version (laufend: %s)", laufende_version);
+    bool gleich = strncmp(neues_image.version, laufende_version, sizeof neues_image.version) == 0;
+
+    /* Den "Update verfuegbar"-Zustand nur bei einer PRUEFUNG fortschreiben.
+     * Bei einer gezielten Installation (z. B. bewusst eine aeltere Version)
+     * sagt der Vergleich nichts darueber aus, ob im Netz etwas Neueres
+     * liegt - das Symbol duerfte davon nicht durcheinandergeraten. */
+    if (!installieren) {
+        s_update_verfuegbar = !gleich;
+        if (gleich)
+            s_verfuegbare_version[0] = '\0';
+        else
+            snprintf(s_verfuegbare_version, sizeof s_verfuegbare_version, "%s", neues_image.version);
+    }
+
+    if (gleich) {
+        ESP_LOGI(TAG, "Version %s laeuft bereits - nichts zu tun", laufende_version);
+        esp_https_ota_abort(handle);
+        return;
+    }
+
+    if (!installieren) {
+        ESP_LOGI(TAG, "Neue Version verfuegbar: %s (laufend: %s) - wartet auf Bestaetigung im Einstellungen-Menue",
+                 neues_image.version, laufende_version);
         esp_https_ota_abort(handle);
         return;
     }
@@ -158,9 +391,40 @@ static void ota_task(void *arg)
     rollback_bestaetigen_falls_noetig();
 
     vTaskDelay(pdMS_TO_TICKS(OTA_ERSTE_PRUEFUNG_MS));
+    ota_durchlauf(false, NULL); /* erste Pruefung, nur melden */
+    ota_versionen_abfragen();   /* Auswahlliste fuers Einstellungen-Menue fuellen */
+
+    /* In kurzen Schritten warten statt einmal 30 Minuten am Stueck, damit
+     * ein per Einstellungen-Menue angestossenes Update nicht bis zum
+     * naechsten Pruefintervall liegen bleibt, sondern binnen Sekunden
+     * anlaeuft. */
+    int64_t naechste_pruefung_ms = OTA_INTERVALL_MS;
     for (;;) {
-        ota_pruefen_und_aktualisieren();
-        vTaskDelay(pdMS_TO_TICKS(OTA_INTERVALL_MS));
+        vTaskDelay(pdMS_TO_TICKS(OTA_ANSTOSS_ABFRAGE_MS));
+
+        if (s_installation_gewuenscht) {
+            s_installation_gewuenscht = false;
+            /* Kopie ziehen: s_gewuenschte_version koennte waehrend des
+             * (langen) Downloads von der Oberflaeche neu gesetzt werden. */
+            char version[OTA_VERSION_MAX];
+            snprintf(version, sizeof version, "%s", s_gewuenschte_version);
+            ota_durchlauf(true, version);
+            naechste_pruefung_ms = OTA_INTERVALL_MS;
+            continue;
+        }
+
+        if (s_versionen_abfrage_gewuenscht) {
+            s_versionen_abfrage_gewuenscht = false;
+            ota_versionen_abfragen();
+            continue;
+        }
+
+        naechste_pruefung_ms -= OTA_ANSTOSS_ABFRAGE_MS;
+        if (naechste_pruefung_ms <= 0) {
+            ota_durchlauf(false, NULL);
+            ota_versionen_abfragen();
+            naechste_pruefung_ms = OTA_INTERVALL_MS;
+        }
     }
 }
 

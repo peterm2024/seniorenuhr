@@ -2,9 +2,11 @@
 
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h" /* xTaskCreateWithCaps / vTaskDeleteWithCaps */
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
 
@@ -339,7 +341,11 @@ static void screenshot_task(void *arg)
     lvgl_port_unlock();
 
     s_laeuft = false;
-    vTaskDelete(NULL);
+    /* Muss vTaskDeleteWithCaps() sein, weil der Task per
+     * xTaskCreateWithCaps() erzeugt wurde - nur diese Variante gibt den im
+     * PSRAM liegenden Stack wieder frei. Mit dem normalen vTaskDelete()
+     * wuerde bei jedem Screenshot ein 8-KB-Block im PSRAM zurueckbleiben. */
+    vTaskDeleteWithCaps(NULL);
 }
 
 /* Blendet den Button waehrend der Aufnahme aus (er liegt auf lv_layer_top(),
@@ -361,8 +367,27 @@ static void button_geklickt_cb(lv_event_t *e)
     lv_obj_t *screen = lv_screen_active();
     lvgl_port_unlock();
 
-    if (xTaskCreate(screenshot_task, "screenshot_dump", 8192, (void *)screen, 4, NULL) != pdPASS) {
-        ESP_LOGW(TAG, "Screenshot-Task konnte nicht gestartet werden");
+    /* Task-Stack in den PSRAM statt in den knappen internen SRAM: nach rund
+     * 14 Stunden Laufzeit schlug xTaskCreate() live fehl ("Screenshot-Task
+     * konnte nicht gestartet werden"), weil kein zusammenhaengender 8-KB-Block
+     * internen SRAMs mehr frei war - genau die Ressource, die auf diesem Board
+     * schon zweimal knapp wurde (FALLSTRICKE #20/#25). Ausgerechnet bei einem
+     * lange laufenden Geraet fiel das Diagnosewerkzeug damit aus.
+     *
+     * Ein PSRAM-Stack ist hier unbedenklich, anders als beim OTA-Task
+     * (FALLSTRICKE #25): der stuerzte ab, weil Flash-Schreibzugriffe den
+     * Cache abschalten, ueber den PSRAM angebunden ist. Dieser Task schreibt
+     * nie in den Flash - er rendert nur und gibt ueber UART aus.
+     *
+     * Scheitert auch das, wird der Grund mitsamt tatsaechlich freiem Speicher
+     * geloggt, statt nur "ging nicht" zu melden. */
+    BaseType_t ergebnis = xTaskCreateWithCaps(screenshot_task, "screenshot_dump", 8192,
+                                              (void *)screen, 4, NULL, MALLOC_CAP_SPIRAM);
+    if (ergebnis != pdPASS) {
+        ESP_LOGW(TAG, "Screenshot-Task konnte nicht gestartet werden "
+                      "(frei: PSRAM %u Byte, intern %u Byte groesster Block)",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         s_laeuft = false;
         lvgl_port_lock(0);
         lv_obj_remove_flag(s_button, LV_OBJ_FLAG_HIDDEN);

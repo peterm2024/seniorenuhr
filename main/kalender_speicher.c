@@ -80,6 +80,7 @@ esp_err_t kalender_speicher_lesen(char **puffer, size_t *laenge)
 
 esp_err_t kalender_speicher_bestaetigungen_schreiben(int tag_schluessel,
                                                       const char titel[][ICS_TITEL_MAX],
+                                                      const int *minute,
                                                       int anzahl)
 {
     FILE *f = fopen(BESTAETIGUNGEN_PFAD, "wb");
@@ -89,8 +90,11 @@ esp_err_t kalender_speicher_bestaetigungen_schreiben(int tag_schluessel,
         return ESP_FAIL;
     }
     fprintf(f, "%d\n", tag_schluessel);
+    /* "<minute>\t<titel>" - der Tabulator kann in einem Kalendertitel nicht
+     * vorkommen (der ICS-Parser liefert nur einzeilige, escape-aufgeloeste
+     * Titel), taugt also als eindeutiger Trenner. */
     for (int i = 0; i < anzahl; i++)
-        fprintf(f, "%s\n", titel[i]);
+        fprintf(f, "%d\t%s\n", minute ? minute[i] : -1, titel[i]);
     fclose(f);
     ESP_LOGI(TAG, "Bestaetigungen gespeichert: Tag=%d, %d Titel", tag_schluessel, anzahl);
     return ESP_OK;
@@ -98,6 +102,7 @@ esp_err_t kalender_speicher_bestaetigungen_schreiben(int tag_schluessel,
 
 int kalender_speicher_bestaetigungen_lesen(int erwarteter_tag_schluessel,
                                             char titel_ziel[][ICS_TITEL_MAX],
+                                            int *minute_ziel,
                                             int max)
 {
     FILE *f = fopen(BESTAETIGUNGEN_PFAD, "rb");
@@ -106,7 +111,9 @@ int kalender_speicher_bestaetigungen_lesen(int erwarteter_tag_schluessel,
         return 0; /* noch nichts gespeichert - kein Fehler */
     }
 
-    char zeile[ICS_TITEL_MAX + 8];
+    /* Platz fuer Titel + "<minute>\t"-Praefix + Zeilenende - ohne den
+     * Aufschlag schnitte ein langer Titel in der neuen Formatvariante ab. */
+    char zeile[ICS_TITEL_MAX + 16];
     if (!fgets(zeile, sizeof zeile, f)) {
         ESP_LOGW(TAG, "Bestaetigungs-Datei ist leer");
         fclose(f);
@@ -127,7 +134,25 @@ int kalender_speicher_bestaetigungen_lesen(int erwarteter_tag_schluessel,
             zeile[laenge - 1] = '\0';
         if (zeile[0] == '\0')
             continue;
-        snprintf(titel_ziel[anzahl], ICS_TITEL_MAX, "%s", zeile);
+
+        /* Neues Format "<minute>\t<titel>"; fehlt der Tabulator, stammt die
+         * Datei aus einer aelteren Firmware und enthaelt nur den Titel -
+         * dann Uhrzeit unbekannt (-1), damit ein Geraet beim Update seine
+         * heutigen Bestaetigungen behaelt statt sie zu verwerfen. */
+        char *trenner = strchr(zeile, '\t');
+        const char *titel_teil = zeile;
+        int minute = -1;
+        if (trenner) {
+            *trenner = '\0';
+            minute = atoi(zeile);
+            titel_teil = trenner + 1;
+        }
+        if (titel_teil[0] == '\0')
+            continue;
+
+        snprintf(titel_ziel[anzahl], ICS_TITEL_MAX, "%s", titel_teil);
+        if (minute_ziel)
+            minute_ziel[anzahl] = minute;
         anzahl++;
     }
     fclose(f);

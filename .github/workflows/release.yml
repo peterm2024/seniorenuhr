@@ -9,11 +9,11 @@ on:
     tags:
       - "v*"
 
-# Zum Anhaengen der Firmware ans Release muss der automatische GITHUB_TOKEN
-# schreiben duerfen - viele Repos setzen den Default inzwischen auf
-# read-only, deshalb hier explizit.
+# Das Release entsteht in einem ANDEREN Repo (siehe unten), dafuer wird ein
+# eigenes Token verwendet - der automatische GITHUB_TOKEN braucht hier also
+# nur Lesezugriff zum Auschecken.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -50,9 +50,30 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Release veroeffentlichen
+      # Veroeffentlicht wird in einem SEPARATEN, oeffentlichen Repo
+      # (peterm2024/seniorenuhr-firmware). Grund: dieses Quellcode-Repo ist
+      # privat, und ein privates Release-Asset laesst sich vom Geraet nicht
+      # ohne eingebettetes Zugangstoken herunterladen - ein Token in der
+      # Firmware waere aber genau das, was man nicht will (landet im Binary,
+      # laeuft ab). Das oeffentliche Repo enthaelt ausschliesslich fertige
+      # Binaries mit Platzhalter-Zugangsdaten (siehe secrets.example.h oben),
+      # also nichts Schuetzenswertes.
+      #
+      # FIRMWARE_REPO_TOKEN ist ein fein granulares PAT mit "Contents:
+      # read and write" NUR auf jenem Repo, hinterlegt als Actions-Secret.
+      # Der automatische GITHUB_TOKEN taugt hier nicht - er gilt immer nur
+      # fuer das Repo, in dem der Workflow laeuft.
+      - name: Firmware ins oeffentliche Download-Repo veroeffentlichen
         uses: softprops/action-gh-release@v2
         with:
+          repository: peterm2024/seniorenuhr-firmware
+          token: ${{ secrets.FIRMWARE_REPO_TOKEN }}
+          tag_name: ${{ github.ref_name }}
           name: Seniorenuhr ${{ steps.version.outputs.version }}
           files: build/seniorenuhr.bin
-          generate_release_notes: true
+          body: |
+            Firmware-Datei fuer die Seniorenuhr (ESP32-S3).
+
+            Das Geraet laedt diese Datei selbst herunter, sobald das Update
+            im Einstellungen-Menue bestaetigt wird. Der Quellcode liegt in
+            einem separaten, privaten Repo.
