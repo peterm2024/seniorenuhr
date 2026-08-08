@@ -46,6 +46,14 @@ bool ota_laeuft(void);
  * nicht vor, aber sicherheitshalber abgefangen). */
 int ota_fortschritt_prozent(void);
 
+/* Klartext-Meldung fuers Fortschrittsfenster, solange etwas zu sagen ist
+ * ("Verbinde mit GitHub...", "Keine Verbindung - bitte spaeter erneut
+ * versuchen"). Leerer String = nichts zu melden, dann gilt der Prozentwert.
+ * Grund fuer diesen Zusatz: schlaegt schon der Verbindungsaufbau fehl, gibt
+ * es keinen Fortschritt zu zeigen - ohne Meldung wirkte der Update-Knopf
+ * schlicht wirkungslos. */
+const char *ota_meldung(void);
+
 /* Startet den Hintergrund-Task (eigener Task, 8192 Byte Stack - der
  * HTTPS-Handshake fuer den Firmware-Download braucht wie beim
  * Kalender-Download etwas mehr Stack als der Rest der Anwendung, siehe

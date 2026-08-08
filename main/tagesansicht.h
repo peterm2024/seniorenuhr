@@ -61,6 +61,7 @@ bool tagesansicht_fenster_offen(void);
 void tagesansicht_update_fenster_zeigen(void);
 /* prozent < 0: Groesse des Downloads unbekannt, zeigt nur "Laedt...". */
 void tagesansicht_update_fenster_fortschritt_setzen(int prozent);
+void tagesansicht_update_fenster_meldung_setzen(const char *text);
 void tagesansicht_update_fenster_schliessen(void);
 
 #endif

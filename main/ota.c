@@ -75,6 +75,12 @@ static const char *TAG = "ota";
 
 static volatile bool s_laeuft = false;
 static volatile int s_fortschritt_prozent = -1;
+/* Klartext fuer das Fortschrittsfenster. Leer = nichts zu sagen, dann zeigt
+ * das Fenster den Prozentbalken. */
+static char s_meldung[80] = "";
+/* Wie lange eine Abschlussmeldung stehen bleibt, bevor sich das Fenster
+ * schliesst - lange genug zum Lesen, ohne im Weg zu stehen. */
+#define OTA_MELDUNG_STEHENZEIT_MS (12 * 1000)
 /* Ergebnis der letzten Pruefung. Installiert wird NIE von selbst (Peters
  * Entscheidung) - das Geraet meldet nur, dass etwas bereitsteht, und wartet
  * auf den Update-Button im Einstellungen-Menue. */
@@ -100,6 +106,7 @@ static volatile bool s_versionen_abfrage_gewuenscht = false;
 
 bool ota_laeuft(void) { return s_laeuft; }
 int ota_fortschritt_prozent(void) { return s_fortschritt_prozent; }
+const char *ota_meldung(void) { return s_meldung; }
 bool ota_update_verfuegbar(void) { return s_update_verfuegbar; }
 const char *ota_verfuegbare_version(void) { return s_verfuegbare_version; }
 const char *ota_laufende_version(void) { return esp_app_get_description()->version; }
@@ -333,6 +340,22 @@ static void verbindungsdiagnose(const char *host)
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
+    /* VORUEBERGEHEND (Fehlersuche 08.08.2026): ungenutzte Stack-Reserve der
+     * langlebigen Tasks. Anlass: das Einstellungen-Menue laesst sich nicht
+     * mehr oeffnen, weil im internen SRAM kein 8-KB-Block mehr frei ist -
+     * waehrend mehrere Tasks ihren Stack dauerhaft aus genau diesem Topf
+     * halten. Wer davon reichlich Luft hat, kann abgeben. Besonders im
+     * Verdacht: der Kalender-Task mit 16 KB, dimensioniert BEVOR sein
+     * grosses termine[32]-Array in den PSRAM wanderte (FALLSTRICKE #26). */
+    static const char *const beobachtete_tasks[] = { "kalender", "ota", "httpd", "wifi_neuscan", "LVGL" };
+    for (size_t i = 0; i < sizeof(beobachtete_tasks) / sizeof(beobachtete_tasks[0]); i++) {
+        TaskHandle_t t = xTaskGetHandle(beobachtete_tasks[i]);
+        if (t)
+            ESP_LOGI(TAG, "Diagnose: Task %-12s ungenutzte Stack-Reserve %u Byte",
+                     beobachtete_tasks[i],
+                     (unsigned)(uxTaskGetStackHighWaterMark(t) * sizeof(StackType_t)));
+    }
+
     /* Empfangsstaerke: der Verdacht ist, dass die grosse Zertifikatskette
      * von GitHub auf einer schwachen Funkstrecke haengen bleibt, waehrend
      * kleine Abrufe (DNS, der 3 KB grosse Kalender) durchkommen. Beim Boot
@@ -429,8 +452,11 @@ static bool ota_durchlauf(bool installieren, const char *version)
     }
 
     ESP_LOGI(TAG, "Neue Version gefunden: %s -> %s - lade herunter", laufende_version, neues_image.version);
+    /* s_laeuft/s_meldung gehoeren dem Aufrufer (installation_mit_wiederholung)
+     * und stehen bereits seit dem Tastendruck - hier nur noch den Balken vom
+     * Text auf Prozente umschalten. */
+    s_meldung[0] = '\0';
     s_fortschritt_prozent = -1;
-    s_laeuft = true;
 
     int bildgroesse = esp_https_ota_get_image_size(handle);
     for (;;) {
@@ -445,7 +471,6 @@ static bool ota_durchlauf(bool installieren, const char *version)
 
     bool vollstaendig = esp_https_ota_is_complete_data_received(handle);
     esp_err_t abschluss_err = esp_https_ota_finish(handle);
-    s_laeuft = false;
 
     if (err != ESP_OK || !vollstaendig || abschluss_err != ESP_OK) {
         ESP_LOGW(TAG, "Update fehlgeschlagen (perform=%s, vollstaendig=%d, finish=%s) - bleibe auf %s",
@@ -483,6 +508,48 @@ static void pruefung_mit_wiederholung(void)
              OTA_PRUEFUNG_VERSUCHE, OTA_INTERVALL_MS / 60000);
 }
 
+/* Die vom Benutzer ANGESTOSSENE Installation. Zwei Unterschiede zur
+ * Hintergrund-Pruefung, beide aus einer Beobachtung am Geraet:
+ *
+ * 1. Sie wiederholt sich ebenfalls. Vorher lief sie genau einmal - traf sie
+ *    einen der GitHub-Aussetzer, war der Vorgang still vorbei.
+ * 2. `s_laeuft` (und damit das Fortschrittsfenster) steht ab dem ERSTEN
+ *    Moment, nicht erst wenn der Download tatsaechlich anlaeuft. Genau daran
+ *    wirkte der Knopf tot: bei einer gescheiterten Verbindung wurde
+ *    `s_laeuft` nie gesetzt, es erschien also nie irgendetwas - Peters
+ *    Rueckmeldung war woertlich "der Update Button funktioniert nicht",
+ *    obwohl er im Log sauber ausgeloest hatte.
+ *
+ * Ein Knopf, der schweigend scheitert, ist schlimmer als einer, der eine
+ * Fehlermeldung zeigt - erst recht bei Nutzern, die nicht ins Log sehen. */
+static void installation_mit_wiederholung(const char *version)
+{
+    s_laeuft = true;
+    s_fortschritt_prozent = -1;
+
+    for (int versuch = 1; versuch <= OTA_PRUEFUNG_VERSUCHE; versuch++) {
+        snprintf(s_meldung, sizeof s_meldung, "Verbinde mit GitHub (Versuch %d von %d)...",
+                 versuch, OTA_PRUEFUNG_VERSUCHE);
+        if (ota_durchlauf(true, version)) {
+            /* Bei Erfolg startet das Geraet im Durchlauf selbst neu; hierher
+             * kommt man nur, wenn das Einspielen scheiterte. */
+            snprintf(s_meldung, sizeof s_meldung, "Update fehlgeschlagen - Geraet laeuft unveraendert weiter");
+            break;
+        }
+        if (versuch < OTA_PRUEFUNG_VERSUCHE)
+            vTaskDelay(pdMS_TO_TICKS(OTA_PRUEFUNG_PAUSE_MS));
+        else
+            snprintf(s_meldung, sizeof s_meldung, "Keine Verbindung zu GitHub - bitte spaeter erneut versuchen");
+    }
+
+    ESP_LOGW(TAG, "Installation beendet: %s", s_meldung);
+    /* Meldung noch einen Moment stehen lassen, sonst verschwindet das
+     * Fenster schneller, als man es lesen kann. */
+    vTaskDelay(pdMS_TO_TICKS(OTA_MELDUNG_STEHENZEIT_MS));
+    s_meldung[0] = '\0';
+    s_laeuft = false;
+}
+
 static void ota_task(void *arg)
 {
     (void)arg;
@@ -507,7 +574,7 @@ static void ota_task(void *arg)
              * (langen) Downloads von der Oberflaeche neu gesetzt werden. */
             char version[OTA_VERSION_MAX];
             snprintf(version, sizeof version, "%s", s_gewuenschte_version);
-            ota_durchlauf(true, version);
+            installation_mit_wiederholung(version);
             naechste_pruefung_ms = OTA_INTERVALL_MS;
             continue;
         }

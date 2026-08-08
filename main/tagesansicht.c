@@ -1011,6 +1011,15 @@ void tagesansicht_update_fenster_zeigen(void)
                                                        FENSTER_HOEHE_UPDATE, update_fenster_schliessen_cb, false,
                                                        X_BUTTON_RAND_STANDARD);
 
+    /* Anders als alle anderen Fenster dieses Moduls haengt dieses an
+     * lv_layer_top() statt am Uhren-Bildschirm: angestossen wird das Update
+     * im EINSTELLUNGEN-Menue, das ein eigener Screen ist. Am Uhren-Bildschirm
+     * erzeugt waere das Fenster dort schlicht unsichtbar - der Knopf saehe
+     * wirkungslos aus, obwohl der Download laeuft. lv_layer_top liegt ueber
+     * jedem Screen (dasselbe Muster wie beim Screenshot-Button). */
+    lv_obj_set_parent(s_update_fenster, lv_layer_top());
+    lv_obj_center(s_update_fenster);
+
     s_update_balken = lv_bar_create(s_update_fenster);
     lv_obj_set_size(s_update_balken, FENSTER_BREITE - 40, 28);
     lv_obj_set_pos(s_update_balken, 20, 110);
@@ -1033,6 +1042,20 @@ void tagesansicht_update_fenster_zeigen(void)
 /* Gefahrlos jeden Tick aufrufbar, auch wenn der Benutzer das Fenster per
  * "X" bereits weggeklickt hat (dann ein No-Op). prozent < 0 bedeutet
  * "Groesse unbekannt" (siehe ota_fortschritt_prozent). */
+/* Klartext statt Prozentzahl - fuer die Phase vor dem eigentlichen Download
+ * ("Verbinde mit GitHub...") und fuer Fehlermeldungen. Ohne das blieb ein
+ * gescheiterter Verbindungsversuch voellig unsichtbar, der Update-Knopf
+ * wirkte dadurch tot (siehe ota.c, installation_mit_wiederholung). */
+void tagesansicht_update_fenster_meldung_setzen(const char *text)
+{
+    lvgl_port_lock(0);
+    if (s_update_fenster) {
+        lv_bar_set_value(s_update_balken, 0, LV_ANIM_OFF);
+        lv_label_set_text(s_update_prozent_label, text);
+    }
+    lvgl_port_unlock();
+}
+
 void tagesansicht_update_fenster_fortschritt_setzen(int prozent)
 {
     lvgl_port_lock(0);

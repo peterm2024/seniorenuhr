@@ -238,14 +238,22 @@ static void task_funktion(void *arg)
 void kalender_task_starten(void)
 {
     s_mutex = xSemaphoreCreateMutex();
-    /* 16K statt vormals 8K: fuer_heute_neu_parsen() haelt inzwischen
-     * zusaetzlich zu den formatierten Texten (kalender_anzeige_t, ~1,3KB)
-     * auch noch die strukturierten Tageseintraege (neue_eintraege, weitere
-     * ~1,3KB) gleichzeitig auf dem Stack - zusammen mit dem 32er
-     * ics_termin_t-Puffer (~3,8KB) reichte der alte Stack nicht mehr aus
-     * (Stack-Overflow beschaedigte den Mutex-Handle, sichtbar als
-     * "assert failed: xQueueSemaphoreTake ... uxItemSize == 0"). */
-    xTaskCreate(task_funktion, "kalender", 16384, NULL, 4, NULL);
+    /* Frueher 8K, dann 16K: fuer_heute_neu_parsen() haelt zusaetzlich zu den
+     * formatierten Texten (kalender_anzeige_t, ~1,3KB) auch die
+     * strukturierten Tageseintraege (neue_eintraege, weitere ~1,3KB)
+     * gleichzeitig auf dem Stack - zusammen mit dem 32er ics_termin_t-Puffer
+     * (~3,8KB) reichten 8K nicht mehr (Stack-Overflow beschaedigte den
+     * Mutex-Handle, sichtbar als "assert failed: xQueueSemaphoreTake ...
+     * uxItemSize == 0").
+     *
+     * Jetzt 10K: der grosse ics_termin_t-Puffer liegt seit FALLSTRICKE #26
+     * im PSRAM, die 16K stammen also noch aus der Zeit davor. Live gemessen
+     * (uxTaskGetStackHighWaterMark nach Download und vollstaendigem Parsen):
+     * 10060 Byte blieben ungenutzt, der echte Bedarf liegt bei gut 6,3 KB.
+     * 10K laesst davon noch rund 3,7 KB Luft und gibt 6 KB internen SRAM
+     * zurueck - genau die knappe Ressource, an der sonst das
+     * Einstellungen-Menue scheiterte (siehe app_main.c). */
+    xTaskCreate(task_funktion, "kalender", 10240, NULL, 4, NULL);
 }
 
 uint32_t kalender_anzeige_version(void)

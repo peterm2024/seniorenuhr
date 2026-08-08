@@ -649,74 +649,88 @@ static status_icon_t s_status_kalender;
 static status_icon_t s_status_update;
 static lv_obj_t *s_update_tippflaeche;
 
-/* Stack des Einstellungen-Tasks. MUSS aus dem internen SRAM kommen (Standard
- * von xTaskCreate): der WLAN-Ablauf schreibt NVS, und waehrend eines
- * Flash-Zugriffs ist der Cache eingefroren, PSRAM also unerreichbar (siehe
- * ota.c). Interner SRAM ist aber genau die knappe Ressource dieses Projekts
- * (FALLSTRICKE #20/#25/#29) - live gemessen waren nach dem Boot nur noch
- * 19707 Byte frei, davon der groesste zusammenhaengende Block 8704 Byte.
- * Ein fester Wunsch von 12 KB scheiterte damit schlicht.
+/* Der Einstellungen-Task bekommt seinen Stack STATISCH, nicht aus dem Heap.
  *
- * Deshalb zwei Groessen: bevorzugt der grosszuegige Wert (der Ablauf lief
- * frueher auf dem 16-KB-Stack des Haupt-Tasks), zur Not der kleinere. Die
- * Log-Zeile beim Schliessen nennt die tatsaechlich uebrig gebliebene
- * Reserve - erst damit laesst sich der noetige Wert belegen statt raten. */
-static const uint32_t EINSTELLUNGEN_STACK_VARIANTEN[] = {12288, 8192};
+ * Vorgeschichte, weil der Weg dahin zwei Sackgassen hatte: Zuerst fuhr
+ * app_main() das Menue in einer Endlosschleife - damit blieb dessen 16-KB-
+ * Stack fuer immer belegt und der OTA-Task bekam seine 8 KB nicht mehr.
+ * Dann wurde der Task auf Zuruf erzeugt, also ausgerechnet in dem Moment,
+ * in dem der interne SRAM am staerksten zerstueckelt ist: live scheiterten
+ * nacheinander 12 KB (groesster freier Block 8704) und 8 KB (5632). Ein
+ * Stack aus dem Heap ist hier schlicht eine Lotterie.
+ *
+ * Statisch heisst: der Platz steht schon beim Binden fest (.bss, interner
+ * SRAM), kann nicht fragmentieren und kann nicht fehlschlagen. Weil er
+ * ohnehin dauerhaft belegt ist, darf der Task auch dauerhaft leben - er
+ * wartet blockierend auf ein Signal, statt sich immer wieder neu zu bilden.
+ * Das erspart zugleich den heiklen Fall, dass ein zweiter Tipp den Task neu
+ * anlegt, waehrend der alte noch abgeraeumt wird.
+ *
+ * Bezahlt wird das aus dem Kalender-Task, dessen 16 KB seit der Verlagerung
+ * seines grossen ics_termin_t-Puffers in den PSRAM (FALLSTRICKE #26) weit
+ * ueberdimensioniert waren - live gemessen 10060 Byte davon ungenutzt, jetzt
+ * auf 10 KB gekuerzt. Unterm Strich gibt das Paar internen SRAM frei.
+ *
+ * Interner SRAM ist zwingend: der WLAN-Ablauf schreibt NVS, und waehrend
+ * eines Flash-Zugriffs ist der Cache eingefroren, PSRAM also unerreichbar
+ * (siehe ota.c). */
+#define EINSTELLUNGEN_TASK_STACK_BYTES 8192
 
-static volatile bool s_einstellungen_task_laeuft = false;
+static StackType_t s_einstellungen_stack[EINSTELLUNGEN_TASK_STACK_BYTES / sizeof(StackType_t)];
+static StaticTask_t s_einstellungen_tcb;
+static TaskHandle_t s_einstellungen_task_handle;
+/* Verhindert, dass ein zweiter Tipp waehrend des offenen Menues ein zweites
+ * Oeffnen nachlegt (die Benachrichtigung wuerde sonst gezaehlt und der
+ * Ablauf liefe direkt nochmal). */
+static volatile bool s_einstellungen_offen = false;
 
 static void uhr_tick(lv_timer_t *timer);
 static bool einstellungen_bildschirm_verarbeiten(void);
 
-/* Das Einstellungen-Menue ist ein blockierender Ablauf: er darf weder im
- * LVGL-Callback laufen (Task-Watchdog, FALLSTRICKE #16) noch in einer
- * Dauerschleife am Ende von app_main. Letzteres war der Fehler der ersten
- * Fassung - der Haupt-Task blieb dann fuer immer am Leben und belegte
- * dauerhaft seine 16 KB internen SRAM. Genau daran scheiterte anschliessend
- * der OTA-Task ("OTA-Task konnte nicht gestartet werden", siehe ota.c), also
- * ausgerechnet die Funktion, wegen der das Menue ueberhaupt erreichbar sein
- * soll. Ein Task auf Zuruf kostet nur waehrend der Menue-Nutzung Speicher. */
+/* Das Einstellungen-Menue ist ein blockierender Ablauf und darf deshalb
+ * nicht im LVGL-Callback laufen (Task-Watchdog, FALLSTRICKE #16). */
 static void einstellungen_task(void *arg)
 {
     (void)arg;
-    netz_watchdog_pausieren(true);
-    (void)einstellungen_bildschirm_verarbeiten(); /* Demo-Modus hier ohne Belang */
-    lvgl_port_lock(0);
-    lv_screen_load(s_bildschirm); /* zurueck zur Uhr */
-    lvgl_port_unlock();
-    einrichtung_einstellungen_aufraeumen();
-    netz_watchdog_pausieren(false);
-    /* Anzeige sofort auffrischen statt bis zum naechsten Sekundentakt zu
-     * warten. uhr_tick ruehrt LVGL an und laeuft sonst im LVGL-Task - hier
-     * also unter dessen Sperre (rekursiv, verschachtelt somit gefahrlos). */
-    lvgl_port_lock(0);
-    uhr_tick(NULL);
-    lvgl_port_unlock();
-    ESP_LOGI(TAG, "Einstellungen-Menue geschlossen (Stack-Reserve: %u Byte)",
-             (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
-    s_einstellungen_task_laeuft = false;
-    vTaskDelete(NULL);
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        s_einstellungen_offen = true;
+
+        netz_watchdog_pausieren(true);
+        (void)einstellungen_bildschirm_verarbeiten(); /* Demo-Modus hier ohne Belang */
+        lvgl_port_lock(0);
+        lv_screen_load(s_bildschirm); /* zurueck zur Uhr */
+        lvgl_port_unlock();
+        einrichtung_einstellungen_aufraeumen();
+        netz_watchdog_pausieren(false);
+        /* Anzeige sofort auffrischen statt bis zum naechsten Sekundentakt zu
+         * warten. uhr_tick ruehrt LVGL an und laeuft sonst im LVGL-Task -
+         * hier also unter dessen Sperre (rekursiv, verschachtelt gefahrlos). */
+        lvgl_port_lock(0);
+        uhr_tick(NULL);
+        lvgl_port_unlock();
+
+        ESP_LOGI(TAG, "Einstellungen-Menue geschlossen (ungenutzte Stack-Reserve: %u von %u Byte)",
+                 (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)),
+                 (unsigned)EINSTELLUNGEN_TASK_STACK_BYTES);
+        s_einstellungen_offen = false;
+    }
+}
+
+static void einstellungen_task_starten(void)
+{
+    s_einstellungen_task_handle =
+        xTaskCreateStatic(einstellungen_task, "einstellungen",
+                          sizeof s_einstellungen_stack / sizeof s_einstellungen_stack[0],
+                          NULL, 4, s_einstellungen_stack, &s_einstellungen_tcb);
 }
 
 static void update_symbol_geklickt_cb(lv_event_t *e)
 {
     (void)e;
-    if (s_einstellungen_task_laeuft)
+    if (s_einstellungen_offen || s_einstellungen_task_handle == NULL)
         return;
-    s_einstellungen_task_laeuft = true;
-    for (size_t i = 0; i < sizeof(EINSTELLUNGEN_STACK_VARIANTEN) / sizeof(EINSTELLUNGEN_STACK_VARIANTEN[0]); i++) {
-        if (xTaskCreate(einstellungen_task, "einstellungen", EINSTELLUNGEN_STACK_VARIANTEN[i],
-                        NULL, 4, NULL) == pdPASS) {
-            ESP_LOGI(TAG, "Einstellungen-Menue geoeffnet (Stack %u Byte)",
-                     (unsigned)EINSTELLUNGEN_STACK_VARIANTEN[i]);
-            return;
-        }
-    }
-    s_einstellungen_task_laeuft = false;
-    ESP_LOGW(TAG, "Einstellungen-Menue konnte nicht geoeffnet werden "
-                  "(intern frei: %u Byte, groesster Block %u Byte)",
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    xTaskNotifyGive(s_einstellungen_task_handle);
 }
 static lv_obj_t *s_status_fenster;
 static lv_timer_t *s_status_fenster_timer;
@@ -1681,7 +1695,14 @@ static void uhr_tick(lv_timer_t *timer)
     if (ota_aktiv) {
         if (!ota_fenster_war_offen)
             tagesansicht_update_fenster_zeigen();
-        tagesansicht_update_fenster_fortschritt_setzen(ota_fortschritt_prozent());
+        /* Solange etwas im Klartext zu sagen ist (Verbindungsaufbau,
+         * Fehlschlag), hat das Vorrang vor dem Prozentbalken - beim
+         * Verbindungsaufbau gibt es noch gar keinen Fortschritt. */
+        const char *meldung = ota_meldung();
+        if (meldung[0])
+            tagesansicht_update_fenster_meldung_setzen(meldung);
+        else
+            tagesansicht_update_fenster_fortschritt_setzen(ota_fortschritt_prozent());
     } else if (ota_fenster_war_offen) {
         tagesansicht_update_fenster_schliessen();
     }
@@ -2202,6 +2223,11 @@ void app_main(void)
     /* Bewusst ganz am Ende, nachdem die Anzeige bereits laeuft - OTA ist
      * reine Wartung im Hintergrund und soll den Boot-Ablauf in keinem Fall
      * verzoegern (siehe ota.h). */
+    /* Wartet blockierend auf das Antippen des Update-Symbols. Sein Stack ist
+     * statisch (siehe einstellungen_task), das Erzeugen kann also nicht an
+     * fehlendem Speicher scheitern - genau daran ging es zuvor zweimal. */
+    einstellungen_task_starten();
+
     ota_starten();
 
     /* app_main MUSS hier zurueckkehren: erst dadurch gibt der Idle-Task die
