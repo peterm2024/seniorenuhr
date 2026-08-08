@@ -42,9 +42,39 @@ jobs:
       - name: Firmware bauen (Produktions-Build, ohne Entwicklungswerkzeuge)
         shell: bash
         run: |
+          # Ohne dies scheitert "git describe" im Container mit "detected
+          # dubious ownership" - actions/checkout traegt safe.directory nur
+          # in die Git-Config des RUNNER-Benutzers ein, der Build laeuft aber
+          # im ESP-IDF-Container als anderer Benutzer. ESP-IDF faellt dann
+          # still auf die Version "1" zurueck. Das ist toedlich fuer OTA:
+          # jedes Release hiesse "1", das Geraet saehe nach dem ersten
+          # Update nie wieder eine neue Version.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           sed -i 's/#define ENTWICKLUNGSWERKZEUGE 1/#define ENTWICKLUNGSWERKZEUGE 0/' main/app_main.c
           . "$IDF_PATH/export.sh"
           idf.py build
+
+      # Sicherung gegen genau den obigen Fehler: die Version steckt im
+      # esp_app_desc_t der fertigen Binary und MUSS dem Tag entsprechen.
+      # Lieber ein fehlgeschlagener Release-Build als ein Geraet, das
+      # kuenftige Updates nicht mehr als solche erkennt.
+      - name: Version in der Binary gegen den Tag pruefen
+        shell: bash
+        run: |
+          python3 - "$GITHUB_REF_NAME" <<'PY'
+          import struct, sys
+          erwartet = sys.argv[1]
+          d = open('build/seniorenuhr.bin','rb').read()
+          i = d.find(struct.pack('<I', 0xABCD5432))
+          if i < 0:
+              sys.exit('esp_app_desc_t nicht gefunden - Binary unbrauchbar')
+          ist = d[i+16:i+48].split(b'\x00')[0].decode()
+          print(f'Version in der Binary: {ist!r}, erwartet: {erwartet!r}')
+          if ist != erwartet:
+              sys.exit(f'FEHLER: Version "{ist}" passt nicht zum Tag "{erwartet}" - '
+                       'vermutlich ist "git describe" fehlgeschlagen (siehe safe.directory oben). '
+                       'Ein Release mit falscher Version wuerde die OTA-Erkennung dauerhaft lahmlegen.')
+          PY
 
       - name: Version fuer die Release-Notiz ermitteln
         id: version
