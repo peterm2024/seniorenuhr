@@ -1,5 +1,9 @@
 # ESP-IDF
 build/
+# Getrenntes Verzeichnis fuer Produktions-Builds (Board 2): so bleibt der
+# Entwicklungs-Build daneben bestehen, statt bei jedem Wechsel neu zu bauen.
+#   $env:PRODUKTIONS_BUILD = "1"; idf.py -B build_prod -p COM5 flash
+build_prod/
 managed_components/
 sdkconfig
 sdkconfig.old
