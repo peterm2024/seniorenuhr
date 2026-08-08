@@ -646,6 +646,18 @@ static status_icon_t s_status_kalender;
  * Firmware bereitsteht (Peters Wunsch) - es ist also selbst schon die
  * Meldung, nicht bloss ein Zustandsanzeiger, und bleibt sonst unsichtbar. */
 static status_icon_t s_status_update;
+/* Wird durch Antippen des Update-Symbols gesetzt und vom Haupt-Task
+ * abgeholt (siehe Schleife am Ende von app_main). Das Einstellungen-Menue
+ * ist ein blockierender Ablauf und darf deshalb nicht im LVGL-Callback
+ * laufen. */
+static volatile bool s_einstellungen_gewuenscht = false;
+static lv_obj_t *s_update_tippflaeche;
+
+static void update_symbol_geklickt_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_gewuenscht = true;
+}
 static lv_obj_t *s_status_fenster;
 static lv_timer_t *s_status_fenster_timer;
 
@@ -1163,9 +1175,27 @@ static void ui_aufbauen(void)
      * unsichtbar und erscheint erst, wenn eine neue Firmware bereitsteht
      * (siehe uhr_tick). Kein Durchstrich: es gibt hier kein "kaputt", das
      * Symbol ist entweder da oder nicht. */
-    status_icon_erzeugen(&s_status_update, s_bildschirm, 600);
+    /* Links genug Abstand zur Tippflaeche der Status-Symbole (beginnt bei
+     * x=620) - sonst laege das Symbol teilweise darunter und Antippen
+     * oeffnete das Status-Fenster statt des Update-Wegs. */
+    status_icon_erzeugen(&s_status_update, s_bildschirm, 560);
     status_glyph_update_erzeugen(&s_status_update);
     lv_obj_add_flag(s_status_update.container, LV_OBJ_FLAG_HIDDEN);
+
+    /* Eigene, grosszuegige Tippflaeche wie bei den Status-Symbolen: das
+     * Symbol ist zugleich der Weg zum Update. Ohne das waere es eine
+     * Sackgasse - das Einstellungen-Menue haengt sonst am Zahnrad des
+     * STARTbildschirms und ist nach dem Booten gar nicht mehr erreichbar,
+     * das Symbol erschiene also genau dann, wenn man nichts mehr damit
+     * anfangen kann. Wird zusammen mit dem Symbol ein-/ausgeblendet. */
+    s_update_tippflaeche = lv_obj_create(s_bildschirm);
+    lv_obj_remove_style_all(s_update_tippflaeche);
+    lv_obj_set_pos(s_update_tippflaeche, 540, 0);
+    lv_obj_set_size(s_update_tippflaeche, 80, 64);
+    lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(s_update_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(s_update_tippflaeche, update_symbol_geklickt_cb, LV_EVENT_CLICKED, NULL);
 
     /* Live-Status rechts oben: spiegelt WLAN/Zeit/Kalender aus dem
      * Startbildschirm, durchgestrichen bei fehlender Konnektivitaet. */
@@ -1520,10 +1550,16 @@ static void uhr_tick(lv_timer_t *timer)
     static bool letztes_update_sichtbar = false;
     bool update_sichtbar = (modus != MODUS_NACHT) && ota_update_verfuegbar();
     if (einmalig || update_sichtbar != letztes_update_sichtbar) {
-        if (update_sichtbar)
+        if (update_sichtbar) {
             lv_obj_remove_flag(s_status_update.container, LV_OBJ_FLAG_HIDDEN);
-        else
+            lv_obj_remove_flag(s_update_tippflaeche, LV_OBJ_FLAG_HIDDEN);
+        } else {
             lv_obj_add_flag(s_status_update.container, LV_OBJ_FLAG_HIDDEN);
+            /* Tippflaeche mit ausblenden - eine unsichtbare, aber aktive
+             * Flaeche waere eine Falle: ein Tipp neben die Uhr wuerde
+             * unerklaerlich ins Einstellungen-Menue springen. */
+            lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_HIDDEN);
+        }
         letztes_update_sichtbar = update_sichtbar;
     }
     einmalig = false;
@@ -2102,4 +2138,28 @@ void app_main(void)
      * reine Wartung im Hintergrund und soll den Boot-Ablauf in keinem Fall
      * verzoegern (siehe ota.h). */
     ota_starten();
+
+    /* app_main kehrt bewusst NICHT zurueck: der Haupt-Task bleibt als
+     * Fahrer fuer das Einstellungen-Menue am Leben. Frueher endete er hier,
+     * womit das Menue nur waehrend des Bootens (ueber das Zahnrad des
+     * Startbildschirms) erreichbar war - das Update-Symbol erscheint aber
+     * erst danach, es fuehrte also ins Leere.
+     *
+     * Der Ablauf muss hier laufen und nicht im Klick-Callback: er
+     * blockiert, solange das Menue offen ist, und wuerde im LVGL-Task den
+     * Task-Watchdog ausloesen (FALLSTRICKE #16). */
+    for (;;) {
+        if (s_einstellungen_gewuenscht) {
+            s_einstellungen_gewuenscht = false;
+            netz_watchdog_pausieren(true);
+            (void)einstellungen_bildschirm_verarbeiten(); /* Demo-Modus hier ohne Belang */
+            lvgl_port_lock(0);
+            lv_screen_load(s_bildschirm); /* zurueck zur Uhr */
+            lvgl_port_unlock();
+            einrichtung_einstellungen_aufraeumen();
+            netz_watchdog_pausieren(false);
+            uhr_tick(NULL); /* Anzeige sofort auffrischen statt bis zum naechsten Sekundentakt zu warten */
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
 }

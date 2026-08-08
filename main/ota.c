@@ -148,7 +148,9 @@ int ota_versionen_abfragen(void)
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 15000,
-        .buffer_size = 2048,
+        /* Auch die API antwortet mit reichlich Headern (Rate-Limit-,
+         * Sicherheits- und Cache-Angaben) - dieselbe Falle wie oben. */
+        .buffer_size = 4096,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client)
@@ -307,7 +309,20 @@ static void ota_durchlauf(bool installieren, const char *version)
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 15000,
-        .buffer_size = 2048,
+        .buffer_size = 4096,
+        /* ENTSCHEIDEND, und leicht zu verwechseln: "Out of buffer" kam beim
+         * Download aus dem SENDE-Puffer, nicht aus dem Empfangspuffer.
+         * esp_http_client baut damit die Anfragezeile "GET <pfad>?<query>
+         * HTTP/1.1" zusammen (esp_http_client.c, esp_http_client_prepare_
+         * first_line). GitHub leitet Release-Downloads per 302 auf eine
+         * signierte Adresse um, deren Pfad samt Query mehrere hundert
+         * Zeichen lang ist - die Vorgabe von 512 Byte reicht dafuer nicht,
+         * und ein groesserer Empfangspuffer aendert daran nichts.
+         *
+         * Aufgefallen ist es erst, seit es ueberhaupt ein Release gibt:
+         * vorher kam ein kurzes 404 ohne Weiterleitung zurueck. Der
+         * Kalender-Abruf ist nicht betroffen, Google antwortet direkt. */
+        .buffer_size_tx = 4096,
         .keep_alive_enable = true,
     };
     esp_https_ota_config_t ota_cfg = { .http_config = &http_cfg };
