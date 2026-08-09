@@ -28,10 +28,28 @@ static lv_timer_t *s_wlan_scan_timer;
 static netz_scan_eintrag_t s_wlan_scan_ergebnisse[NETZ_SCAN_MAX];
 static int s_wlan_scan_anzahl;
 static volatile einrichtung_status_t s_wlan_status = EINRICHTUNG_OFFEN;
+/* true, solange im Passwortfeld noch der Platzhalter eines bereits bekannten
+ * Netzes steht und der Benutzer ihn nicht angetastet hat - dann wird beim
+ * Speichern NULL uebergeben ("gespeichertes Passwort behalten", siehe netz.h)
+ * statt der Fuellzeichen selbst. Peters Wunsch (09.08.2026): zwischen
+ * bekannten Netzen umschalten, ohne das Passwort auf dem Touchscreen neu
+ * einzutippen. */
+static bool s_wlan_pass_ist_platzhalter;
+/* Bewusst KEINE echten Sternchen als Inhalt, sondern harmloser Fuelltext: das
+ * Feld laeuft im Passwort-Modus, LVGL maskiert also ohnehin jedes Zeichen.
+ * Feste 12 Zeichen, damit die Laenge nichts ueber das echte Passwort verraet. */
+#define WLAN_PASS_PLATZHALTER "############"
 
 static void wlan_textarea_fokus_cb(lv_event_t *e)
 {
     lv_obj_t *ta = lv_event_get_target(e);
+    /* Erster Griff ins Passwortfeld leert den Platzhalter - sonst haengt der
+     * neu getippte Text hinten an den Fuellzeichen und ergaebe ein Passwort,
+     * das niemand gemeint hat. */
+    if (ta == s_pass_ta && s_wlan_pass_ist_platzhalter) {
+        s_wlan_pass_ist_platzhalter = false;
+        lv_textarea_set_text(s_pass_ta, "");
+    }
     lv_keyboard_set_textarea(s_wlan_keyboard, ta);
 }
 
@@ -137,6 +155,14 @@ static void wlan_dropdown_geaendert_cb(lv_event_t *e)
         char bereinigt[sizeof s_wlan_scan_ergebnisse[0].ssid];
         ssid_anzeige_bereinigen(s_wlan_scan_ergebnisse[index].ssid, bereinigt, sizeof bereinigt);
         lv_textarea_set_text(s_ssid_ta, bereinigt);
+
+        /* Bereits bekanntes Netz: Passwortfeld mit Platzhalter fuellen, damit
+         * ein Umschalten ohne Neueingabe moeglich ist. Bewusst gegen die
+         * UNBEREINIGTE SSID geprueft - genau die steht auch im NVS. */
+        s_wlan_pass_ist_platzhalter = netz_profil_bekannt(s_wlan_scan_ergebnisse[index].ssid);
+        lv_textarea_set_text(s_pass_ta, s_wlan_pass_ist_platzhalter ? WLAN_PASS_PLATZHALTER : "");
+        lv_textarea_set_placeholder_text(s_pass_ta,
+                                          s_wlan_pass_ist_platzhalter ? "Passwort (bekannt)" : "Passwort");
     }
 }
 
@@ -236,8 +262,12 @@ static void wlan_speichern_cb(lv_event_t *e)
     const char *ssid = lv_textarea_get_text(s_ssid_ta);
     if (strlen(ssid) == 0)
         return; /* ohne Netzwerkname nichts zu speichern */
+    /* Steht im Feld noch der unangetastete Platzhalter, NULL uebergeben -
+     * das heisst "gespeichertes Passwort behalten" (netz.h). Sonst landeten
+     * die Fuellzeichen als Passwort im NVS. */
+    const char *passwort = s_wlan_pass_ist_platzhalter ? NULL : lv_textarea_get_text(s_pass_ta);
     /* Bei Erfolg startet das Geraet hier neu und kehrt nicht zurueck. */
-    netz_zugangsdaten_speichern(ssid, lv_textarea_get_text(s_pass_ta));
+    netz_zugangsdaten_speichern(ssid, passwort);
 }
 
 static void wlan_abbrechen_cb(lv_event_t *e)
@@ -268,6 +298,7 @@ void einrichtung_wlan_zeigen(void)
      * Liste zeigt bis dahin einen Platzhaltertext. */
     s_wlan_scan_anzahl = 0;
     s_wlan_letzte_optionen[0] = '\0'; /* frischer Bildschirm = frische Liste */
+    s_wlan_pass_ist_platzhalter = false; /* Feld startet leer, siehe unten */
     /* Reconnect-Kreislauf anhalten, BEVOR der erste Scan startet - ohne
      * sichtbares bekanntes Netz haengt das Funkmodul sonst dauerhaft in
      * einem Verbindungsversuch und jeder Scan schlaegt fehl, die Liste

@@ -405,7 +405,20 @@ static esp_err_t profil_liste_schreiben(const wlan_profil_t *liste, int anzahl)
 
 /* Legt ein Profil im NVS ab, OHNE neu zu starten. Der Neustart gehoert zur
  * Benutzer-Eingabe (netz_zugangsdaten_speichern), nicht zum stillen Merken
- * einer bereits funktionierenden Verbindung. */
+ * einer bereits funktionierenden Verbindung.
+ *
+ * passwort == NULL: gespeichertes Passwort behalten (siehe netz.h).
+ *
+ * Ein hier abgelegtes Profil landet IMMER am Listenende, auch wenn es die
+ * SSID schon gab. Das ist wesentlich, nicht kosmetisch:
+ * beste_konfiguration_ermitteln() laeuft die Profile von hinten nach vorn
+ * durch und nimmt den ersten sichtbaren Treffer - das Listenende ist also
+ * "hoechste Prioritaet". Frueher wurde ein bekanntes Profil an seiner alten
+ * Stelle aktualisiert; sind zwei bekannte Netze gleichzeitig sichtbar
+ * (bei Peter: Hauptnetz und Gastnetz ueber denselben Router), liess sich
+ * damit gar nicht gezielt umschalten - das Geraet nahm nach dem Neustart
+ * weiterhin das zuletzt HINZUGEFUEGTE. Wer im Menue bewusst ein Netz
+ * auswaehlt und speichert, meint aber genau dieses. */
 static esp_err_t zugangsdaten_ablegen(const char *ssid, const char *passwort, int *anzahl_aus)
 {
     wlan_profil_t liste[WLAN_PROFIL_MAX];
@@ -419,23 +432,59 @@ static esp_err_t zugangsdaten_ablegen(const char *ssid, const char *passwort, in
         }
     }
 
-    if (index_vorhanden >= 0) {
-        snprintf(liste[index_vorhanden].passwort, sizeof liste[index_vorhanden].passwort, "%s", passwort);
-    } else {
-        if (anzahl >= WLAN_PROFIL_MAX) {
-            /* Aeltestes (zuerst gespeichertes) Profil verdraengen */
-            memmove(&liste[0], &liste[1], (size_t)(WLAN_PROFIL_MAX - 1) * sizeof(wlan_profil_t));
-            anzahl = WLAN_PROFIL_MAX - 1;
-        }
-        snprintf(liste[anzahl].ssid, sizeof liste[anzahl].ssid, "%s", ssid);
-        snprintf(liste[anzahl].passwort, sizeof liste[anzahl].passwort, "%s", passwort);
-        anzahl++;
+    /* Ohne Passwort laesst sich nur ein BEKANNTES Netz waehlen - bei einem
+     * unbekannten gaebe es nichts zu behalten. Ausnahme: das einkompilierte
+     * Basisnetz aus secrets.h steht evtl. noch nicht im NVS (es wandert erst
+     * nach der ersten erfolgreichen Verbindung dorthin, siehe
+     * secrets_profil_uebernehmen) - sein Passwort kennen wir trotzdem.
+     * netz_profil_bekannt() meldet es aus demselben Grund als bekannt. */
+    const char *quelle_passwort = passwort;
+    if (quelle_passwort == NULL && index_vorhanden < 0) {
+        if (strcmp(ssid, WLAN_SSID) != 0)
+            return ESP_ERR_NOT_FOUND;
+        quelle_passwort = WLAN_PASSWORT;
     }
+
+    wlan_profil_t neu;
+    snprintf(neu.ssid, sizeof neu.ssid, "%s", ssid);
+    if (quelle_passwort != NULL)
+        snprintf(neu.passwort, sizeof neu.passwort, "%s", quelle_passwort);
+    else
+        memcpy(neu.passwort, liste[index_vorhanden].passwort, sizeof neu.passwort);
+
+    if (index_vorhanden >= 0) {
+        /* Alten Eintrag herausnehmen, der neue kommt unten ans Ende. */
+        memmove(&liste[index_vorhanden], &liste[index_vorhanden + 1],
+                (size_t)(anzahl - index_vorhanden - 1) * sizeof(wlan_profil_t));
+        anzahl--;
+    } else if (anzahl >= WLAN_PROFIL_MAX) {
+        /* Aeltestes (zuerst gespeichertes) Profil verdraengen */
+        memmove(&liste[0], &liste[1], (size_t)(WLAN_PROFIL_MAX - 1) * sizeof(wlan_profil_t));
+        anzahl = WLAN_PROFIL_MAX - 1;
+    }
+    liste[anzahl++] = neu;
 
     esp_err_t err = profil_liste_schreiben(liste, anzahl);
     if (err == ESP_OK && anzahl_aus)
         *anzahl_aus = anzahl;
     return err;
+}
+
+bool netz_profil_bekannt(const char *ssid)
+{
+    if (ssid == NULL || ssid[0] == '\0')
+        return false;
+
+    wlan_profil_t liste[WLAN_PROFIL_MAX];
+    int anzahl = profil_liste_lesen(liste, WLAN_PROFIL_MAX);
+    for (int i = 0; i < anzahl; i++) {
+        if (strcmp(liste[i].ssid, ssid) == 0)
+            return true;
+    }
+    /* Das einkompilierte Basisnetz zaehlt mit: es funktioniert auch dann,
+     * wenn es (noch) nicht im NVS steht - secrets_profil_uebernehmen()
+     * traegt es erst nach der ersten erfolgreichen Verbindung nach. */
+    return strcmp(ssid, WLAN_SSID) == 0;
 }
 
 esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort)

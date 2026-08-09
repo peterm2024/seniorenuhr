@@ -34,6 +34,26 @@ idf.py -p COM3 flash
 idf.py -p COM3 monitor    # serielle Ausgabe ansehen, Beenden mit Strg+]
 ```
 
+**Absturzprotokoll (Core-Dump) auslesen** — nach einem Absturz, sobald das
+Board wieder am Rechner hängt:
+
+```powershell
+idf.py -p COM5 coredump-info      # Backtrace + Task-Zustand im Klartext
+idf.py -p COM5 coredump-debug     # dasselbe interaktiv in gdb
+```
+
+Der Dump liegt seit 09.08.2026 in einer eigenen Flash-Partition (`coredump`,
+siehe `partitions.csv`) statt nur auf der seriellen Leitung. Er wird im
+Moment des Absturzes geschrieben und übersteht Neustart und Stromausfall —
+das Board kann also ohne Kabel irgendwo betrieben werden (Powerbank am
+Router), und das Protokoll wird beim nächsten Einstecken ausgelesen. Der
+Dump bleibt stehen, bis er überschrieben oder mit
+`idf.py -p COM5 coredump-erase` gelöscht wird.
+
+Wichtig: Die ausgelesene ELF-Datei muss zur geflashten Firmware passen. Für
+das Eltern-Board also `-B build_prod` mit angeben, sonst zeigen die
+Adressen ins Leere.
+
 **Parser-Tests auf dem PC ausführen:**
 
 ```powershell

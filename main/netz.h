@@ -88,8 +88,19 @@ void netz_watchdog_lockern(void);
  * netz.c/verschleiern), und startet das Geraet neu, damit die Liste gleich
  * im normalen Boot-Ablauf verwendet wird. Bis zu 5 Netze werden gemerkt,
  * danach wird das aelteste verdraengt. Kehrt bei Erfolg nicht zurueck; nur
- * bei einem NVS-Fehler wird ein Fehlercode geliefert. */
+ * bei einem NVS-Fehler wird ein Fehlercode geliefert.
+ *
+ * passwort == NULL bedeutet ausdruecklich: das bereits gespeicherte Passwort
+ * dieser SSID beibehalten. Damit laesst sich zwischen bekannten Netzen
+ * umschalten, ohne das Passwort erneut auf dem Touchscreen eintippen zu
+ * muessen (siehe einrichtung.c) - fuer ein unbekanntes Netz ist NULL ein
+ * Fehler (ESP_ERR_NOT_FOUND), es gaebe dort nichts zu behalten. */
 esp_err_t netz_zugangsdaten_speichern(const char *ssid, const char *passwort);
+
+/* true, wenn fuer diese SSID bereits ein Profil samt Passwort im NVS liegt -
+ * die Oberflaeche zeigt dann statt eines leeren Passwortfelds Platzhalter-
+ * Sternchen an und darf beim Speichern NULL uebergeben (siehe oben). */
+bool netz_profil_bekannt(const char *ssid);
 
 /* Bis zu so viele unterschiedliche Netze liefert ein Scan zurueck (siehe
  * netz_scan_ergebnisse) - reicht fuer jede realistische Nachbarschaft. */

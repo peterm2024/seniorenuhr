@@ -13,3 +13,22 @@ ota_1,      app,  ota_1,    0x310000, 3008K
 # Kalender-Cache: FAT + Wear-Levelling, damit der alle ~15 Minuten
 # geschriebene Kalender-Text nicht immer dieselben Flash-Sektoren abnutzt.
 speicher,   data, fat,      0x610000, 256K
+# Absturzprotokoll (Core-Dump) im Flash statt nur ueber die serielle Leitung.
+# Anlass (09.08.2026): Um am Router zu testen, muss das Board 5 m weiter
+# getragen und an einer Powerbank betrieben werden - ein Live-Mitschnitt ist
+# dann unmoeglich, und genau dabei ging ein echter Absturz verloren. Der
+# Core-Dump wird im Panic-Handler geschrieben, ueberlebt Neustart und
+# Stromausfall und laesst sich beim naechsten Einstecken auslesen
+# ("idf.py -p COMx coredump-info", siehe ENTWICKLUNG.md).
+#
+# BEWUSST ANS ENDE gehaengt: alle bestehenden Partitionen behalten dadurch
+# ihre Adressen, NVS (WLAN-Profile) und "speicher" (Kalender-Cache)
+# ueberstehen die Umstellung unveraendert - dieselbe Ueberlegung wie beim
+# OTA-Umbau oben. Dahinter lagen 1728 KB Flash ungenutzt brach.
+#
+# 256K statt der ueblichen 64K: der Dump sichert die Stacks ALLER Tasks, und
+# dieses Projekt hat davon reichlich grosse (LVGL 16K, main 16K, kalender 10K,
+# einstellungen 8K, httpd 8K, ota 6K, ...). Platz ist genug da; ein zu kleiner
+# Puffer wuerde den Dump abschneiden - genau in dem Moment, in dem man ihn
+# braucht.
+coredump,   data, coredump, 0x650000, 256K

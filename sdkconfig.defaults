@@ -82,11 +82,26 @@ CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 # Task-Watchdog nach 5s eine Panic mit anschliessendem Neustart aus, statt
 # das Geraet mit eingefrorener Anzeige stehen zu lassen - im Sinne der
 # Projektregel "Anzeige von Zeit/Tabletten hat oberste Prioritaet" ist ein
-# Neustart das kleinere Uebel. Der Core-Dump ueber UART liefert dabei den
-# kompletten Task-Zustand fuer die Fehlersuche (espcoredump.py info_corefile,
-# so wurde die Endlosschleife aus FALLSTRICKE #16 gefunden).
+# Neustart das kleinere Uebel. Der Core-Dump liefert dabei den kompletten
+# Task-Zustand fuer die Fehlersuche (so wurde die Endlosschleife aus
+# FALLSTRICKE #16 gefunden).
 CONFIG_ESP_TASK_WDT_PANIC=y
-CONFIG_ESP_COREDUMP_ENABLE_TO_UART=y
+# Core-Dump in den FLASH statt ueber UART (umgestellt 09.08.2026, siehe
+# FALLSTRICKE #40 und die coredump-Partition in partitions.csv): Ueber UART
+# ist der Dump nur zu sehen, solange ein Kabel steckt. Genau daran scheiterte
+# die Analyse eines echten Absturzes - das Board lief zum Test am Router an
+# einer Powerbank, 5 m vom Rechner entfernt. Im Flash ueberlebt der Dump
+# Neustart und Stromausfall und wird beim naechsten Einstecken ausgelesen:
+#   idf.py -p COM5 coredump-info
+# Die beiden Optionen schliessen sich gegenseitig aus, UART faellt also weg -
+# der Flash-Weg kann alles, was der UART-Weg konnte, und mehr.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+# Eigener Stack fuer den Dump-Vorgang statt des Stacks der abgestuerzten Task.
+# Wichtig gerade hier: die haeufigste Absturzursache in diesem Projekt war ein
+# Stack-Overflow (FALLSTRICKE #10/#18/#24/#33) - liefe der Dump auf genau
+# diesem beschaedigten Stack, waere er unbrauchbar. Kostet dauerhaft 1792 Byte
+# internen SRAM (Minimum des gueltigen Bereichs, laut Doku ausreichend).
+CONFIG_ESP_COREDUMP_STACK_SIZE=1792
 
 # Bildschirmfoto per BOOT-Taste (screenshot_debug.c) - reines Entwicklungs-
 # werkzeug fuer die Doku, Ausgabe als Base64-BMP ueber die serielle
