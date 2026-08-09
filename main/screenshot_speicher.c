@@ -1,7 +1,11 @@
 #include "screenshot_speicher.h"
 
+#include <time.h>
+
 #include "esp_log.h"
 #include "esp_partition.h"
+#include "esp_timer.h"
+#include "zeit.h"
 
 static const char *TAG = "screenshot_speicher";
 
@@ -17,7 +21,21 @@ static const char *TAG = "screenshot_speicher";
 #define MAGIC 0x31485353u /* "SSH1", little-endian im Speicher */
 
 /* 32 Byte gesamt, siehe _Static_assert unten - muss zu
- * tools/screenshot_gemeinsam.py (KOPF_GROESSE) passen. */
+ * tools/screenshot_flash_abholen.py (KOPF_FORMAT) passen.
+ *
+ * Zwei Zeitangaben, fuer zwei verschiedene Zwecke (Peters Wunsch, Screenshots
+ * mit dem seriellen Log korrelieren zu koennen):
+ *   - boot_millis ist exakt dieselbe Groesse, die ESP-IDF auch dem "I (...)"-
+ *     Praefix jeder Log-Zeile voranstellt (esp_log_timestamp() intern) - ein
+ *     Screenshot laesst sich damit einer Log-Zeile DERSELBEN Boot-Sitzung
+ *     direkt zuordnen, auch ohne dass die Uhr gestellt ist.
+ *   - unix_zeit ist die tatsaechliche Uhrzeit (UTC, wie zeit.c sie fuehrt),
+ *     bleibt aber ueber einen Neustart hinweg vergleichbar - anders als
+ *     boot_millis, das bei jedem Neustart wieder bei 0 beginnt. 0, falls die
+ *     Uhr beim Aufnehmen noch nie gestellt war (zeit_ist_synchron() == false,
+ *     praktisch nur ganz am Boot-Anfang moeglich). zeit_manuell zeigt an, ob
+ *     dieser Wert NTP-bestaetigt ist oder nur ein Naeherungswert (siehe
+ *     zeit_ist_manuell_gesetzt() in zeit.h). */
 typedef struct __attribute__((packed)) {
     uint32_t magic;
     uint32_t sequenz;
@@ -25,7 +43,10 @@ typedef struct __attribute__((packed)) {
     uint16_t breite;
     uint16_t hoehe;
     uint8_t komprimiert;
-    uint8_t reserviert[15];
+    uint32_t boot_millis;
+    uint32_t unix_zeit;
+    uint8_t zeit_manuell;
+    uint8_t reserviert[6];
 } platz_kopf_t;
 _Static_assert(sizeof(platz_kopf_t) == 32, "Kopf muss exakt 32 Byte sein");
 
@@ -110,6 +131,9 @@ void screenshot_speicher_ablegen(const uint8_t *daten, uint32_t groesse,
         .breite = breite,
         .hoehe = hoehe,
         .komprimiert = komprimiert ? 1 : 0,
+        .boot_millis = (uint32_t)(esp_timer_get_time() / 1000),
+        .unix_zeit = zeit_ist_synchron() ? (uint32_t)time(NULL) : 0,
+        .zeit_manuell = zeit_ist_manuell_gesetzt() ? 1 : 0,
     };
 
     err = esp_partition_write(s_partition, offset, &kopf, sizeof kopf);
@@ -121,9 +145,9 @@ void screenshot_speicher_ablegen(const uint8_t *daten, uint32_t groesse,
         return;
     }
 
-    ESP_LOGI(TAG, "Screenshot in Flash abgelegt: Platz %lu/%lu, Sequenz %lu, %lu Byte",
+    ESP_LOGI(TAG, "Screenshot in Flash abgelegt: Platz %lu/%lu, Sequenz %lu, %lu Byte, Boot-Zeit %lu ms",
              (unsigned long)platz, (unsigned long)s_anzahl_plaetze, (unsigned long)s_naechste_sequenz,
-             (unsigned long)groesse);
+             (unsigned long)groesse, (unsigned long)kopf.boot_millis);
 
     s_naechster_platz = (s_naechster_platz + 1) % s_anzahl_plaetze;
     s_naechste_sequenz++;

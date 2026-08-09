@@ -13,18 +13,31 @@ Aufruf:
 Liest die Partition per "esptool read_flash" in eine temporaere Datei,
 decodiert danach alle gueltigen Plaetze (Magic-Pruefung, siehe MAGIC unten -
 muss zu main/screenshot_speicher.c passen) und schreibt sie sortiert nach
-Aufnahme-Reihenfolge (Sequenznummer) als "screenshot_<sequenz>.bmp" +
+Aufnahme-Reihenfolge (Sequenznummer) als "screenshot_<sequenz>_<zeit>.bmp" +
 zugehoerige PNGs.
 
 Die Partition ist ein Ringpuffer: nach 15 Aufnahmen wird wieder bei Platz 0
 begonnen, aeltere Aufnahmen dort werden dann ueberschrieben - dieses Skript
 liest daher immer nur die AKTUELL noch vorhandenen Plaetze.
+
+Korrelation mit dem seriellen Log (Peters Wunsch): jeder Platz traegt zwei
+Zeitangaben (siehe platz_kopf_t in main/screenshot_speicher.c):
+  - Boot-Zeit in Millisekunden - exakt dieselbe Zahl, die ESP-IDF auch dem
+    "I (...)"-Praefix jeder Log-Zeile voranstellt. Stammt der Screenshot aus
+    DERSELBEN Boot-Sitzung wie ein serieller Mitschnitt, findet man die
+    passende Stelle direkt per Suche nach "I (<Boot-Zeit>)" im Log.
+  - Uhrzeit (Wanduhr, UTC) - bleibt auch ueber einen Neustart hinweg
+    vergleichbar, im Gegensatz zur Boot-Zeit. "~" davor bedeutet: die Uhr war
+    beim Aufnehmen nicht NTP-bestaetigt, nur ein Naeherungswert (siehe
+    zeit_ist_manuell_gesetzt() in main/zeit.h). Fehlt ganz, wenn die Uhr beim
+    Aufnehmen noch nie gestellt war.
 """
 import sys
 import os
 import struct
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from screenshot_gemeinsam import bmp_bytes_bauen, pngs_erzeugen
@@ -35,7 +48,8 @@ PARTITION_GROESSE = 1440 * 1024
 PLATZ_GROESSE = 96 * 1024
 KOPF_GROESSE = 32
 MAGIC = 0x31485353  # "SSH1", little-endian
-KOPF_FORMAT = "<IIIHHB"  # magic, sequenz, datengroesse, breite, hoehe, komprimiert
+# magic, sequenz, datengroesse, breite, hoehe, komprimiert, boot_millis, unix_zeit, zeit_manuell
+KOPF_FORMAT = "<IIIHHBIIB"
 KOPF_FORMAT_GROESSE = struct.calcsize(KOPF_FORMAT)
 
 
@@ -70,7 +84,8 @@ def main():
         kopf_bytes = rohdaten[start:start + KOPF_FORMAT_GROESSE]
         if len(kopf_bytes) < KOPF_FORMAT_GROESSE:
             continue
-        magic, sequenz, datengroesse, breite, hoehe, komprimiert = struct.unpack(KOPF_FORMAT, kopf_bytes)
+        (magic, sequenz, datengroesse, breite, hoehe, komprimiert,
+         boot_millis, unix_zeit, zeit_manuell) = struct.unpack(KOPF_FORMAT, kopf_bytes)
         if magic != MAGIC:
             continue  # geloeschter/nie beschriebener Platz (Flash-Erase-Wert 0xFF)
         if datengroesse > PLATZ_GROESSE - KOPF_GROESSE:
@@ -79,7 +94,8 @@ def main():
             continue
         daten_start = start + KOPF_GROESSE
         block = rohdaten[daten_start:daten_start + datengroesse]
-        gefunden.append((sequenz, i, breite, hoehe, bool(komprimiert), block))
+        gefunden.append((sequenz, i, breite, hoehe, bool(komprimiert), boot_millis,
+                          unix_zeit, bool(zeit_manuell), block))
 
     if not gefunden:
         print("Keine gueltigen Screenshots in der Partition gefunden.")
@@ -88,13 +104,26 @@ def main():
     gefunden.sort(key=lambda eintrag: eintrag[0])
     print(f"{len(gefunden)} Screenshot(s) gefunden.")
 
-    for sequenz, platz, breite, hoehe, komprimiert, block in gefunden:
-        basis = os.path.join(zielordner, f"screenshot_{sequenz:04d}")
+    for (sequenz, platz, breite, hoehe, komprimiert, boot_millis,
+         unix_zeit, zeit_manuell, block) in gefunden:
+        if unix_zeit:
+            zeit_utc = datetime.fromtimestamp(unix_zeit, tz=timezone.utc)
+            zeit_text = zeit_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+            zeit_dateiname = zeit_utc.strftime("%Y%m%d-%H%M%S")
+            if zeit_manuell:
+                zeit_text = "~" + zeit_text + " (nicht NTP-bestaetigt, nur Naeherung)"
+        else:
+            zeit_text = "Uhrzeit beim Aufnehmen unbekannt (noch kein Zeit-Sync)"
+            zeit_dateiname = f"boot+{boot_millis}ms"
+
+        basis = os.path.join(zielordner, f"screenshot_{sequenz:04d}_{zeit_dateiname}")
         bmp_datei = basis + ".bmp"
         daten = bmp_bytes_bauen(block, breite, hoehe, komprimiert)
         with open(bmp_datei, "wb") as f:
             f.write(daten)
         print(f"  Platz {platz}, Sequenz {sequenz}: {bmp_datei} ({len(daten)} Byte, {breite}x{hoehe})")
+        print(f"    Aufgenommen: {zeit_text} - Boot-Zeit {boot_millis} ms "
+              f"(im seriellen Log nach \"I ({boot_millis})\" suchen, falls aus derselben Sitzung)")
         pngs_erzeugen(bmp_datei)
 
 
