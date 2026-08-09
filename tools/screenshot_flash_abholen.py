@@ -45,7 +45,7 @@ from screenshot_gemeinsam import bmp_bytes_bauen, pngs_erzeugen
 # Muss zu partitions.csv und main/screenshot_speicher.c passen.
 PARTITION_OFFSET = 0x690000
 PARTITION_GROESSE = 1440 * 1024
-PLATZ_GROESSE = 96 * 1024
+PLATZ_GROESSE = 128 * 1024
 KOPF_GROESSE = 32
 MAGIC = 0x31485353  # "SSH1", little-endian
 # magic, sequenz, datengroesse, breite, hoehe, komprimiert, boot_millis, unix_zeit, zeit_manuell
@@ -92,8 +92,12 @@ def main():
             print(f"WARNUNG: Platz {i} (Sequenz {sequenz}) hat eine unplausible "
                   f"Groessenangabe ({datengroesse} Byte) - uebersprungen.")
             continue
+        # datengroesse == 0: main/screenshot_speicher.c hat hier bewusst einen
+        # "zu gross fuer einen Platz"-Platzhalter abgelegt (siehe dort) - Bild
+        # fehlt, Sequenznummer/Zeit bleiben aber sichtbar statt einer stillen
+        # Luecke.
         daten_start = start + KOPF_GROESSE
-        block = rohdaten[daten_start:daten_start + datengroesse]
+        block = rohdaten[daten_start:daten_start + datengroesse] if datengroesse else None
         gefunden.append((sequenz, i, breite, hoehe, bool(komprimiert), boot_millis,
                           unix_zeit, bool(zeit_manuell), block))
 
@@ -102,7 +106,7 @@ def main():
         return
 
     gefunden.sort(key=lambda eintrag: eintrag[0])
-    print(f"{len(gefunden)} Screenshot(s) gefunden.")
+    print(f"{len(gefunden)} Eintrag/Eintraege gefunden.")
 
     for (sequenz, platz, breite, hoehe, komprimiert, boot_millis,
          unix_zeit, zeit_manuell, block) in gefunden:
@@ -115,6 +119,13 @@ def main():
         else:
             zeit_text = "Uhrzeit beim Aufnehmen unbekannt (noch kein Zeit-Sync)"
             zeit_dateiname = f"boot+{boot_millis}ms"
+
+        if block is None:
+            print(f"  Platz {platz}, Sequenz {sequenz}: UEBERSPRUNGEN (Bild passte nicht in einen "
+                  f"Platz, siehe main/screenshot_speicher.c PLATZ_GROESSE)")
+            print(f"    Aufgenommen: {zeit_text} - Boot-Zeit {boot_millis} ms "
+                  f"(im seriellen Log nach \"I ({boot_millis})\" suchen, falls aus derselben Sitzung)")
+            continue
 
         basis = os.path.join(zielordner, f"screenshot_{sequenz:04d}_{zeit_dateiname}")
         bmp_datei = basis + ".bmp"

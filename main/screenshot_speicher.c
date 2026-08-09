@@ -13,10 +13,14 @@ static const char *TAG = "screenshot_speicher";
 
 /* Muss ein Vielfaches der 4-KB-Sektorgroesse sein (Erase-Einheit von
  * NOR-Flash), damit sich jeder Platz einzeln loeschen laesst, ohne
- * Nachbarn zu beruehren. 96 KB liegt komfortabel ueber der live gemessenen
- * RLE-Groesse (75-89 KB, siehe FAHRPLAN Nachtrag 25). Muss zu
- * tools/screenshot_gemeinsam.py passen. */
-#define PLATZ_GROESSE (96u * 1024u)
+ * Nachbarn zu beruehren. Urspruenglich 96 KB (Marge ueber der live
+ * gemessenen RLE-Groesse von 75-89 KB, siehe FAHRPLAN Nachtrag 25) - beim
+ * ersten Router-Test reichte das fuer mindestens einen Screenshot nicht
+ * (vermutlich ein Bildschirm mit mehr Kanten/weniger Lauflaengen-
+ * Redundanz als die bisher vermessenen, z.B. WLAN-Liste oder Bildschirm-
+ * tastatur), auf 128 KB angehoben. Muss zu tools/screenshot_flash_abholen.py
+ * passen. */
+#define PLATZ_GROESSE (128u * 1024u)
 
 #define MAGIC 0x31485353u /* "SSH1", little-endian im Speicher */
 
@@ -102,19 +106,14 @@ static void initialisieren_falls_noetig(void)
     }
 }
 
-void screenshot_speicher_ablegen(const uint8_t *daten, uint32_t groesse,
-                                  uint16_t breite, uint16_t hoehe, bool komprimiert)
+/* Schreibt einen Kopf (plus optional Nutzdaten) in den naechsten Platz und
+ * rueckt den Ringpuffer weiter - gemeinsamer Kern fuer den Normalfall UND
+ * den "zu gross"-Platzhalter unten, damit ein Fehlschlag beim Aufnehmen nie
+ * eine luecken- oder ratlose Sequenz hinterlaesst: jeder Aufnahmeversuch
+ * verbraucht sichtbar eine Sequenznummer, auch wenn das Bild selbst nicht
+ * hineinpasste. */
+static void platz_beschreiben(platz_kopf_t kopf, const uint8_t *daten, uint32_t groesse)
 {
-    initialisieren_falls_noetig();
-    if (!s_partition)
-        return;
-
-    if (sizeof(platz_kopf_t) + groesse > PLATZ_GROESSE) {
-        ESP_LOGW(TAG, "Screenshot zu gross fuer einen Platz (%u + %lu > %u Byte) - nicht abgelegt",
-                 (unsigned)sizeof(platz_kopf_t), (unsigned long)groesse, (unsigned)PLATZ_GROESSE);
-        return;
-    }
-
     uint32_t platz = s_naechster_platz;
     size_t offset = (size_t)platz * PLATZ_GROESSE;
 
@@ -124,10 +123,38 @@ void screenshot_speicher_ablegen(const uint8_t *daten, uint32_t groesse,
         return;
     }
 
+    err = esp_partition_write(s_partition, offset, &kopf, sizeof kopf);
+    if (err == ESP_OK && groesse > 0)
+        err = esp_partition_write(s_partition, offset + sizeof kopf, daten, groesse);
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Platz %lu konnte nicht beschrieben werden: %s", (unsigned long)platz, esp_err_to_name(err));
+        return;
+    }
+
+    if (groesse > 0)
+        ESP_LOGI(TAG, "Screenshot in Flash abgelegt: Platz %lu/%lu, Sequenz %lu, %lu Byte, Boot-Zeit %lu ms",
+                 (unsigned long)platz, (unsigned long)s_anzahl_plaetze, (unsigned long)kopf.sequenz,
+                 (unsigned long)groesse, (unsigned long)kopf.boot_millis);
+    else
+        ESP_LOGW(TAG, "Platz %lu/%lu als 'uebersprungen' markiert (Sequenz %lu, Boot-Zeit %lu ms)",
+                 (unsigned long)platz, (unsigned long)s_anzahl_plaetze, (unsigned long)kopf.sequenz,
+                 (unsigned long)kopf.boot_millis);
+
+    s_naechster_platz = (s_naechster_platz + 1) % s_anzahl_plaetze;
+    s_naechste_sequenz++;
+}
+
+void screenshot_speicher_ablegen(const uint8_t *daten, uint32_t groesse,
+                                  uint16_t breite, uint16_t hoehe, bool komprimiert)
+{
+    initialisieren_falls_noetig();
+    if (!s_partition)
+        return;
+
     platz_kopf_t kopf = {
         .magic = MAGIC,
         .sequenz = s_naechste_sequenz,
-        .datengroesse = groesse,
         .breite = breite,
         .hoehe = hoehe,
         .komprimiert = komprimiert ? 1 : 0,
@@ -136,19 +163,21 @@ void screenshot_speicher_ablegen(const uint8_t *daten, uint32_t groesse,
         .zeit_manuell = zeit_ist_manuell_gesetzt() ? 1 : 0,
     };
 
-    err = esp_partition_write(s_partition, offset, &kopf, sizeof kopf);
-    if (err == ESP_OK)
-        err = esp_partition_write(s_partition, offset + sizeof kopf, daten, groesse);
-
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Platz %lu konnte nicht beschrieben werden: %s", (unsigned long)platz, esp_err_to_name(err));
+    if (sizeof(platz_kopf_t) + groesse > PLATZ_GROESSE) {
+        /* Passt nicht hinein (siehe PLATZ_GROESSE-Kommentar oben - beim
+         * Router-Test live beobachtet). Frueher wurde hier stillschweigend
+         * NICHTS abgelegt - Peter fehlten danach Aufnahmen, ohne dass die
+         * Warnung (nur seriell, kein Monitor lief) je sichtbar wurde. Jetzt
+         * bleibt eine LUECKE mit Zeitstempel in der Sequenz sichtbar, statt
+         * spurlos zu verschwinden. */
+        ESP_LOGW(TAG, "Screenshot zu gross fuer einen Platz (%u + %lu > %u Byte) - "
+                      "Platzhalter statt Bild abgelegt",
+                 (unsigned)sizeof(platz_kopf_t), (unsigned long)groesse, (unsigned)PLATZ_GROESSE);
+        kopf.datengroesse = 0;
+        platz_beschreiben(kopf, NULL, 0);
         return;
     }
 
-    ESP_LOGI(TAG, "Screenshot in Flash abgelegt: Platz %lu/%lu, Sequenz %lu, %lu Byte, Boot-Zeit %lu ms",
-             (unsigned long)platz, (unsigned long)s_anzahl_plaetze, (unsigned long)s_naechste_sequenz,
-             (unsigned long)groesse, (unsigned long)kopf.boot_millis);
-
-    s_naechster_platz = (s_naechster_platz + 1) % s_anzahl_plaetze;
-    s_naechste_sequenz++;
+    kopf.datengroesse = groesse;
+    platz_beschreiben(kopf, daten, groesse);
 }

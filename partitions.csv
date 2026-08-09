@@ -41,8 +41,8 @@ coredump,   data, coredump, 0x650000, 256K
 # Dateisystem-Subtyps, weil main/screenshot_speicher.c die Plaetze selbst roh
 # verwaltet (esp_partition_read/write/erase) - kein FAT/SPIFFS-Overhead noetig.
 #
-# 1440K = 15 Plaetze a 96K (siehe PLATZ_GROESSE in screenshot_speicher.c) -
-# 96K liegt komfortabel ueber der live gemessenen RLE-Groesse (75-89K, siehe
-# FAHRPLAN Nachtrag 25). Restliche 32K bis zum Flash-Ende (8 MB) bleiben
-# bewusst ungenutzt statt krumm aufgeteilt zu werden.
+# 1440K = 11 Plaetze a 128K (siehe PLATZ_GROESSE in screenshot_speicher.c,
+# urspruenglich 96K/15 Plaetze, nach einem zu knappen Platz beim ersten
+# Router-Test auf 128K angehoben). Restliche 32K bis zum Flash-Ende (8 MB)
+# bleiben bewusst ungenutzt statt krumm aufgeteilt zu werden.
 screenshots, data, undefined, 0x690000, 1440K
