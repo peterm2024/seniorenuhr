@@ -42,6 +42,16 @@ typedef struct {
 
 void kalender_task_starten(void);
 
+/* true, sobald kalender_task_starten() den Task erzeugt hat. Der Aufruf
+ * steht in app_main.c ERST NACH den Boot-Phasen WLAN und Uhr - bleibt der
+ * Ablauf dort haengen (z. B. weil der Benutzer im Einstellungen-Menue des
+ * Startbildschirms steht), laeuft dieser Task nie an und
+ * kalender_anzeige_version() bleibt zwangslaeufig 0. Genau das muss die
+ * Bewaehrungsprobe in ota.c unterscheiden koennen: "Kalender noch nicht
+ * geladen" ist etwas anderes als "Kalender kann gar nicht laden"
+ * (siehe FALLSTRICKE #41). */
+bool kalender_task_laeuft(void);
+
 /* Aendert sich, sobald neue Daten veroeffentlicht wurden — die UI muss
  * nur bei Aenderung neu zeichnen, nicht bei jedem Sekunden-Tick. */
 uint32_t kalender_anzeige_version(void);

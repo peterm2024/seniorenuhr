@@ -877,3 +877,63 @@ Diagnose-Einrichtung, auf die man sich im Ernstfall verlassen will, muss einmal 
 ausgeloest worden sein** - sonst stellt sich erst beim echten Absturz heraus, dass sie nicht
 greift. Dabei fiel auch auf, dass ESP-IDF 5.5 kein `coredump-erase` kennt (Loeschen von Hand:
 `python -m esptool -p COMx erase_region 0x650000 0x40000`).
+
+## 41. Bewaehrungsprobe blockierte den ganzen OTA-Task - und haette gesunde Updates zurueckgerollt
+
+**Symptom (Peters Meldung, zweimal):** Direkt nach einem Update zeigte das Einstellungen-Menue
+dauerhaft "Kein Update verfuegbar / Keine vorherige Version / (keine)" - obwohl auf GitHub ein
+Release lag und im anderen OTA-Slot sehr wohl eine vorherige Version stand. Peter markierte das
+beim ersten Mal ausdruecklich mit "!!!". Meine erste Erklaerung ("die Pruefung braucht ~60 s,
+du warst zu schnell im Menue") war **falsch** - ein spaeter aus dem Flash abgeholter Screenshot
+trug den Zeitstempel "Boot-Zeit 153399 ms", also weit jenseits der 60 s.
+
+**Ursachenkette** (im Log belegt, danach im Code verifiziert):
+
+1. `kalender_task_starten()` steht in `app_main.c` ERST NACH den Boot-Phasen WLAN und Uhr.
+2. Wer ueber das Zahnrad des Startbildschirms ins Einstellungen-Menue geht, haelt den Ablauf
+   genau davor an - der Kalender-Task wird nie erzeugt, `kalender_anzeige_version()` bleibt 0.
+3. `rollback_bestaetigen_falls_noetig()` lief als ERSTES im OTA-Task und blockierte dort in
+   `while (!(netz_ist_verbunden() && kalender_anzeige_version() != 0))`.
+4. Nach jedem Update UND nach jedem "Sofort zurueck" ist die App im Zustand *pending verify* -
+   die Schleife griff also genau dann, wenn man erfahrungsgemaess ins Menue schaut.
+5. Damit lief **weder** `ota_versionen_abfragen()` **noch** die Pruefung. Das Menue zeigte seine
+   Platzhaltertexte, und zwar dauerhaft - kein Warten half.
+
+Im Mitschnitt sah man es unmissverstaendlich: letzte Boot-Zeile `Start: Startbildschirm
+angezeigt`, WLAN verbunden bei 5,9 s, danach **148 Sekunden voellige Stille**. In der
+Sitzung davor dasselbe ueber 134 Sekunden.
+
+**Der gefaehrlichere Teil:** Dieselbe Funktion ruft nach `OTA_BEWAEHRUNG_MS` (10 Minuten)
+`esp_ota_mark_app_invalid_rollback_and_reboot()` auf. Eine voellig gesunde Firmware waere also
+automatisch zurueckgenommen worden - nur weil jemand im Menue nachgesehen hat, ob das Update
+angekommen ist. Da das Zurueckschalten die App erneut auf *pending verify* setzt, haette das
+sogar hin- und herspringen koennen.
+
+**Loesung, zwei unabhaengige Aenderungen:**
+
+1. **Entkoppelt.** Die Probe blockiert nichts mehr: `bewaehrung_beginnen()` stellt beim
+   Task-Start nur fest, ob eine Probe ansteht, `bewaehrung_fortschreiben()` schreibt sie in den
+   ohnehin vorhandenen Warteschleifen der Hauptschleife fort. Versionsliste und Update-Pruefung
+   laufen unabhaengig davon.
+2. **Frist pausiert, solange sie nicht fair laufen kann.** Neu `kalender_task_laeuft()`
+   (kalender_anzeige.h): Zeigt es false, wurde der Task noch gar nicht erzeugt - der Kalender
+   KANN dann nicht laden, und die Uhr steht still. Bewusst an den Task gekoppelt und nicht an
+   "Menue offen": das ist die ehrliche Bedingung ("Kriterium nicht pruefbar") und gilt
+   unabhaengig davon, warum der Ablauf haengt. `s_einstellungen_status` waere als Signal ohnehin
+   untauglich gewesen - es ist statisch mit `EINRICHTUNG_OFFEN` vorbelegt, also schon vor dem
+   ersten Oeffnen "offen".
+
+**Das Sicherheitsnetz bleibt dabei intakt** - wichtig, weil es die zentrale Absicherung fuer ein
+Geraet weit entfernt ist: Laeuft der Boot-Ablauf weiter (spaetestens nach den
+60-Sekunden-Timeouts der Boot-Phasen), laeuft auch die Frist weiter. Und stuerzt die neue
+Firmware ab oder haengt sie, startet das Geraet neu, ohne bestaetigt zu haben - dann nimmt schon
+der Bootloader die vorherige Version zurueck, ganz ohne diese Frist.
+
+**Zwei Lehren:**
+
+- **Peters "!!!" ernst nehmen.** Seine Beobachtung war praezise richtig, meine bequeme Erklaerung
+  ("zu schnell geklickt") war es nicht. Dasselbe Muster wie beim Wochentag-Button-Bug (#19) und
+  beim abendlichen Abdunkeln (#28) - hier zum dritten Mal.
+- **Was blockierend wartet, blockiert mehr als man denkt.** Eine Warteschleife am Anfang eines
+  Tasks legt ALLES lahm, was dieser Task sonst noch tut. Diese Codebasis hat dasselbe Muster
+  schon in #37 gehabt (schnelle Abfrage hinter langsamer in derselben Schlange).

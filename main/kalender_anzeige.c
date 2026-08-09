@@ -38,6 +38,12 @@ static volatile uint32_t s_version = 0;
  * gelungen ist - im Unterschied zu s_version, die auch schon beim reinen
  * Neu-Parsen einer gecachten Datei (z. B. im Offline-Betrieb) steigt. */
 static volatile bool s_frisch = false;
+/* true, sobald kalender_task_starten() den Task tatsaechlich erzeugt hat.
+ * Gebraucht von ota.c: dessen Bewaehrungsprobe nach einem Update verlangt
+ * einen geladenen Kalender - solange dieser Task gar nicht laeuft, kann die
+ * Bedingung prinzipbedingt nicht erfuellt werden, und die Frist darf nicht
+ * ablaufen (siehe FALLSTRICKE #41). */
+static volatile bool s_task_laeuft = false;
 
 /* Zeitpunkt (esp_timer_get_time) des naechsten geplanten Abrufversuchs -
  * modulweit statt lokal in task_funktion(), damit kalender_anzeige_jetzt_pruefen()
@@ -294,8 +300,16 @@ void kalender_task_starten(void)
     static StackType_t stack[10240 / sizeof(StackType_t)];
     static StaticTask_t tcb;
     if (xTaskCreateStatic(task_funktion, "kalender", sizeof stack / sizeof stack[0],
-                          NULL, 4, stack, &tcb) == NULL)
+                          NULL, 4, stack, &tcb) == NULL) {
         ESP_LOGE(TAG, "Kalender-Task konnte nicht gestartet werden - es gibt keine Termine");
+        return;
+    }
+    s_task_laeuft = true;
+}
+
+bool kalender_task_laeuft(void)
+{
+    return s_task_laeuft;
 }
 
 uint32_t kalender_anzeige_version(void)

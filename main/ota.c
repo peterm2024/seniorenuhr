@@ -288,14 +288,29 @@ esp_err_t ota_auf_vorherige_version_wechseln(void)
     return ESP_OK;
 }
 
-/* Laeuft die App gerade zum ersten Mal nach einem OTA-Update (Zustand
- * "pending verify", siehe CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE in
- * sdkconfig.defaults), wartet hier BIS das Geraet nachweislich brauchbar
- * ist - erst dann wird die Version bestaetigt und der automatische
- * Rollback-Schutz deaktiviert. Ein frischer USB-Flash (Zustand bereits
- * ESP_OTA_IMG_VALID) braucht das nicht und faellt sofort durch. Blockiert
- * absichtlich nur DIESEN Hintergrund-Task, nicht den Boot-Ablauf. */
-static void rollback_bestaetigen_falls_noetig(void)
+/* Bewaehrungsprobe nach einem OTA-Update: laeuft die App zum ersten Mal
+ * (Zustand "pending verify", siehe CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE in
+ * sdkconfig.defaults), muss sie sich als brauchbar erweisen - WLAN verbunden
+ * UND Kalender geladen -, sonst kehrt das Geraet zur vorherigen Version
+ * zurueck. Ein frischer USB-Flash (Zustand bereits ESP_OTA_IMG_VALID)
+ * braucht das nicht.
+ *
+ * s_bewaehrung_laeuft ist true, solange die Probe noch offen ist;
+ * s_bewaehrung_ms zaehlt die dabei verstrichene Zeit. */
+static bool s_bewaehrung_laeuft;
+static int64_t s_bewaehrung_ms;
+
+/* Einmalig beim Task-Start: stellt fest, ob ueberhaupt eine Probe ansteht.
+ *
+ * WICHTIG - frueher blockierte diese Pruefung hier in einer Warteschleife,
+ * und zwar als ERSTES im Task. Damit hing der GESAMTE OTA-Task daran: weder
+ * die Versionsliste noch die Update-Pruefung liefen, solange die Probe offen
+ * war. Oeffnete man direkt nach einem Update das Einstellungen-Menue, zeigte
+ * es deshalb dauerhaft "Kein Update verfuegbar / Keine vorherige Version /
+ * (keine)" - live beobachtet, siehe FALLSTRICKE #41. Die Probe laeuft jetzt
+ * nebenher in der Hauptschleife (bewaehrung_fortschreiben) und haelt nichts
+ * mehr auf. */
+static void bewaehrung_beginnen(void)
 {
     const esp_partition_t *laufend = esp_ota_get_running_partition();
     esp_ota_img_states_t zustand;
@@ -306,39 +321,63 @@ static void rollback_bestaetigen_falls_noetig(void)
 
     ESP_LOGI(TAG, "Frisch per OTA eingespielt - warte bis zu %d Minuten auf WLAN + Kalender, "
                   "bevor die Version bestaetigt wird", OTA_BEWAEHRUNG_MS / 60000);
+    s_bewaehrung_laeuft = true;
+    s_bewaehrung_ms = 0;
+}
 
-    int64_t gewartet_ms = 0;
-    while (!(netz_ist_verbunden() && kalender_anzeige_version() != 0)) {
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        gewartet_ms += 2000;
-        if (gewartet_ms >= OTA_BEWAEHRUNG_MS) {
-            /* Hier lag die eigentliche Luecke: vorher wurde ohne Zeitgrenze
-             * gewartet. Eine Firmware, die zwar startet, aber kein Netz
-             * bekommt, wurde damit weder bestaetigt NOCH zurueckgenommen -
-             * das Geraet lief einfach dauerhaft offline weiter. Genau das ist
-             * beim ersten echten Update passiert: die Release-Binary enthaelt
-             * nur Platzhalter statt der Zugangsdaten aus secrets.h, und ohne
-             * Netz kann auch nie wieder ein Update nachkommen. Peter konnte
-             * am Geraet von Hand zurueckschalten - seine Eltern koennten das
-             * nicht.
-             *
-             * Diese Funktion startet das Geraet neu; der Bootloader nimmt
-             * dabei automatisch die vorherige, bewaehrte Version. */
-            ESP_LOGE(TAG, "Neue Version binnen %d Minuten nicht brauchbar (WLAN verbunden: %d, "
-                          "Kalender geladen: %d) - Rueckkehr zur vorherigen Version",
-                     OTA_BEWAEHRUNG_MS / 60000, netz_ist_verbunden(),
-                     kalender_anzeige_version() != 0);
-            vTaskDelay(pdMS_TO_TICKS(500)); /* Log noch rausschreiben lassen */
-            esp_ota_mark_app_invalid_rollback_and_reboot();
-            return; /* unerreichbar */
-        }
+/* Ein Schritt der Bewaehrungsprobe, aus der Hauptschleife aufgerufen.
+ * "verstrichen_ms" ist die seit dem letzten Aufruf vergangene Zeit. */
+static void bewaehrung_fortschreiben(int64_t verstrichen_ms)
+{
+    if (!s_bewaehrung_laeuft)
+        return;
+
+    if (netz_ist_verbunden() && kalender_anzeige_version() != 0) {
+        s_bewaehrung_laeuft = false;
+        esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+        if (err == ESP_OK)
+            ESP_LOGI(TAG, "Update bestaetigt (WLAN verbunden, Kalender geladen) - Rollback-Schutz deaktiviert");
+        else
+            ESP_LOGW(TAG, "Konnte Update nicht bestaetigen: %s", esp_err_to_name(err));
+        return;
     }
 
-    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
-    if (err == ESP_OK)
-        ESP_LOGI(TAG, "Update bestaetigt (WLAN verbunden, Kalender geladen) - Rollback-Schutz deaktiviert");
-    else
-        ESP_LOGW(TAG, "Konnte Update nicht bestaetigen: %s", esp_err_to_name(err));
+    /* Die Uhr steht still, solange der Kalender-Task ueberhaupt nicht laeuft.
+     * Sein Start steht in app_main.c hinter den Boot-Phasen WLAN und Uhr -
+     * wer ueber das Zahnrad des Startbildschirms ins Einstellungen-Menue
+     * geht, haelt den Ablauf genau davor an. Der Kalender KANN dann nicht
+     * laden, und die Frist wuerde eine voellig gesunde Firmware nach zehn
+     * Minuten zurueckrollen, nur weil jemand im Menue nachgesehen hat, ob das
+     * Update angekommen ist (FALLSTRICKE #41). Das Sicherheitsnetz bleibt
+     * dabei intakt: sobald der Ablauf weiterlaeuft - spaetestens nach den
+     * 60-Sekunden-Timeouts der Boot-Phasen -, laeuft auch die Frist weiter.
+     * Und stuerzt die neue Firmware ab oder haengt sie, startet das Geraet
+     * neu, ohne bestaetigt zu haben; dann nimmt schon der Bootloader die
+     * vorherige Version zurueck. */
+    if (!kalender_task_laeuft())
+        return;
+
+    s_bewaehrung_ms += verstrichen_ms;
+    if (s_bewaehrung_ms < OTA_BEWAEHRUNG_MS)
+        return;
+
+    /* Hier lag die urspruengliche Luecke: vorher wurde ohne Zeitgrenze
+     * gewartet. Eine Firmware, die zwar startet, aber kein Netz bekommt,
+     * wurde damit weder bestaetigt NOCH zurueckgenommen - das Geraet lief
+     * einfach dauerhaft offline weiter. Genau das ist beim ersten echten
+     * Update passiert: die Release-Binary enthaelt nur Platzhalter statt der
+     * Zugangsdaten aus secrets.h, und ohne Netz kann auch nie wieder ein
+     * Update nachkommen. Peter konnte am Geraet von Hand zurueckschalten -
+     * seine Eltern koennten das nicht.
+     *
+     * Diese Funktion startet das Geraet neu; der Bootloader nimmt dabei
+     * automatisch die vorherige, bewaehrte Version. */
+    ESP_LOGE(TAG, "Neue Version binnen %d Minuten nicht brauchbar (WLAN verbunden: %d, "
+                  "Kalender geladen: %d) - Rueckkehr zur vorherigen Version",
+             OTA_BEWAEHRUNG_MS / 60000, netz_ist_verbunden(),
+             kalender_anzeige_version() != 0);
+    vTaskDelay(pdMS_TO_TICKS(500)); /* Log noch rausschreiben lassen */
+    esp_ota_mark_app_invalid_rollback_and_reboot();
 }
 
 /* Ein Durchlauf: verbindet, vergleicht die Version im Bildkopf des neuen
@@ -602,7 +641,7 @@ static void ota_task(void *arg)
 {
     (void)arg;
 
-    rollback_bestaetigen_falls_noetig();
+    bewaehrung_beginnen();
 
     /* Anlaufzeit in kurzen Schritten abwarten statt am Stueck: wer das
      * Einstellungen-Menue oeffnet, will nicht bis zu einer Minute auf eine
@@ -624,6 +663,7 @@ static void ota_task(void *arg)
         if (s_pruefung_gewuenscht)
             break;
         vTaskDelay(pdMS_TO_TICKS(OTA_ANSTOSS_ABFRAGE_MS));
+        bewaehrung_fortschreiben(OTA_ANSTOSS_ABFRAGE_MS);
     }
     s_pruefung_gewuenscht = false;
     s_pruefung_aktiv = true;
@@ -638,6 +678,7 @@ static void ota_task(void *arg)
     int64_t naechste_pruefung_ms = OTA_INTERVALL_MS;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(OTA_ANSTOSS_ABFRAGE_MS));
+        bewaehrung_fortschreiben(OTA_ANSTOSS_ABFRAGE_MS);
 
         if (s_installation_gewuenscht) {
             s_installation_gewuenscht = false;
