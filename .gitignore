@@ -31,3 +31,10 @@ __pycache__/
 # Serielle Boot-/Monitor-Mitschnitte (idf.py monitor > datei.log) - immer
 # temporaer fuers Debugging, nie fuer den Commit gedacht
 *.log
+
+# Sammelordner fuer ALLE vom Geraet abgeholten Bildschirmfotos (Standardziel
+# von tools/screenshot_flash_abholen.py, je Board ein Unterordner). Bleibt
+# bewusst lokal: hier landet ungefiltert alles, was gerade auf dem Schirm
+# stand - auch echte Termine und Tablettennamen von den Eltern. Was in die
+# Doku soll, wird von Hand nach docs/screenshots/ kopiert (das ist eingecheckt).
+screenshots_lokal/

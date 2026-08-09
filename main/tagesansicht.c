@@ -319,9 +319,14 @@ static void erinnerung_schliessen_cb(lv_event_t *e)
  * zugutekommen (Peters Vorschlag). Nur fuer kurze Untertitel geeignet: der
  * Platz bis zum "X"-Button ist begrenzt, lange Hinweistexte wie im
  * Update-Fenster brauchen weiterhin die zweizeilige Variante. */
+/* "untertitel_aus" (darf NULL sein) liefert das Label der zweiten Kopfzeile
+ * zurueck - gebraucht vom Update-Fenster, das seinen Inhalt darunter erst
+ * nach dem Messen der tatsaechlichen Hoehe positioniert (die Zeilenhoehe von
+ * schrift_klein_28 wird in diesem Projekt nie geschaetzt, FALLSTRICKE #22). */
 static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel_oben, const char *titel_unten,
                                                int32_t hoehe, lv_event_cb_t schliessen_cb,
-                                               bool titel_einzeilig, int32_t x_button_rand)
+                                               bool titel_einzeilig, int32_t x_button_rand,
+                                               lv_obj_t **untertitel_aus)
 {
     lv_obj_t *panel = lv_obj_create(s_scr);
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -354,8 +359,22 @@ static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel_oben, const cha
         int32_t hoehe_unten = lv_obj_get_height(kopf_unten);
         lv_obj_set_pos(kopf_unten, 20 + breite_oben + 16, 8 + (hoehe_oben - hoehe_unten) / 2);
     } else {
+        /* Breite begrenzen und umbrechen lassen. Ohne das waechst ein Label
+         * mit LV_SIZE_CONTENT ueber den Panelrand hinaus und wird dort hart
+         * abgeschnitten - live von Peter am Update-Fenster gesehen ("der Text
+         * sprengt das Dialogfenster"), dessen Untertitel "Bitte kurz warten -
+         * das Geraet startet danach neu" deutlich breiter ist als die 620px
+         * des Fensters. Die nutzbare Breite wird gemessen statt gerechnet: das
+         * Panel hat rund 20px unsichtbares Innenpolster je Seite
+         * (FALLSTRICKE #27). Rechts bleibt derselbe Abstand wie links. */
+        lv_obj_update_layout(panel);
+        lv_obj_set_width(kopf_unten, lv_obj_get_content_width(panel) - 2 * 20);
+        lv_label_set_long_mode(kopf_unten, LV_LABEL_LONG_WRAP);
         lv_obj_set_pos(kopf_unten, 20, 54);
     }
+
+    if (untertitel_aus)
+        *untertitel_aus = kopf_unten;
 
     lv_obj_t *btn_schliessen = lv_button_create(panel);
     lv_obj_set_size(btn_schliessen, 40, 40);
@@ -491,7 +510,7 @@ static void tages_fenster_oeffnen(int tage_versatz, lv_obj_t *button)
 
     s_tages_fenster = fenster_grundgeruest_erzeugen(zeit_wochentag_gross(&lokal), datum,
                                                      FENSTER_HOEHE_TAG, tagesfenster_schliessen_cb, false,
-                                                     X_BUTTON_RAND_STANDARD);
+                                                     X_BUTTON_RAND_STANDARD, NULL);
     aktiven_button_setzen(button);
 
     tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_LINKS, "TABLETTEN",
@@ -595,7 +614,7 @@ static lv_obj_t *fenster_mit_inhaltshoehe_erzeugen(const char *titel_oben, const
                                                     bool titel_einzeilig, int32_t x_button_rand)
 {
     lv_obj_t *fenster = fenster_grundgeruest_erzeugen(titel_oben, titel_unten, inhalt_hoehe,
-                                                       schliessen_cb, titel_einzeilig, x_button_rand);
+                                                       schliessen_cb, titel_einzeilig, x_button_rand, NULL);
     lv_obj_set_style_pad_top(fenster, FENSTER_POLSTER_V, 0);
     lv_obj_set_style_pad_bottom(fenster, FENSTER_POLSTER_V, 0);
     lv_obj_update_layout(fenster);
@@ -966,7 +985,12 @@ void tagesansicht_erinnerung_zeigen(void)
 /* Hoch genug fuer eine zweizeilige Meldung unter dem Balken - die laengste
  * ("Keine Verbindung zu GitHub - bitte spaeter erneut versuchen") braucht bei
  * der grossen Seniorenschrift zwei Zeilen. */
-#define FENSTER_HOEHE_UPDATE 250
+/* 250 reichte nicht mehr, seit der Untertitel umbricht (zwei Zeilen statt
+ * einer abgeschnittenen) und die Meldungen ganze Saetze sind ("Keine
+ * Verbindung zu GitHub - bitte spaeter erneut versuchen" braucht bei
+ * schrift_klein_28 ebenfalls zwei Zeilen). Bei 480px Bildschirmhoehe bleibt
+ * mit 320 immer noch reichlich Rand. */
+#define FENSTER_HOEHE_UPDATE 320
 
 static lv_obj_t *s_update_fenster;
 static lv_obj_t *s_update_balken;
@@ -1009,10 +1033,11 @@ void tagesansicht_update_fenster_zeigen(void)
     heutefenster_intern_schliessen();
     erinnerung_intern_schliessen();
 
+    lv_obj_t *untertitel = NULL;
     s_update_fenster = fenster_grundgeruest_erzeugen("AKTUALISIERUNG",
                                                        "Bitte kurz warten - das Geraet startet danach neu",
                                                        FENSTER_HOEHE_UPDATE, update_fenster_schliessen_cb, false,
-                                                       X_BUTTON_RAND_STANDARD);
+                                                       X_BUTTON_RAND_STANDARD, &untertitel);
 
     /* Anders als alle anderen Fenster dieses Moduls haengt dieses an
      * lv_layer_top() statt am Uhren-Bildschirm: angestossen wird das Update
@@ -1023,12 +1048,19 @@ void tagesansicht_update_fenster_zeigen(void)
     lv_obj_set_parent(s_update_fenster, lv_layer_top());
     lv_obj_center(s_update_fenster);
 
+    /* Der Untertitel bricht seit der Breitenbegrenzung auf zwei Zeilen um -
+     * Balken und Meldung muessen deshalb unter seiner TATSAECHLICHEN Unterkante
+     * sitzen statt an fest gesetzten y-Werten. Vorher stand der Balken bei
+     * y=110 und lag damit mitten in der zweiten Textzeile. */
+    lv_obj_update_layout(s_update_fenster);
+    int32_t inhalt_oben = lv_obj_get_y(untertitel) + lv_obj_get_height(untertitel) + 18;
+
     /* Breiten per lv_pct statt aus FENSTER_BREITE gerechnet: das Panel hat
      * rund 20px unsichtbares Innenpolster je Seite, "FENSTER_BREITE - 40"
      * ragte also ueber die nutzbare Flaeche hinaus (FALLSTRICKE #27). */
     s_update_balken = lv_bar_create(s_update_fenster);
     lv_obj_set_size(s_update_balken, lv_pct(100), 28);
-    lv_obj_set_pos(s_update_balken, 0, 110);
+    lv_obj_set_pos(s_update_balken, 0, inhalt_oben);
     lv_bar_set_range(s_update_balken, 0, 100);
     lv_bar_set_value(s_update_balken, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(s_update_balken, lv_color_hex(FARBE_SCHIEBER_AUS), LV_PART_MAIN);
@@ -1049,7 +1081,7 @@ void tagesansicht_update_fenster_zeigen(void)
     lv_obj_set_style_text_align(s_update_prozent_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(s_update_prozent_label, &schrift_klein_28, 0);
     lv_obj_set_style_text_color(s_update_prozent_label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
-    lv_obj_set_pos(s_update_prozent_label, 0, 150);
+    lv_obj_set_pos(s_update_prozent_label, 0, inhalt_oben + 28 + 14); /* 28 = Balkenhoehe */
 
     lvgl_port_unlock();
 }

@@ -10,6 +10,14 @@ abgeholt (gleiches Prinzip wie der Core-Dump, siehe ENTWICKLUNG.md).
 Aufruf:
     python tools/screenshot_flash_abholen.py COM5 [zielordner]
 
+Ohne Zielordner landen die Bilder in "screenshots_lokal/<Port>/" - ein
+gitignorierter Sammelordner (je Board ein Unterordner, weil die
+Sequenznummern der Boards unabhaengig voneinander zaehlen und sich sonst
+ueberschreiben wuerden). Bewusst NICHT docs/screenshots/: dort liegen die
+ausgewaehlten Doku-Bilder, die ins Repo gehoeren, waehrend hier ungefiltert
+alles landet, was gerade auf dem Schirm stand - auch echte Termine und
+Tablettennamen von den Eltern.
+
 Liest die Partition per "esptool read_flash" in eine temporaere Datei,
 decodiert danach alle gueltigen Plaetze (Magic-Pruefung, siehe MAGIC unten -
 muss zu main/screenshot_speicher.c passen) und schreibt sie sortiert nach
@@ -58,8 +66,15 @@ def main():
         print("Aufruf: python screenshot_flash_abholen.py <COM-Port> [zielordner]")
         sys.exit(1)
     port = sys.argv[1]
-    zielordner = sys.argv[2] if len(sys.argv) > 2 else "."
+    if len(sys.argv) > 2:
+        zielordner = sys.argv[2]
+    else:
+        # Standardziel relativ zur Projektwurzel (eine Ebene ueber tools/),
+        # damit der Aufruf aus jedem Arbeitsverzeichnis dieselbe Ablage trifft.
+        wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        zielordner = os.path.join(wurzel, "screenshots_lokal", port.replace(":", "_"))
     os.makedirs(zielordner, exist_ok=True)
+    print(f"Zielordner: {zielordner}")
 
     fd, dumpdatei = tempfile.mkstemp(suffix=".bin")
     os.close(fd)

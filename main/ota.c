@@ -128,7 +128,28 @@ const char *ota_meldung(void) { return s_meldung; }
 bool ota_update_verfuegbar(void) { return s_update_verfuegbar; }
 const char *ota_verfuegbare_version(void) { return s_verfuegbare_version; }
 const char *ota_laufende_version(void) { return esp_app_get_description()->version; }
-void ota_installation_anstossen(void) { s_installation_gewuenscht = true; }
+/* Gemeinsamer Anstoss beider Installations-Wege (Update-Knopf und
+ * Versions-Auswahlliste).
+ *
+ * s_laeuft/s_meldung werden SOFORT hier gesetzt, nicht erst wenn der OTA-Task
+ * den Wunsch aufgreift: Peter meldete "beim Druecken passiert nichts, man ist
+ * sich nicht sicher ob ueberhaupt was passiert". Grund war, dass der Task in
+ * diesem Moment regelmaessig noch in pruefung_mit_wiederholung() steckt - die
+ * braucht im schlechtesten Fall drei Anlaeufe mit je 20 s Pause. Und genau
+ * dieser Fall ist der Regelfall, weil schon das OEFFNEN des Menues eine
+ * Pruefung anstoesst. Bis zu zwei Minuten lang blieb der Tastendruck damit
+ * voellig unsichtbar. Jetzt erscheint das Fortschrittsfenster beim naechsten
+ * uhr_tick, also binnen einer Sekunde, und der Task loest sich seinerseits so
+ * schnell wie moeglich aus der Pruefung (siehe pruefung_mit_wiederholung). */
+static void installation_anstossen_intern(void)
+{
+    s_fortschritt_prozent = -1;
+    snprintf(s_meldung, sizeof s_meldung, "Update wird vorbereitet...");
+    s_laeuft = true;
+    s_installation_gewuenscht = true;
+}
+
+void ota_installation_anstossen(void) { installation_anstossen_intern(); }
 
 /* Die zweite App-Partition haelt genau eine weitere Version: die zuvor
  * laufende (bzw. die zuletzt heruntergeladene). Mehr als zwei sind
@@ -265,7 +286,7 @@ const char *ota_version_name(int index)
 void ota_version_installieren(const char *version)
 {
     snprintf(s_gewuenschte_version, sizeof s_gewuenschte_version, "%s", version ? version : "");
-    s_installation_gewuenscht = true;
+    installation_anstossen_intern();
 }
 
 esp_err_t ota_auf_vorherige_version_wechseln(void)
@@ -588,7 +609,19 @@ static void pruefung_mit_wiederholung(void)
         if (versuch < OTA_PRUEFUNG_VERSUCHE) {
             ESP_LOGI(TAG, "Update-Pruefung ohne Ergebnis (Versuch %d von %d) - neuer Anlauf in %d s",
                      versuch, OTA_PRUEFUNG_VERSUCHE, OTA_PRUEFUNG_PAUSE_MS / 1000);
-            vTaskDelay(pdMS_TO_TICKS(OTA_PRUEFUNG_PAUSE_MS));
+            /* Die Pause in kurzen Schritten absitzen und abbrechen, sobald der
+             * Benutzer ein Update angestossen hat: sein Tastendruck soll nicht
+             * hinter einer reinen Wartezeit haengen. Ohne das dauerte es bis zu
+             * zwei Minuten, bis ueberhaupt etwas geschah (siehe
+             * installation_anstossen_intern). */
+            for (int wartend_ms = 0; wartend_ms < OTA_PRUEFUNG_PAUSE_MS;
+                 wartend_ms += OTA_ANSTOSS_ABFRAGE_MS) {
+                if (s_installation_gewuenscht) {
+                    ESP_LOGI(TAG, "Pruefung abgebrochen - der Benutzer hat ein Update angestossen");
+                    return;
+                }
+                vTaskDelay(pdMS_TO_TICKS(OTA_ANSTOSS_ABFRAGE_MS));
+            }
         }
     }
     ESP_LOGW(TAG, "Update-Pruefung nach %d Versuchen aufgegeben - naechster Anlauf in %d Minuten",
