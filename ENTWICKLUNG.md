@@ -47,8 +47,13 @@ siehe `partitions.csv`) statt nur auf der seriellen Leitung. Er wird im
 Moment des Absturzes geschrieben und übersteht Neustart und Stromausfall —
 das Board kann also ohne Kabel irgendwo betrieben werden (Powerbank am
 Router), und das Protokoll wird beim nächsten Einstecken ausgelesen. Der
-Dump bleibt stehen, bis er überschrieben oder mit
-`idf.py -p COM5 coredump-erase` gelöscht wird.
+Dump bleibt stehen, bis ihn der nächste Absturz überschreibt. Löschen von
+Hand (ESP-IDF 5.5 kennt kein `coredump-erase`, die Partition liegt laut
+`partitions.csv` bei `0x650000` und ist 256 KB groß):
+
+```powershell
+python -m esptool -p COM5 erase_region 0x650000 0x40000
+```
 
 Wichtig: Die ausgelesene ELF-Datei muss zur geflashten Firmware passen. Für
 das Eltern-Board also `-B build_prod` mit angeben, sonst zeigen die

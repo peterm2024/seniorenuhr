@@ -833,3 +833,47 @@ diesem Fix in der allerersten Boot-Zeile (`app_main.c`). Vorher stand sie erst d
 in `wifi:mode : sta (...)`, und ein Log konnte leicht dem falschen Board zugeschrieben werden.
 **Vor jedem Flash klaeren, an welchem Port der Nutzer gerade sitzt** - sonst testet er
 versehentlich eine Firmware, die die untersuchte Korrektur gar nicht enthaelt.
+
+## 40. Core-Dump nur ueber UART: der Absturz, der am wichtigsten gewesen waere, war nicht analysierbar
+
+**Symptom:** Ein echter Absturz auf dem Eltern-Board (Blackbox-Anzeige: "Programmabsturz,
+Absturz Nr. 2") liess sich nicht untersuchen - kein Backtrace, keine Task-Zustaende, gar nichts.
+
+**Ursache:** `CONFIG_ESP_COREDUMP_ENABLE_TO_UART=y` schreibt den Dump auf die serielle Leitung.
+Das setzt ein angestecktes Kabel UND einen mitlaufenden Monitor voraus. Genau das ist beim
+Testen am Router aber unmoeglich: Peters Arbeitsplatz hat dort schlechten Empfang, das Board
+muss 5 m weiter getragen und an einer Powerbank betrieben werden. Der Dump ging also in dem
+Moment verloren, in dem er am meisten wert gewesen waere - beim einzigen Absturz, der sich nur
+unter genau diesen Bedingungen zeigt.
+
+**Loesung:** `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y` plus eine eigene `coredump`-Partition
+(`partitions.csv`). Der Dump wird im Panic-Handler in den Flash geschrieben, uebersteht Neustart
+und Stromausfall und wird beim naechsten Einstecken ausgelesen:
+
+```powershell
+idf.py -p COM3 coredump-info     # Backtrace + alle Task-Stacks im Klartext
+idf.py -p COM3 coredump-debug    # dasselbe interaktiv in gdb
+```
+
+Drei Punkte, die dabei wichtig waren:
+
+1. **Partition ans ENDE haengen.** Alle bestehenden behalten so ihre Adressen - NVS
+   (WLAN-Profile) und `speicher` (Kalender-Cache) ueberstehen die Umstellung unveraendert.
+   Hinter `speicher` lagen 1728 KB Flash ungenutzt brach; eine SD-Karte (die urspruengliche
+   Ueberlegung) ist dafuer nicht noetig.
+2. **256 KB statt der ueblichen 64 KB.** Der Dump sichert die Stacks ALLER Tasks, und dieses
+   Projekt hat davon reichlich grosse (LVGL 16K, main 16K, kalender 10K, ...). Ein zu kleiner
+   Puffer schneidet den Dump ab - genau dann, wenn man ihn braucht.
+3. **`CONFIG_ESP_COREDUMP_STACK_SIZE` setzen** (hier 1792, das erlaubte Minimum). Ohne eigenen
+   Stack laeuft der Dump-Vorgang auf dem Stack der abgestuerzten Task. Die haeufigste
+   Absturzursache in diesem Projekt war aber ein Stack-Overflow (#10/#18/#24/#33) - auf genau
+   diesem beschaedigten Stack waere der Dump unbrauchbar. ESP-IDF warnt beim Konfigurieren,
+   wenn der Wert (Default 0) ausserhalb des gueltigen Bereichs liegt; diese Warnung ernst nehmen.
+
+**Live verifiziert statt gehofft:** Ein absichtlicher `abort()` in `app_main()` wurde
+eingebaut, geflasht, der Dump danach aus dem Flash ausgelesen (korrekte Quellzeile,
+Absturzgrund, Register, Stacks aller Tasks) und der Testcode wieder entfernt. **Eine
+Diagnose-Einrichtung, auf die man sich im Ernstfall verlassen will, muss einmal absichtlich
+ausgeloest worden sein** - sonst stellt sich erst beim echten Absturz heraus, dass sie nicht
+greift. Dabei fiel auch auf, dass ESP-IDF 5.5 kein `coredump-erase` kennt (Loeschen von Hand:
+`python -m esptool -p COMx erase_region 0x650000 0x40000`).
