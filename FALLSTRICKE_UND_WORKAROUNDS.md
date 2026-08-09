@@ -712,3 +712,64 @@ Haken angezeigt werden.
 **Lehre:** Jedes LVGL-Widget, das von sich aus ein Symbol zeichnet, ist in diesem Projekt
 verdaechtig. Bei neuen Widgets gezielt darauf achten und das Symbol abschalten oder durch Text
 ersetzen.
+
+## 37. Schnelle Abfrage hinter langsamer Abfrage in der Schlange - die Auswahlliste kam immer zu spaet
+
+**Symptom:** Im Einstellungen-Menue fehlte die Versionsliste hartnaeckig. Beim Start ueber das
+Zahnrad blieb sie ausnahmslos leer; erst wer das Menue Minuten spaeter noch einmal oeffnete, sah
+sie. Nichts deutete auf einen Fehler hin - der Bereich meldete brav "Suche nach Updates...".
+
+**Ursache:** Der OTA-Task erledigte beides nacheinander in EINEM Zug, aber in der falschen
+Reihenfolge: erst `pruefung_mit_wiederholung()`, dann `ota_versionen_abfragen()`. Die Pruefung
+braucht im schlechtesten Fall drei Anlaeufe mit je 20 s Pause - die Liste stand also hinter der
+langsamsten Stelle des ganzen Moduls in der Schlange.
+
+Im Log (zwei aufeinanderfolgende Startvorgaenge, identische Firmware) war das exakt
+reproduzierbar:
+
+```
+W (120658) ota: Update-Pruefung nach 3 Versuchen aufgegeben
+I (123310) ota: 2 Version(en) im Download-Repo gefunden     <- erst hier
+...
+W (113979) ota: Update-Pruefung nach 3 Versuchen aufgegeben
+I (123768) ota: 2 Version(en) im Download-Repo gefunden     <- und hier
+```
+
+Beide Male 123 Sekunden. Die Boot-Phasen laufen aber nach 60 s in ihren Timeout - das Menue
+konnte die Liste dort gar nicht sehen. Bitter dabei: die Listen-Abfrage selbst ist EIN einzelner
+API-Aufruf und ging jedes Mal im ERSTEN Versuch durch. Nur die Prueferei davor scheiterte.
+
+**Loesung:** Reihenfolge umgedreht - Liste zuerst, Pruefung danach (an allen drei Stellen im
+Task: erster Lauf, Anstoss aus dem Menue, 30-Minuten-Intervall). Danach gemessen: Liste bei 65 s
+statt 123 s, und bei einem Anstoss aus dem Menue binnen Sekunden.
+
+**Lehre:** Wenn eine schnelle und eine langsame Netzabfrage im selben Task nacheinander laufen
+und die Oberflaeche auf die SCHNELLE wartet, entscheidet allein die Reihenfolge darueber, ob das
+Ergebnis rechtzeitig ankommt. Vor dem Bauen fragen: worauf wartet der Benutzer wirklich? Das
+gehoert nach vorn. Ein Nebeneffekt derselben Bauart: `ota_pruefung_laeuft()` deckt beide Schritte
+ab, die Oberflaeche meldete also die ganzen zwei Minuten lang wahrheitsgemaess "Suche laeuft" -
+eine korrekte Meldung kann einen Konstruktionsfehler perfekt tarnen.
+
+## 38. Erster Netzzugriff eines frisch gestarteten Tasks scheitert regelmaessig - Wiederanlauf zu spaet
+
+**Symptom:** Das Kalender-Symbol auf dem Hauptbildschirm blieb nach dem Start eine gute halbe
+Minute durchgestrichen ("keine Sync"), obwohl WLAN und Uhrzeit laengst standen.
+
+**Ursache:** Der Kalender-Task greift 23 ms (!) nach seinem eigenen Start zum Netz - also
+mitten in den Boot-Phasen, waehrend der Startbildschirm den internen SRAM noch belegt. Dieser
+allererste Versuch scheitert verlaesslich mit `ESP_ERR_HTTP_CONNECT`; der naechste Versuch, nach
+dem Bildschirmwechsel, gelingt jedes Mal auf Anhieb. Nur wartete der Task dazwischen stur
+`ABRUF_RETRY_US` = 30 Sekunden.
+
+`kalender_anzeige_frisch()` verlangt bewusst einen echten Download in DIESER Sitzung (ein
+gecachter Kalender zaehlt nicht) - also blieb das Symbol genau diese 30 s durchgestrichen. Die
+Boot-Phase meldete unterdessen "Schritt Kalender fertig (version=1)", weil ihr der Cache
+genuegt; der Fehlschlag fiel dort nicht auf.
+
+**Loesung:** Gestaffelte Pause statt fester 30 s - die ersten drei Fehlschlaege warten nur 5
+Sekunden (`ABRUF_KURZ_RETRY_US`), danach greift wieder die volle Pause. Gemessen: Fehlschlag bei
+15674 ms, Erfolg bei 21971 ms - 6 statt 30 Sekunden.
+
+**Lehre:** Der erste Netzzugriff nach dem Boot ist ein Sonderfall, kein Normalbetrieb. Eine
+Wiederholungspause, die fuer den Dauerbetrieb sinnvoll ist (Netz schonen), ist beim Anlauf viel
+zu lang. Staffeln: kurz beginnen, dann verlaengern.

@@ -35,7 +35,12 @@ static const char *TAG = "ota";
  * beim Schreiben der neuen Firmware) Flash beschreibt, braucht seinen
  * Stack zwingend im internen SRAM, weil der Cache dafuer kurz eingefroren
  * wird und PSRAM darueber gar nicht mehr erreichbar ist. */
-#define OTA_TASK_STACK_BYTES 8192
+/* 6 KB statt vormals 8: live gemessen blieben nach Pruefung samt
+ * TLS-Handshake und Release-Listen-Abfrage 5396 Byte ungenutzt, der echte
+ * Bedarf liegt also bei knapp 2,8 KB. 6 KB lassen davon mehr als das
+ * Doppelte an Luft und geben 2 KB internen SRAM zurueck - der ist hier die
+ * knappe Ressource (FALLSTRICKE #20/#25/#30/#31). */
+#define OTA_TASK_STACK_BYTES 6144
 
 /* Wird das Erzeugen des Tasks direkt am Ende von app_main() versucht, ist
  * dessen eigener 16-KB-Stack (CONFIG_ESP_MAIN_TASK_STACK_SIZE) noch nicht
@@ -109,6 +114,13 @@ static int s_versionen_anzahl = 0;
  * API-Abfrage darf NIE im LVGL-Task laufen - sie dauert Sekunden und wuerde
  * den Task-Watchdog ausloesen (FALLSTRICKE #16/#19). */
 static volatile bool s_versionen_abfrage_gewuenscht = false;
+/* Vom Einstellungen-Menue angestossene Sofort-Pruefung. Ohne sie zeigte das
+ * Menue nur den Stand der letzten Hintergrund-Pruefung - und die laeuft erst
+ * 60 s nach dem Boot. Wer das Menue ueber das Zahnrad des STARTbildschirms
+ * oeffnet (der einzige Weg hinein, den Peter fuer das Geraet seiner Eltern
+ * vorsieht), war also regelmaessig zu frueh dran und sah gar nichts. */
+static volatile bool s_pruefung_gewuenscht = false;
+static volatile bool s_pruefung_aktiv = false;
 
 bool ota_laeuft(void) { return s_laeuft; }
 int ota_fortschritt_prozent(void) { return s_fortschritt_prozent; }
@@ -240,6 +252,8 @@ int ota_versionen_abfragen(void)
 
 int ota_versionen_anzahl(void) { return s_versionen_anzahl; }
 void ota_versionen_auffrischen(void) { s_versionen_abfrage_gewuenscht = true; }
+void ota_pruefung_anstossen(void) { s_pruefung_gewuenscht = true; }
+bool ota_pruefung_laeuft(void) { return s_pruefung_gewuenscht || s_pruefung_aktiv; }
 
 const char *ota_version_name(int index)
 {
@@ -379,13 +393,15 @@ static void verbindungsdiagnose(const char *host)
      * halten. Wer davon reichlich Luft hat, kann abgeben. Besonders im
      * Verdacht: der Kalender-Task mit 16 KB, dimensioniert BEVOR sein
      * grosses termine[32]-Array in den PSRAM wanderte (FALLSTRICKE #26). */
-    static const char *const beobachtete_tasks[] = { "kalender", "ota", "httpd", "wifi_neuscan", "LVGL" };
+    static const char *const beobachtete_tasks[] = { "kalender", "ota", "einstellungen", "httpd" };
     for (size_t i = 0; i < sizeof(beobachtete_tasks) / sizeof(beobachtete_tasks[0]); i++) {
         TaskHandle_t t = xTaskGetHandle(beobachtete_tasks[i]);
         if (t)
-            ESP_LOGI(TAG, "Diagnose: Task %-12s ungenutzte Stack-Reserve %u Byte",
+            ESP_LOGI(TAG, "Diagnose: Task %-14s ungenutzte Stack-Reserve %u Byte",
                      beobachtete_tasks[i],
                      (unsigned)(uxTaskGetStackHighWaterMark(t) * sizeof(StackType_t)));
+        else
+            ESP_LOGW(TAG, "Diagnose: Task %-14s EXISTIERT NICHT", beobachtete_tasks[i]);
     }
 
     /* Empfangsstaerke: der Verdacht ist, dass die grosse Zertifikatskette
@@ -588,9 +604,32 @@ static void ota_task(void *arg)
 
     rollback_bestaetigen_falls_noetig();
 
-    vTaskDelay(pdMS_TO_TICKS(OTA_ERSTE_PRUEFUNG_MS));
+    /* Anlaufzeit in kurzen Schritten abwarten statt am Stueck: wer das
+     * Einstellungen-Menue oeffnet, will nicht bis zu einer Minute auf eine
+     * Antwort warten. Ein Anstoss von dort bricht das Warten sofort ab.
+     *
+     * REIHENFOLGE (hier und im Anstoss-Zweig der Hauptschleife): erst die
+     * Versionsliste, dann die Update-Pruefung. Umgekehrt stand die Liste
+     * hinter der langsamsten Stelle des ganzen Moduls in der Schlange -
+     * pruefung_mit_wiederholung() braucht im schlechtesten Fall drei Anlaeufe
+     * mit je 20 s Pause. Live gemessen (fix2.log, zwei aufeinanderfolgende
+     * Startvorgaenge): die Pruefung scheiterte jedes Mal dreifach und gab bei
+     * 120 s auf, die Liste kam beide Male exakt danach bei 123 s - obwohl ihre
+     * eine API-Anfrage im ERSTEN Versuch durchging. Das Einstellungen-Menue
+     * beim Start (Boot-Phasen laufen in 60 s ab) sah die Auswahlliste damit
+     * praktisch nie. Andersherum ist sie binnen Sekunden da, und die Pruefung
+     * darf sich in Ruhe Zeit lassen. */
+    for (int64_t gewartet_ms = 0; gewartet_ms < OTA_ERSTE_PRUEFUNG_MS;
+         gewartet_ms += OTA_ANSTOSS_ABFRAGE_MS) {
+        if (s_pruefung_gewuenscht)
+            break;
+        vTaskDelay(pdMS_TO_TICKS(OTA_ANSTOSS_ABFRAGE_MS));
+    }
+    s_pruefung_gewuenscht = false;
+    s_pruefung_aktiv = true;
+    ota_versionen_abfragen();    /* ZUERST - Begruendung siehe Kommentar oben */
     pruefung_mit_wiederholung(); /* erste Pruefung, nur melden */
-    ota_versionen_abfragen();    /* Auswahlliste fuers Einstellungen-Menue fuellen */
+    s_pruefung_aktiv = false;
 
     /* In kurzen Schritten warten statt einmal 30 Minuten am Stueck, damit
      * ein per Einstellungen-Menue angestossenes Update nicht bis zum
@@ -611,6 +650,19 @@ static void ota_task(void *arg)
             continue;
         }
 
+        /* Sofort-Pruefung aus dem Einstellungen-Menue: Liste UND Pruefung in
+         * einem Zug, damit das Menue alles beisammen hat - die Liste zuerst,
+         * weil das Menue auf sie wartet (Begruendung oben beim ersten Lauf). */
+        if (s_pruefung_gewuenscht) {
+            s_pruefung_gewuenscht = false;
+            s_pruefung_aktiv = true;
+            ota_versionen_abfragen();
+            pruefung_mit_wiederholung();
+            s_pruefung_aktiv = false;
+            naechste_pruefung_ms = OTA_INTERVALL_MS;
+            continue;
+        }
+
         if (s_versionen_abfrage_gewuenscht) {
             s_versionen_abfrage_gewuenscht = false;
             ota_versionen_abfragen();
@@ -619,31 +671,27 @@ static void ota_task(void *arg)
 
         naechste_pruefung_ms -= OTA_ANSTOSS_ABFRAGE_MS;
         if (naechste_pruefung_ms <= 0) {
-            pruefung_mit_wiederholung();
             ota_versionen_abfragen();
+            pruefung_mit_wiederholung();
             naechste_pruefung_ms = OTA_INTERVALL_MS;
         }
     }
 }
 
-static void ota_start_verzoegert_cb(void *arg)
-{
-    (void)arg;
-    if (xTaskCreate(ota_task, "ota", OTA_TASK_STACK_BYTES, NULL, 3, NULL) != pdPASS)
-        ESP_LOGW(TAG, "OTA-Task konnte nicht gestartet werden - Updates bleiben bis zum naechsten Neustart aus");
-}
+/* Stack statisch im .bss statt aus dem Heap. Frueher wurde der Task per
+ * xTaskCreate erzeugt und der Start dafuer um 5 Sekunden verzoegert, weil im
+ * internen SRAM am Boot-Ende erst Platz entstehen musste - und selbst dann
+ * schlug es zeitweise fehl ("OTA-Task konnte nicht gestartet werden", siehe
+ * FALLSTRICKE #30). Der Task lebt ohnehin dauerhaft, sein Stack ist also so
+ * oder so belegt; statisch reserviert kostet er nicht mehr, kann aber weder
+ * fragmentieren noch fehlschlagen. Damit faellt die Verzoegerung weg und der
+ * Task kann SOFORT starten - noetig, damit das Einstellungen-Menue des
+ * Startbildschirms ihn ueberhaupt schon erreichen kann (siehe app_main.c). */
+static StackType_t s_ota_stack[OTA_TASK_STACK_BYTES / sizeof(StackType_t)];
+static StaticTask_t s_ota_tcb;
 
 void ota_starten(void)
 {
-    const esp_timer_create_args_t timer_cfg = {
-        .callback = ota_start_verzoegert_cb,
-        .name = "ota_start",
-    };
-    esp_timer_handle_t timer;
-    if (esp_timer_create(&timer_cfg, &timer) != ESP_OK) {
-        ESP_LOGW(TAG, "Konnte OTA-Start nicht verzoegern - versuche sofort");
-        ota_start_verzoegert_cb(NULL);
-        return;
-    }
-    esp_timer_start_once(timer, OTA_START_VERZOEGERUNG_US);
+    xTaskCreateStatic(ota_task, "ota", sizeof s_ota_stack / sizeof s_ota_stack[0],
+                      NULL, 3, s_ota_stack, &s_ota_tcb);
 }

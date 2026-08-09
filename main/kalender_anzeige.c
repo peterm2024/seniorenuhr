@@ -22,6 +22,9 @@ static const char *TAG = "kalender_anzeige";
 
 #define ABRUF_INTERVALL_US ((int64_t)15 * 60 * 1000000)
 #define ABRUF_RETRY_US ((int64_t)30 * 1000000)
+/* Pause nach den ersten Fehlschlaegen - siehe Begruendung in task_funktion. */
+#define ABRUF_KURZ_RETRY_US ((int64_t)5 * 1000000)
+#define ABRUF_KURZE_VERSUCHE 3
 #define KEIN_WLAN_RETRY_US ((int64_t)10 * 1000000)
 /* Wie oft die Schleife aufwacht, um Mitternachts-Wechsel bzw. eine gerade
  * erst bekannt gewordene Uhrzeit zu pruefen - das eigentliche Abrufintervall
@@ -200,6 +203,8 @@ static void task_funktion(void *arg)
 
     s_naechster_abruf_us = 0; /* sofort beim ersten Durchlauf versuchen */
 
+    int fehlversuche = 0; /* steuert die Pause bis zum naechsten Versuch */
+
     for (;;) {
         int64_t jetzt_us = esp_timer_get_time();
 
@@ -224,10 +229,25 @@ static void task_funktion(void *arg)
                 einstellungen_kalender_url_effektiv(benutzte_url, sizeof benutzte_url);
                 einstellungen_kalender_url_sichern(benutzte_url);
                 s_naechster_abruf_us = jetzt_us + ABRUF_INTERVALL_US;
+                fehlversuche = 0;
                 if (zeit_ist_synchron())
                     fuer_heute_neu_parsen();
             } else {
-                s_naechster_abruf_us = jetzt_us + ABRUF_RETRY_US;
+                /* Kurze Pause bei den ersten Fehlschlaegen, erst danach die
+                 * volle halbe Minute. Grund (live gemessen, fix2.log): der
+                 * ALLERERSTE Versuch faellt regelmaessig auf die Nase - der
+                 * Task startet noch waehrend der Boot-Phasen und greift
+                 * binnen Millisekunden zum Netz, waehrend der Startbildschirm
+                 * den internen SRAM noch belegt (zweimal beobachtet:
+                 * ESP_ERR_HTTP_CONNECT 23 ms bzw. wenige Sekunden nach dem
+                 * Task-Start, der naechste Versuch nach dem Bildschirmwechsel
+                 * gelang jedes Mal auf Anhieb). Mit 30 s Pause blieb das
+                 * Kalender-Symbol danach eine halbe Minute lang
+                 * durchgestrichen, obwohl das Netz laengst in Ordnung war -
+                 * genau die "keine Sync"-Meldung, die Peter gesehen hat. */
+                fehlversuche++;
+                s_naechster_abruf_us = jetzt_us +
+                    (fehlversuche <= ABRUF_KURZE_VERSUCHE ? ABRUF_KURZ_RETRY_US : ABRUF_RETRY_US);
             }
         } else if (!netz_ist_verbunden()) {
             s_naechster_abruf_us = jetzt_us + KEIN_WLAN_RETRY_US;
@@ -263,8 +283,19 @@ void kalender_task_starten(void)
      * 10060 Byte blieben ungenutzt, der echte Bedarf liegt bei gut 6,3 KB.
      * 10K laesst davon noch rund 3,7 KB Luft und gibt 6 KB internen SRAM
      * zurueck - genau die knappe Ressource, an der sonst das
-     * Einstellungen-Menue scheiterte (siehe app_main.c). */
-    xTaskCreate(task_funktion, "kalender", 10240, NULL, 4, NULL);
+     * Einstellungen-Menue scheiterte (siehe app_main.c).
+     *
+     * Stack statisch im .bss, nicht aus dem Heap: als der OTA-Task seinen
+     * Stack dorthin bekam, schrumpfte der Heap so weit, dass hier kein
+     * zusammenhaengender 10-KB-Block mehr frei war. Die Erzeugung schlug
+     * fehl - und weil ihr Rueckgabewert nicht geprueft wurde, voellig
+     * lautlos: der Kalender blieb einfach leer, die Boot-Phase lief in ihren
+     * 60-Sekunden-Timeout. Statisch reserviert kann das nicht passieren. */
+    static StackType_t stack[10240 / sizeof(StackType_t)];
+    static StaticTask_t tcb;
+    if (xTaskCreateStatic(task_funktion, "kalender", sizeof stack / sizeof stack[0],
+                          NULL, 4, stack, &tcb) == NULL)
+        ESP_LOGE(TAG, "Kalender-Task konnte nicht gestartet werden - es gibt keine Termine");
 }
 
 uint32_t kalender_anzeige_version(void)

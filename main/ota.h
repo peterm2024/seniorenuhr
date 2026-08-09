@@ -93,6 +93,17 @@ const char *ota_version_name(int index);
  * LVGL-Task fuer Sekunden blockieren). */
 void ota_versionen_auffrischen(void);
 
+/* Stoesst eine SOFORTIGE Pruefung samt Versionsliste im Hintergrund-Task an
+ * und kehrt sofort zurueck. Fuer das Einstellungen-Menue gedacht: die
+ * regulaere Pruefung laeuft erst 60 s nach dem Boot, wer das Menue ueber das
+ * Zahnrad des Startbildschirms oeffnet, ist also fast immer zu frueh dran und
+ * saehe weder Update-Knopf noch Versionsliste.
+ *
+ * ota_pruefung_laeuft() meldet, ob noch gewartet wird - taugt fuer ein
+ * "Suche nach Updates..." in der Oberflaeche. */
+void ota_pruefung_anstossen(void);
+bool ota_pruefung_laeuft(void);
+
 /* Installiert gezielt die angegebene Version - auch eine AELTERE als die
  * laufende (Peters Fall: eine Version gefaellt nicht, ein Feature daraus
  * spaeter aber doch). Verhaelt sich sonst wie

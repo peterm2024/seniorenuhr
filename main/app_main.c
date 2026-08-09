@@ -733,12 +733,160 @@ static void einstellungen_task_starten(void)
                           NULL, 4, s_einstellungen_stack, &s_einstellungen_tcb);
 }
 
-static void update_symbol_geklickt_cb(lv_event_t *e)
+/* Der Weg ins Einstellungen-Menue ist bewusst schwer zu treffen.
+ *
+ * Die Eltern sollen dieses Menue NIE zu Gesicht bekommen - es ueberfordert
+ * sie vollstaendig. Das Update-Symbol ist eine Meldung an Peter ("hier gibt es
+ * etwas Neues"), kein Bedienelement fuer sie. Ein normaler Tipp war deshalb
+ * eine Falltuer: ein versehentlicher Treffer, und sie stehen mitten in den
+ * Einstellungen.
+ *
+ * Statt das Symbol ganz zu sperren (dann kaeme Peter nur noch ueber einen
+ * Neustart und das Zahnrad des Startbildschirms hinein) braucht es zwei
+ * bewusste Handlungen: fuenf Sekunden gedrueckt halten, danach im Dialog
+ * bestaetigen. Fuenf Sekunden haelt niemand versehentlich den Finger drauf.
+ *
+ * LVGLs eigenes LV_EVENT_LONG_PRESSED taugt hier nicht: dessen Dauer haengt
+ * am Eingabegeraet (lv_indev_set_long_press_time) und gilt damit fuer ALLE
+ * Bedienelemente - eine Umstellung auf 5 s wuerde jeden anderen langen Druck
+ * im Programm mitverbiegen. Deshalb hier von Hand gemessen. */
+/* Eigene Farben fuer den Bestaetigungsdialog - dieselben Toene wie die
+ * OK-/Abbrechen-Knoepfe der Tabletten-Fenster (tagesansicht.c), damit sich
+ * die Bedienung ueberall gleich anfuehlt. */
+#define FARBE_DIALOG_JA   0x2e7d32 /* Gruen: bestaetigen */
+#define FARBE_DIALOG_NEIN 0x4a5568 /* gedaempftes Grau: abbrechen */
+
+#define UPDATE_HALTEDAUER_MS 5000
+/* Der Bestaetigungsdialog verschwindet von selbst wieder - sollte er doch
+ * einmal ungewollt erscheinen, bleibt er nicht dauerhaft im Weg. */
+#define UPDATE_DIALOG_ANZEIGEDAUER_MS 20000
+
+static uint32_t s_update_druck_beginn;
+static bool s_update_druck_ausgeloest;
+static lv_obj_t *s_update_dialog;
+static lv_timer_t *s_update_dialog_timer;
+
+static void update_dialog_schliessen(void)
+{
+    if (s_update_dialog_timer) {
+        lv_timer_delete(s_update_dialog_timer);
+        s_update_dialog_timer = NULL;
+    }
+    if (s_update_dialog) {
+        lv_obj_delete(s_update_dialog);
+        s_update_dialog = NULL;
+    }
+}
+
+static void update_dialog_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    s_update_dialog_timer = NULL; /* laeuft gerade ab, nicht noch einmal loeschen */
+    update_dialog_schliessen();
+}
+
+static void update_dialog_abbrechen_cb(lv_event_t *e)
 {
     (void)e;
-    if (s_einstellungen_offen || s_einstellungen_task_handle == NULL)
+    update_dialog_schliessen();
+}
+
+static void update_dialog_oeffnen_cb(lv_event_t *e)
+{
+    (void)e;
+    update_dialog_schliessen();
+    if (!s_einstellungen_offen && s_einstellungen_task_handle)
+        xTaskNotifyGive(s_einstellungen_task_handle);
+}
+
+static lv_obj_t *dialog_button_erzeugen(lv_obj_t *parent, const char *text, uint32_t farbe,
+                                         lv_event_cb_t cb)
+{
+    lv_obj_t *btn = lv_button_create(parent);
+    lv_obj_set_height(btn, 64);
+    lv_obj_set_style_min_width(btn, 180, 0);
+    lv_obj_set_width(btn, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_hor(btn, 20, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(farbe), 0);
+    lv_obj_set_style_radius(btn, 10, 0);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+    lv_obj_center(label);
+    return btn;
+}
+
+static void update_dialog_zeigen(void)
+{
+    if (s_update_dialog)
         return;
-    xTaskNotifyGive(s_einstellungen_task_handle);
+
+    /* Auf lv_layer_top(), damit der Dialog unabhaengig vom gerade geladenen
+     * Bildschirm sichtbar ist - denselben Fehler hatte das Fortschritts-
+     * fenster schon einmal (FALLSTRICKE #34). */
+    s_update_dialog = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(s_update_dialog, 560, 260);
+    lv_obj_center(s_update_dialog);
+    lv_obj_remove_flag(s_update_dialog, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(s_update_dialog, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_update_dialog, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s_update_dialog, lv_color_hex(FARBE_AKZENT), 0);
+    lv_obj_set_style_border_width(s_update_dialog, 2, 0);
+    lv_obj_set_style_radius(s_update_dialog, 12, 0);
+
+    lv_obj_t *titel = lv_label_create(s_update_dialog);
+    lv_label_set_text(titel, "Einstellungen oeffnen?");
+    lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
+    lv_obj_set_style_text_color(titel, lv_color_hex(FARBE_AKZENT), 0);
+    lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 10);
+
+    lv_obj_t *hinweis = lv_label_create(s_update_dialog);
+    lv_label_set_text(hinweis, "Nur fuer die Wartung gedacht.");
+    lv_label_set_long_mode(hinweis, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hinweis, lv_pct(100));
+    lv_obj_set_style_text_align(hinweis, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(hinweis, lv_color_hex(FARBE_TEXT_HELL), 0);
+    lv_obj_align(hinweis, LV_ALIGN_TOP_MID, 0, 75);
+
+    /* Abbrechen links, Oeffnen rechts - dieselbe Anordnung wie bei
+     * OK/Abbrechen in den Tabletten-Fenstern, damit die Bedienung ueberall
+     * gleich funktioniert. */
+    lv_obj_t *abbrechen = dialog_button_erzeugen(s_update_dialog, "Abbrechen", FARBE_DIALOG_NEIN,
+                                                  update_dialog_abbrechen_cb);
+    lv_obj_align(abbrechen, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+
+    lv_obj_t *oeffnen = dialog_button_erzeugen(s_update_dialog, "Oeffnen", FARBE_DIALOG_JA,
+                                                update_dialog_oeffnen_cb);
+    lv_obj_align(oeffnen, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+
+    s_update_dialog_timer = lv_timer_create(update_dialog_timer_cb, UPDATE_DIALOG_ANZEIGEDAUER_MS, NULL);
+    lv_timer_set_repeat_count(s_update_dialog_timer, 1);
+}
+
+static void update_symbol_geklickt_cb(lv_event_t *e)
+{
+    switch (lv_event_get_code(e)) {
+    case LV_EVENT_PRESSED:
+        s_update_druck_beginn = lv_tick_get();
+        s_update_druck_ausgeloest = false;
+        break;
+    case LV_EVENT_PRESSING:
+        if (!s_update_druck_ausgeloest &&
+            lv_tick_elaps(s_update_druck_beginn) >= UPDATE_HALTEDAUER_MS) {
+            s_update_druck_ausgeloest = true; /* nur einmal pro Druck */
+            update_dialog_zeigen();
+        }
+        break;
+    case LV_EVENT_RELEASED:
+    case LV_EVENT_PRESS_LOST:
+        s_update_druck_ausgeloest = false;
+        break;
+    default:
+        break;
+    }
 }
 static lv_obj_t *s_status_fenster;
 static lv_timer_t *s_status_fenster_timer;
@@ -1280,7 +1428,10 @@ static void ui_aufbauen(void)
     lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(s_update_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(s_update_tippflaeche, update_symbol_geklickt_cb, LV_EVENT_CLICKED, NULL);
+    /* ALLE Ereignisse, nicht nur LV_EVENT_CLICKED: die Haltedauer wird selbst
+     * gemessen (siehe update_symbol_geklickt_cb). Ein kurzer Tipp bewirkt
+     * bewusst nichts. */
+    lv_obj_add_event_cb(s_update_tippflaeche, update_symbol_geklickt_cb, LV_EVENT_ALL, NULL);
 
     /* Live-Status rechts oben: spiegelt WLAN/Zeit/Kalender aus dem
      * Startbildschirm, durchgestrichen bei fehlender Konnektivitaet. */
@@ -2169,6 +2320,19 @@ void app_main(void)
      * Der Ring auf dem Startbildschirm zeigt genau diese Restzeit an; nach
      * 30s bietet er zusaetzlich "WLAN wechseln" und "Offline" an. */
     netz_start();
+
+    /* Bewusst SCHON HIER, vor den Boot-Phasen: das Einstellungen-Menue des
+     * Startbildschirms (siehe phase_verarbeiten) ist der Weg, ueber den Peter
+     * am Geraet seiner Eltern nach Updates sieht - und es laeuft mitten in
+     * diesen Phasen. Stand der OTA-Task erst am Ende von app_main, gab es zu
+     * diesem Zeitpunkt niemanden, der die dort angestossene Pruefung
+     * ausfuehrt: das Menue zeigte dann dauerhaft "Suche nach Updates...".
+     * Moeglich ist der fruehe Start erst, seit der Task seinen Stack
+     * statisch bekommt und damit nicht mehr auf freien Heap warten muss
+     * (siehe ota.c). Er selbst tut hier noch nichts Netzlastiges - seine
+     * erste Pruefung wartet die Anlaufzeit ab. */
+    ota_starten();
+
     phase_verarbeiten(STARTBILDSCHIRM_WLAN, "WLAN", wlan_verbunden_pruefen);
     ESP_LOGI(TAG, "Start: Schritt WLAN fertig");
 
@@ -2228,15 +2392,11 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Start: Uhr laeuft");
 
-    /* Bewusst ganz am Ende, nachdem die Anzeige bereits laeuft - OTA ist
-     * reine Wartung im Hintergrund und soll den Boot-Ablauf in keinem Fall
-     * verzoegern (siehe ota.h). */
-    /* Wartet blockierend auf das Antippen des Update-Symbols. Sein Stack ist
-     * statisch (siehe einstellungen_task), das Erzeugen kann also nicht an
-     * fehlendem Speicher scheitern - genau daran ging es zuvor zweimal. */
+    /* Wartet blockierend auf das lange Druecken des Update-Symbols. Sein
+     * Stack ist statisch (siehe einstellungen_task), das Erzeugen kann also
+     * nicht an fehlendem Speicher scheitern - genau daran ging es zuvor
+     * zweimal. Der OTA-Task laeuft bereits seit vor den Boot-Phasen. */
     einstellungen_task_starten();
-
-    ota_starten();
 
     /* app_main MUSS hier zurueckkehren: erst dadurch gibt der Idle-Task die
      * 16 KB internen SRAM des Haupt-Task-Stacks frei, und nur so bekommt der

@@ -523,6 +523,37 @@ static volatile einstellungen_aktion_t s_einstellungen_aktion = EINSTELLUNGEN_AK
 static lv_obj_t *s_signal_label;
 static lv_obj_t *s_signal_bar;
 static lv_timer_t *s_signal_timer;
+/* Update-Bereich: eigener Container, weil er sich nachtraeglich fuellt,
+ * sobald die angestossene Pruefung geantwortet hat. Feste Hoehe, damit
+ * nichts darunter verrutscht - Schalter, Signalbalken und Hinweis stehen an
+ * fest berechneten Y-Positionen.
+ *
+ * Bemessen auf den groessten Fall: die Knopfreihe bricht bei beiden Knoepfen
+ * ("Update auf ... installieren" + "Sofort zurueck auf ...") auf ZWEI Zeilen
+ * um (2 x 64 + 10 Abstand = 138), darunter noch die Versionszeile (64) plus
+ * Abstand. Der erste Anlauf mit 150 reichte nur fuer die Knopfreihe - die
+ * Versionszeile wurde abgeschnitten und der Schalter darunter ueberlappte
+ * sie (per Screenshot aufgefallen). Ist weniger zu zeigen, bleibt hier
+ * Leerraum; seit der Bildschirm scrollt, stoert das nicht. */
+#define UPDATE_BEREICH_HOEHE 222
+static lv_obj_t *s_update_bereich;
+static lv_obj_t *s_versionen_dropdown;
+static bool s_update_stand_verfuegbar;
+static int s_update_stand_anzahl = -1;
+static bool s_update_stand_suche;
+/* Gesetzt, solange dem OTA-Task noch ein Anstoss geschuldet ist: beim Aufbau
+ * des Menues stand kein WLAN, der Anstoss konnte also nicht raus. Genau der
+ * Regelfall beim Start - das Menue ist ueber das Zahnrad schon waehrend der
+ * WLAN-Phase erreichbar, also bevor es eine Verbindung gibt. */
+static bool s_update_anstoss_offen;
+
+/* Der Update-Bereich steht hier oben, weil ihn der Timer-Callback braucht -
+ * die Knopf-Hilfsfunktion und die Aktions-Callbacks folgen erst weiter unten. */
+static lv_obj_t *einstellungen_nav_button_erzeugen(lv_obj_t *parent, const char *text,
+                                                    lv_event_cb_t cb);
+static void einstellungen_update_cb(lv_event_t *e);
+static void einstellungen_version_zurueck_cb(lv_event_t *e);
+static void einstellungen_version_waehlen_cb(lv_event_t *e);
 
 /* Dbm-Spanne, auf die der Balken 0-100% abbildet - -90 dBm (praktisch
  * unbrauchbar) bis -30 dBm (denkbar bestmoeglicher Empfang in Router-Naehe). */
@@ -568,10 +599,150 @@ static void signal_aktualisieren(void)
         lv_label_set_text(s_signal_label, text);
 }
 
+/* Fuellt den Update-Bereich passend zum aktuellen Wissensstand. Wird beim
+ * Aufbau UND spaeter erneut aufgerufen, sobald die angestossene Pruefung
+ * geantwortet hat (siehe update_bereich_pruefen). */
+static void update_bereich_aufbauen(void)
+{
+    if (s_update_bereich == NULL)
+        return;
+
+    lv_obj_clean(s_update_bereich);
+    s_versionen_dropdown = NULL;
+
+    bool update_da = ota_update_verfuegbar();
+    char vorherige[32];
+    bool zurueck_da = ota_vorherige_version(vorherige, sizeof vorherige);
+    int anzahl = ota_versionen_anzahl();
+
+    /* Noch nichts zu zeigen: dann sagen, WARUM. Ein leerer Bereich liesse
+     * offen, ob gerade gesucht wird, ob es nichts gibt oder ob etwas kaputt
+     * ist - genau die Ratlosigkeit, die dieses Menue vermeiden soll. */
+    if (!update_da && !zurueck_da && anzahl == 0) {
+        const char *text;
+        if (!netz_ist_verbunden())
+            text = "Kein WLAN - Updates nicht abrufbar.";
+        else if (ota_pruefung_laeuft())
+            text = "Suche nach Updates...";
+        else
+            text = "Keine andere Version gefunden.";
+
+        lv_obj_t *hinweis = lv_label_create(s_update_bereich);
+        lv_label_set_text(hinweis, text);
+        lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(hinweis, lv_color_hex(0xa0a0a0), 0);
+        lv_obj_align(hinweis, LV_ALIGN_TOP_LEFT, 0, 8);
+        return;
+    }
+
+    /* Knopfreihe: die beiden Wege, die ohne Auswahl auskommen. */
+    lv_obj_t *knopfreihe = lv_obj_create(s_update_bereich);
+    lv_obj_remove_style_all(knopfreihe);
+    lv_obj_remove_flag(knopfreihe, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(knopfreihe, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(knopfreihe, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(knopfreihe, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(knopfreihe, 14, 0);
+    lv_obj_set_style_pad_row(knopfreihe, 10, 0);
+    lv_obj_align(knopfreihe, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    char beschriftung[64];
+    if (update_da) {
+        snprintf(beschriftung, sizeof beschriftung, "Update auf %s installieren",
+                 ota_verfuegbare_version());
+        einstellungen_nav_button_erzeugen(knopfreihe, beschriftung, einstellungen_update_cb);
+    }
+    /* "Zurueck auf X" ist etwas grundlegend anderes als die Auswahlliste: die
+     * Version liegt bereits in der zweiten Flash-Partition, es wird nichts
+     * heruntergeladen - der Wechsel ist sofort fertig und braucht kein Netz. */
+    if (zurueck_da) {
+        snprintf(beschriftung, sizeof beschriftung, "Sofort zurueck auf %s", vorherige);
+        einstellungen_nav_button_erzeugen(knopfreihe, beschriftung, einstellungen_version_zurueck_cb);
+    }
+
+    if (anzahl <= 0)
+        return;
+
+    lv_obj_update_layout(knopfreihe);
+    int32_t zeilen_y = lv_obj_get_height(knopfreihe) + 12;
+
+    lv_obj_t *versionszeile = lv_obj_create(s_update_bereich);
+    lv_obj_remove_style_all(versionszeile);
+    lv_obj_remove_flag(versionszeile, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(versionszeile, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(versionszeile, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(versionszeile, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(versionszeile, 14, 0);
+    lv_obj_set_style_pad_row(versionszeile, 10, 0);
+    lv_obj_align(versionszeile, LV_ALIGN_TOP_LEFT, 0, zeilen_y);
+
+    /* Kurz halten! Vorher stand hier die komplette laufende Version samt
+     * Git-Hash, gefolgt von einem ins Leere laufenden " -". Die Zeile brach
+     * dadurch um, schob den Signalbalken halb aus dem Bild und den Hinweis
+     * auf die Weboberflaeche ganz heraus (per Screenshot aufgefallen). Die
+     * laufende Version steht jetzt unten bei den uebrigen Statusangaben. */
+    lv_obj_t *laufend = lv_label_create(versionszeile);
+    lv_label_set_text(laufend, "Aus dem Netz laden:");
+    lv_obj_set_style_text_font(laufend, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(laufend, lv_color_white(), 0);
+
+    /* Optionen einmalig beim Aufbau setzen (nie waehrend die Liste offen ist
+     * - siehe der Fallstrick beim WLAN-Dropdown oben). */
+    char optionen[OTA_VERSIONEN_MAX * (OTA_VERSION_MAX + 1)];
+    size_t pos = 0;
+    optionen[0] = '\0';
+    for (int i = 0; i < anzahl; i++) {
+        int n = snprintf(optionen + pos, sizeof optionen - pos, "%s%s",
+                         i ? "\n" : "", ota_version_name(i));
+        if (n < 0 || (size_t)n >= sizeof optionen - pos)
+            break;
+        pos += (size_t)n;
+    }
+    s_versionen_dropdown = lv_dropdown_create(versionszeile);
+    lv_dropdown_set_options(s_versionen_dropdown, optionen);
+    lv_obj_set_width(s_versionen_dropdown, 200);
+    lv_obj_set_style_text_font(s_versionen_dropdown, &schrift_klein_28, 0);
+    /* Ohne das zeichnet LVGL sein Standard-Pfeilsymbol, das in der
+     * Montserrat-Schrift dieses Projekts fehlt - auf dem Geraet erschien dort
+     * ein leeres Kaestchen (per Screenshot aufgefallen). Dieselbe Ursache wie
+     * beim fehlenden Haken-Symbol, siehe "[x] "-Praefix bei den Tabletten. */
+    lv_dropdown_set_symbol(s_versionen_dropdown, NULL);
+
+    einstellungen_nav_button_erzeugen(versionszeile, "Installieren",
+                                       einstellungen_version_waehlen_cb);
+}
+
+/* Baut den Bereich nur neu, wenn sich am Wissensstand etwas geaendert hat -
+ * ein Neuaufbau bei jedem Timer-Tick wuerde die geoeffnete Auswahlliste unter
+ * dem Finger wegreissen (derselbe Fallstrick wie beim WLAN-Dropdown). */
+static void update_bereich_pruefen(void)
+{
+    /* Nachgeholter Anstoss, sobald das WLAN steht (siehe s_update_anstoss_offen).
+     * Nur anstossen, nie selbst telefonieren - wir laufen hier im LVGL-Timer. */
+    if (s_update_anstoss_offen && netz_ist_verbunden()) {
+        s_update_anstoss_offen = false;
+        ota_pruefung_anstossen();
+    }
+
+    bool update_da = ota_update_verfuegbar();
+    int anzahl = ota_versionen_anzahl();
+    bool suche = ota_pruefung_laeuft();
+
+    if (update_da == s_update_stand_verfuegbar && anzahl == s_update_stand_anzahl &&
+        suche == s_update_stand_suche)
+        return;
+
+    s_update_stand_verfuegbar = update_da;
+    s_update_stand_anzahl = anzahl;
+    s_update_stand_suche = suche;
+    update_bereich_aufbauen();
+}
+
 static void signal_tick_cb(lv_timer_t *timer)
 {
     (void)timer;
     signal_aktualisieren();
+    update_bereich_pruefen();
 }
 
 static void einstellungen_wlan_cb(lv_event_t *e)
@@ -615,7 +786,6 @@ static void einstellungen_version_zurueck_cb(lv_event_t *e)
  * JEDE veroeffentlichte Version geholt werden - sie wird frisch
  * heruntergeladen (Peters Fall: eine Version gefaellt zunaechst nicht,
  * spaeter will man ein Feature daraus dann doch). */
-static lv_obj_t *s_versionen_dropdown;
 static char s_gewaehlte_version[OTA_VERSION_MAX];
 
 const char *einrichtung_einstellungen_gewaehlte_version(void)
@@ -757,92 +927,39 @@ void einrichtung_einstellungen_zeigen(void)
     einstellungen_nav_button_erzeugen(reihe, "Kalender-Adresse aendern", einstellungen_kalenderurl_cb);
     einstellungen_nav_button_erzeugen(reihe, "Demo-Modus", einstellungen_demo_cb);
 
-    /* Update-Buttons nur, wenn sie tatsaechlich etwas bewirken - ein
-     * dauerhaft sichtbarer, aber wirkungsloser Knopf waere fuer die
-     * eigentlichen Nutzer nur verwirrend. Die Versionsnummer steht mit in
-     * der Beschriftung, damit man sieht, worauf man sich einlaesst. */
-    char beschriftung[64];
-    if (ota_update_verfuegbar()) {
-        snprintf(beschriftung, sizeof beschriftung, "Update auf %s installieren",
-                 ota_verfuegbare_version());
-        einstellungen_nav_button_erzeugen(reihe, beschriftung, einstellungen_update_cb);
-    }
-    char vorherige[32];
-    if (ota_vorherige_version(vorherige, sizeof vorherige)) {
-        snprintf(beschriftung, sizeof beschriftung, "Zurueck auf %s", vorherige);
-        einstellungen_nav_button_erzeugen(reihe, beschriftung, einstellungen_version_zurueck_cb);
-    }
-
-    /* Liste im Hintergrund auffrischen (telefoniert - darf nie hier im
-     * LVGL-Kontext passieren). Angezeigt wird der zuletzt geholte Stand;
-     * beim naechsten Oeffnen ist er aktuell. */
-    ota_versionen_auffrischen();
-
     /* Tatsaechliche Hoehe der Reihe erst nach dem Layout-Durchlauf bekannt
      * (haengt davon ab, ob die Buttons in eine oder zwei Zeilen passen) -
      * siehe FALLSTRICKE_UND_WORKAROUNDS.md #11. */
     lv_obj_update_layout(reihe);
     int32_t naechste_y = 64 + lv_obj_get_height(reihe) + 14;
 
-    /* Versions-Auswahl: laufende Version + Liste aller veroeffentlichten.
-     * Erscheint nur, wenn die Liste bereits abgerufen werden konnte (WLAN,
-     * und der Hintergrund-Task war schon dran) - sonst stuende hier ein
-     * leeres Bedienelement ohne Sinn. */
-    if (ota_versionen_anzahl() > 0) {
-        lv_obj_t *versionszeile = lv_obj_create(s_einstellungen_screen);
-        lv_obj_remove_style_all(versionszeile);
-        lv_obj_remove_flag(versionszeile, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_size(versionszeile, 740, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(versionszeile, LV_FLEX_FLOW_ROW_WRAP);
-        lv_obj_set_flex_align(versionszeile, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
-                               LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(versionszeile, 14, 0);
-        lv_obj_set_style_pad_row(versionszeile, 10, 0);
-        lv_obj_align(versionszeile, LV_ALIGN_TOP_LEFT, 30, naechste_y);
+    /* Der Update-Bereich fuellt sich nach, sobald die Pruefung geantwortet
+     * hat - deshalb eigener Container mit FESTER Hoehe. Waechst er nach dem
+     * Aufbau, wuerde sonst alles darunter (Schalter, Signalbalken, Hinweis)
+     * verrutschen; diese Elemente stehen an fest berechneten Y-Positionen. */
+    s_update_bereich = lv_obj_create(s_einstellungen_screen);
+    lv_obj_remove_style_all(s_update_bereich);
+    lv_obj_remove_flag(s_update_bereich, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(s_update_bereich, 740, UPDATE_BEREICH_HOEHE);
+    lv_obj_align(s_update_bereich, LV_ALIGN_TOP_LEFT, 30, naechste_y);
+    /* Momentaufnahme entwerten: der Bereich ist gerade frisch und leer, jeder
+     * Vergleich gegen den Stand des VORIGEN Menue-Aufbaus waere sinnlos. */
+    s_update_stand_anzahl = -1;
+    update_bereich_aufbauen();
 
-        /* Kurz halten! Vorher stand hier die komplette laufende Version samt
-         * Git-Hash, gefolgt von einem ins Leere laufenden " -". Die Zeile
-         * brach dadurch um, schob den Signalbalken halb aus dem Bild und den
-         * Hinweis auf die Weboberfläche ganz heraus (per Screenshot
-         * aufgefallen). Die laufende Version steht jetzt unten bei den
-         * uebrigen Statusangaben - sie ist eine Information, keine
-         * Bedienhilfe. */
-        lv_obj_t *laufend = lv_label_create(versionszeile);
-        lv_label_set_text(laufend, "Andere Version:");
-        lv_obj_set_style_text_font(laufend, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(laufend, lv_color_white(), 0);
+    /* Sofort-Pruefung anstossen (telefoniert - darf nie hier im LVGL-Kontext
+     * passieren, deshalb nur ein Anstoss an den Hintergrund-Task). Ohne das
+     * zeigte das Menue nur den Stand der letzten Hintergrund-Pruefung, und
+     * die laeuft erst 60 s nach dem Boot - wer ueber das Zahnrad des
+     * Startbildschirms hereinkommt, war also fast immer zu frueh dran.
+     * Steht noch kein WLAN (der Regelfall waehrend der WLAN-Boot-Phase),
+     * holt update_bereich_pruefen() den Anstoss nach, sobald es steht. */
+    if (netz_ist_verbunden())
+        ota_pruefung_anstossen();
+    else
+        s_update_anstoss_offen = true;
 
-        /* Optionen einmalig beim Aufbau setzen (nie waehrend die Liste
-         * offen ist - siehe der Fallstrick beim WLAN-Dropdown oben). */
-        char optionen[OTA_VERSIONEN_MAX * (OTA_VERSION_MAX + 1)];
-        size_t pos = 0;
-        optionen[0] = '\0';
-        for (int i = 0; i < ota_versionen_anzahl(); i++) {
-            int n = snprintf(optionen + pos, sizeof optionen - pos, "%s%s",
-                             i ? "\n" : "", ota_version_name(i));
-            if (n < 0 || (size_t)n >= sizeof optionen - pos)
-                break;
-            pos += (size_t)n;
-        }
-        s_versionen_dropdown = lv_dropdown_create(versionszeile);
-        lv_dropdown_set_options(s_versionen_dropdown, optionen);
-        lv_obj_set_width(s_versionen_dropdown, 200);
-        lv_obj_set_style_text_font(s_versionen_dropdown, &schrift_klein_28, 0);
-        /* Ohne das zeichnet LVGL sein Standard-Pfeilsymbol, das in der
-         * Montserrat-Schrift dieses Projekts fehlt - auf dem Geraet erschien
-         * dort ein leeres Kaestchen (per Screenshot aufgefallen). Dieselbe
-         * Ursache wie beim fehlenden Haken-Symbol, siehe "[x] "-Praefix bei
-         * den Tabletten. */
-        lv_dropdown_set_symbol(s_versionen_dropdown, NULL);
-
-        einstellungen_nav_button_erzeugen(versionszeile, "Installieren",
-                                           einstellungen_version_waehlen_cb);
-
-        lv_obj_update_layout(versionszeile);
-        naechste_y += lv_obj_get_height(versionszeile) + 14;
-    }
-
-    int32_t schalter_y = naechste_y;
+    int32_t schalter_y = naechste_y + UPDATE_BEREICH_HOEHE + 14;
 
     einstellungen_schalter_zeile(s_einstellungen_screen, schalter_y, "Signalton bei Erinnerungen",
                                   einstellungen_buzzer_aktiv(), einstellungen_buzzer_cb);
