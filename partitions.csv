@@ -32,3 +32,17 @@ speicher,   data, fat,      0x610000, 256K
 # Puffer wuerde den Dump abschneiden - genau in dem Moment, in dem man ihn
 # braucht.
 coredump,   data, coredump, 0x650000, 256K
+# Ringpuffer fuer Bildschirmfotos (main/screenshot_speicher.c), gleicher
+# Gedanke wie beim Core-Dump direkt darueber: entsteht ein Screenshot, waehrend
+# kein serieller Monitor mitlaeuft (Board am Router, per Powerbank betrieben),
+# ist die serielle Ausgabe wirkungslos - hier landet dieselbe Aufnahme
+# zusaetzlich dauerhaft im Flash und wird beim naechsten Anstecken per
+# tools/screenshot_flash_abholen.py abgeholt. "undefined" (0x06) statt eines
+# Dateisystem-Subtyps, weil main/screenshot_speicher.c die Plaetze selbst roh
+# verwaltet (esp_partition_read/write/erase) - kein FAT/SPIFFS-Overhead noetig.
+#
+# 1440K = 15 Plaetze a 96K (siehe PLATZ_GROESSE in screenshot_speicher.c) -
+# 96K liegt komfortabel ueber der live gemessenen RLE-Groesse (75-89K, siehe
+# FAHRPLAN Nachtrag 25). Restliche 32K bis zum Flash-Ende (8 MB) bleiben
+# bewusst ungenutzt statt krumm aufgeteilt zu werden.
+screenshots, data, undefined, 0x690000, 1440K

@@ -5,6 +5,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
+#include "screenshot_speicher.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h" /* xTaskCreateWithCaps / vTaskDeleteWithCaps */
 #include "freertos/task.h"
@@ -321,6 +322,11 @@ static void screenshot_task(void *arg)
                 ESP_LOGI(TAG, "Screenshot komprimiert: %u -> %u Byte Pixeldaten (%u%%)",
                          (unsigned)(datei_groesse - BMP_HEADER_GROESSE), (unsigned)rle_groesse,
                          (unsigned)(100 * rle_groesse / (datei_groesse - BMP_HEADER_GROESSE)));
+                /* Dieselben Bytes, die gleich seriell rausgehen, zusaetzlich
+                 * dauerhaft im Flash ablegen (screenshot_speicher.c) - falls
+                 * gerade niemand mitliest (Board am Router, siehe dortiger
+                 * Kommentar), ist die Aufnahme trotzdem nicht verloren. */
+                screenshot_speicher_ablegen(sende_puffer, BMP_HEADER_GROESSE + rle_groesse, (uint16_t)w, (uint16_t)h, true);
                 screenshot_base64_ausgeben(sende_puffer, BMP_HEADER_GROESSE + rle_groesse, w, h, true);
                 heap_caps_free(sende_puffer);
             }
@@ -330,8 +336,10 @@ static void screenshot_task(void *arg)
         /* Kein PSRAM fuer RLE- oder Sende-Puffer bekommen (rle_pixel == NULL
          * oder sende_puffer == NULL) - unkomprimiert senden statt ganz
          * aufzugeben, dauert nur laenger. */
-        if (!rle_pixel || !sende_puffer)
+        if (!rle_pixel || !sende_puffer) {
+            screenshot_speicher_ablegen(bmp, datei_groesse, (uint16_t)w, (uint16_t)h, false);
             screenshot_base64_ausgeben(bmp, datei_groesse, w, h, false);
+        }
 
         heap_caps_free(bmp);
     }
