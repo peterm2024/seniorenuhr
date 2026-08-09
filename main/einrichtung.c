@@ -543,10 +543,21 @@ static int32_t s_webkonfig_hinweis_y; /* fest (Knopfhoehe ist konstant), zum Nac
  * Abstand. Der erste Anlauf mit 150 reichte nur fuer die Knopfreihe - die
  * Versionszeile wurde abgeschnitten und der Schalter darunter ueberlappte
  * sie (per Screenshot aufgefallen). Ist weniger zu zeigen, bleibt hier
- * Leerraum; seit der Bildschirm scrollt, stoert das nicht. */
-#define UPDATE_BEREICH_HOEHE 222
+ * Leerraum; seit der Bildschirm scrollt, stoert das nicht.
+ *
+ * Seit 09.08.2026 (Peters Wunsch): die Knoepfe stehen jetzt IMMER da (nur
+ * deaktiviert, statt aus dem Nichts aufzutauchen), dazu eine Statuszeile
+ * ("WLAN wird verbunden..." etc.) ueber der Knopfreihe - deshalb +48
+ * gegenueber dem alten Wert. Knopfreihe/Versionszeile sind dadurch jetzt
+ * IMMER gleich hoch (beide Knoepfe immer vorhanden -> immer derselbe
+ * Zeilenumbruch), nur der Statustext oben aendert sich noch. Falls die
+ * Statuszeile bei einem laengeren Text doch umbricht, per Screenshot
+ * gegenpruefen und hier nachjustieren (gleiches Vorgehen wie beim 150->222
+ * Sprung oben). */
+#define UPDATE_BEREICH_HOEHE 270
 static lv_obj_t *s_update_bereich;
 static lv_obj_t *s_versionen_dropdown;
+static bool s_update_stand_verbunden;
 static bool s_update_stand_verfuegbar;
 static int s_update_stand_anzahl = -1;
 static bool s_update_stand_suche;
@@ -621,32 +632,38 @@ static void update_bereich_aufbauen(void)
     lv_obj_clean(s_update_bereich);
     s_versionen_dropdown = NULL;
 
+    bool verbunden = netz_ist_verbunden();
     bool update_da = ota_update_verfuegbar();
     char vorherige[32];
     bool zurueck_da = ota_vorherige_version(vorherige, sizeof vorherige);
     int anzahl = ota_versionen_anzahl();
+    bool suche = ota_pruefung_laeuft();
 
-    /* Noch nichts zu zeigen: dann sagen, WARUM. Ein leerer Bereich liesse
-     * offen, ob gerade gesucht wird, ob es nichts gibt oder ob etwas kaputt
-     * ist - genau die Ratlosigkeit, die dieses Menue vermeiden soll. */
-    if (!update_da && !zurueck_da && anzahl == 0) {
-        const char *text;
-        if (!netz_ist_verbunden())
-            text = "Kein WLAN - Updates nicht abrufbar.";
-        else if (ota_pruefung_laeuft())
-            text = "Suche nach Updates...";
-        else
-            text = "Keine andere Version gefunden.";
+    /* Statuszeile: sagt WARUM die Knoepfe unten (noch) deaktiviert sind,
+     * statt das offen zu lassen - genau die Ratlosigkeit, die dieses Menue
+     * vermeiden soll. Peters Wunsch: die Knoepfe selbst stehen jetzt IMMER
+     * da (nur deaktiviert), damit sichtbar ist, dass im Hintergrund etwas
+     * passiert, statt dass sie ploetzlich aus dem Nichts auftauchen. Leer,
+     * sobald nichts mehr zu erklaeren ist. */
+    const char *status_text = "";
+    if (!verbunden)
+        status_text = "WLAN wird verbunden...";
+    else if (suche)
+        status_text = "Suche nach Updates...";
+    else if (!update_da && !zurueck_da && anzahl == 0)
+        status_text = "Keine andere Version gefunden.";
 
-        lv_obj_t *hinweis = lv_label_create(s_update_bereich);
-        lv_label_set_text(hinweis, text);
-        lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
-        lv_obj_set_style_text_color(hinweis, lv_color_hex(0xa0a0a0), 0);
-        lv_obj_align(hinweis, LV_ALIGN_TOP_LEFT, 0, 8);
-        return;
-    }
+    lv_obj_t *status_label = lv_label_create(s_update_bereich);
+    lv_label_set_text(status_label, status_text);
+    lv_obj_set_style_text_font(status_label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(status_label, lv_color_hex(0xa0a0a0), 0);
+    lv_obj_align(status_label, LV_ALIGN_TOP_LEFT, 0, 8);
+    lv_obj_update_layout(status_label);
+    int32_t knopf_y = 8 + lv_obj_get_height(status_label) + 10;
 
-    /* Knopfreihe: die beiden Wege, die ohne Auswahl auskommen. */
+    /* Knopfreihe: die beiden Wege, die ohne Auswahl auskommen - IMMER
+     * beide Knoepfe, deaktiviert statt weggelassen, wenn (noch) nicht
+     * moeglich. */
     lv_obj_t *knopfreihe = lv_obj_create(s_update_bereich);
     lv_obj_remove_style_all(knopfreihe);
     lv_obj_remove_flag(knopfreihe, LV_OBJ_FLAG_SCROLLABLE);
@@ -655,27 +672,31 @@ static void update_bereich_aufbauen(void)
     lv_obj_set_flex_align(knopfreihe, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(knopfreihe, 14, 0);
     lv_obj_set_style_pad_row(knopfreihe, 10, 0);
-    lv_obj_align(knopfreihe, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_align(knopfreihe, LV_ALIGN_TOP_LEFT, 0, knopf_y);
 
     char beschriftung[64];
-    if (update_da) {
+    if (update_da)
         snprintf(beschriftung, sizeof beschriftung, "Update auf %s installieren",
                  ota_verfuegbare_version());
-        einstellungen_nav_button_erzeugen(knopfreihe, beschriftung, einstellungen_update_cb);
-    }
+    else
+        snprintf(beschriftung, sizeof beschriftung, "Kein Update verfuegbar");
+    lv_obj_t *update_knopf = einstellungen_nav_button_erzeugen(knopfreihe, beschriftung, einstellungen_update_cb);
+    if (!update_da)
+        lv_obj_add_state(update_knopf, LV_STATE_DISABLED);
+
     /* "Zurueck auf X" ist etwas grundlegend anderes als die Auswahlliste: die
      * Version liegt bereits in der zweiten Flash-Partition, es wird nichts
      * heruntergeladen - der Wechsel ist sofort fertig und braucht kein Netz. */
-    if (zurueck_da) {
+    if (zurueck_da)
         snprintf(beschriftung, sizeof beschriftung, "Sofort zurueck auf %s", vorherige);
-        einstellungen_nav_button_erzeugen(knopfreihe, beschriftung, einstellungen_version_zurueck_cb);
-    }
-
-    if (anzahl <= 0)
-        return;
+    else
+        snprintf(beschriftung, sizeof beschriftung, "Keine vorherige Version");
+    lv_obj_t *zurueck_knopf = einstellungen_nav_button_erzeugen(knopfreihe, beschriftung, einstellungen_version_zurueck_cb);
+    if (!zurueck_da)
+        lv_obj_add_state(zurueck_knopf, LV_STATE_DISABLED);
 
     lv_obj_update_layout(knopfreihe);
-    int32_t zeilen_y = lv_obj_get_height(knopfreihe) + 12;
+    int32_t zeilen_y = knopf_y + lv_obj_get_height(knopfreihe) + 12;
 
     lv_obj_t *versionszeile = lv_obj_create(s_update_bereich);
     lv_obj_remove_style_all(versionszeile);
@@ -697,20 +718,7 @@ static void update_bereich_aufbauen(void)
     lv_obj_set_style_text_font(laufend, &schrift_klein_28, 0);
     lv_obj_set_style_text_color(laufend, lv_color_white(), 0);
 
-    /* Optionen einmalig beim Aufbau setzen (nie waehrend die Liste offen ist
-     * - siehe der Fallstrick beim WLAN-Dropdown oben). */
-    char optionen[OTA_VERSIONEN_MAX * (OTA_VERSION_MAX + 1)];
-    size_t pos = 0;
-    optionen[0] = '\0';
-    for (int i = 0; i < anzahl; i++) {
-        int n = snprintf(optionen + pos, sizeof optionen - pos, "%s%s",
-                         i ? "\n" : "", ota_version_name(i));
-        if (n < 0 || (size_t)n >= sizeof optionen - pos)
-            break;
-        pos += (size_t)n;
-    }
     s_versionen_dropdown = lv_dropdown_create(versionszeile);
-    lv_dropdown_set_options(s_versionen_dropdown, optionen);
     lv_obj_set_width(s_versionen_dropdown, 200);
     lv_obj_set_style_text_font(s_versionen_dropdown, &schrift_klein_28, 0);
     /* Ohne das zeichnet LVGL sein Standard-Pfeilsymbol, das in der
@@ -719,8 +727,27 @@ static void update_bereich_aufbauen(void)
      * beim fehlenden Haken-Symbol, siehe "[x] "-Praefix bei den Tabletten. */
     lv_dropdown_set_symbol(s_versionen_dropdown, NULL);
 
-    einstellungen_nav_button_erzeugen(versionszeile, "Installieren",
-                                       einstellungen_version_waehlen_cb);
+    lv_obj_t *installieren_knopf = einstellungen_nav_button_erzeugen(versionszeile, "Installieren",
+                                                                      einstellungen_version_waehlen_cb);
+    if (anzahl > 0) {
+        /* Optionen einmalig beim Aufbau setzen (nie waehrend die Liste offen
+         * ist - siehe der Fallstrick beim WLAN-Dropdown oben). */
+        char optionen[OTA_VERSIONEN_MAX * (OTA_VERSION_MAX + 1)];
+        size_t pos = 0;
+        optionen[0] = '\0';
+        for (int i = 0; i < anzahl; i++) {
+            int n = snprintf(optionen + pos, sizeof optionen - pos, "%s%s",
+                             i ? "\n" : "", ota_version_name(i));
+            if (n < 0 || (size_t)n >= sizeof optionen - pos)
+                break;
+            pos += (size_t)n;
+        }
+        lv_dropdown_set_options(s_versionen_dropdown, optionen);
+    } else {
+        lv_dropdown_set_options(s_versionen_dropdown, "(keine)");
+        lv_obj_add_state(s_versionen_dropdown, LV_STATE_DISABLED);
+        lv_obj_add_state(installieren_knopf, LV_STATE_DISABLED);
+    }
 }
 
 /* Baut den Bereich nur neu, wenn sich am Wissensstand etwas geaendert hat -
@@ -735,14 +762,19 @@ static void update_bereich_pruefen(void)
         ota_pruefung_anstossen();
     }
 
+    bool verbunden = netz_ist_verbunden();
     bool update_da = ota_update_verfuegbar();
     int anzahl = ota_versionen_anzahl();
     bool suche = ota_pruefung_laeuft();
 
-    if (update_da == s_update_stand_verfuegbar && anzahl == s_update_stand_anzahl &&
-        suche == s_update_stand_suche)
+    /* "verbunden" mitverglichen, damit die Statuszeile umgehend von "WLAN
+     * wird verbunden..." auf "Suche nach Updates..." wechselt, statt erst
+     * auf eine der drei anderen Aenderungen zu warten. */
+    if (verbunden == s_update_stand_verbunden && update_da == s_update_stand_verfuegbar &&
+        anzahl == s_update_stand_anzahl && suche == s_update_stand_suche)
         return;
 
+    s_update_stand_verbunden = verbunden;
     s_update_stand_verfuegbar = update_da;
     s_update_stand_anzahl = anzahl;
     s_update_stand_suche = suche;

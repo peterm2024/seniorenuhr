@@ -70,6 +70,9 @@
 #define FARBE_NACHT_TEXT        0x1d1d1d /* alles Text nachts: dunkles Grau, halbe Helligkeit */
 #define FARBE_WARNUNG           0xff5a4a /* Durchstrich der Status-Symbole bei fehlender Konnektivitaet */
 #define FARBE_ICON_HELLGRAU     0xd8d8d8 /* Status-Symbole rechts oben - fest, unabhaengig vom Modus */
+#define FARBE_UPDATE_GRUEN      0x4caf50 /* Update-Symbol: eigenes Gruen statt des Akzent-Golds - faellt
+                                           * deutlicher auf UND wirkt nicht wie eine Warnung (Peters
+                                           * Wunsch, 09.08.2026: "grün, weil das nicht gefährlich aussieht") */
 #define FARBE_VERGANGEN         0x707a8a /* gedaempftes Grau: vergangene Termine / abgehakte Tabletten in der Uebersicht */
 #define FARBE_ZEIT_UNBESTAETIGT 0xcc7a1a /* dunkles Orange: grosse Uhrzeit blinkt damit, solange die Zeit nicht per NTP bestaetigt ist */
 #define FARBE_TABLETTE_FAELLIG      FARBE_AKZENT /* faellig, noch unbestaetigt: dasselbe Gold wie Wochentag/Ueberschriften */
@@ -78,6 +81,28 @@
 /* Kantenlaenge der kleinen Status-Symbole rechts oben (WLAN/Zeit/Kalender). */
 #define STATUS_ICON_GROESSE 34
 #define STATUS_ICON_MAX_TEILE 4
+
+/* WLAN/Zeit/Kalender stehen seit 09.08.2026 SENKRECHT uebereinander statt
+ * nebeneinander (Peters Wunsch) - spart die Breite von zwei Symbolen
+ * (vorher 650/700/750 nebeneinander) und gibt dem Wochentag-Titel mehr
+ * Luft. Reihenfolge von oben nach unten entspricht der alten Reihenfolge
+ * von links nach rechts (WLAN, Zeit, Kalender). */
+#define STATUS_SPALTE_X      750 /* gemeinsame X-Position, wie vorher die rechte (Kalender-)Position */
+#define STATUS_SPALTE_Y0       6 /* oberster Symbolrand */
+#define STATUS_ICON_ABSTAND    6 /* Luecke zwischen zwei gestapelten Symbolen */
+#define STATUS_SPALTE_SCHRITT (STATUS_ICON_GROESSE + STATUS_ICON_ABSTAND)
+/* Tippflaechen-Hoehe fuer die Spalte: oberer Rand + 3 Symbole + 2 Luecken +
+ * gleich grosser unterer Rand, grosszuegig gerundet. */
+#define STATUS_SPALTE_HOEHE  (STATUS_SPALTE_Y0 + 3 * STATUS_ICON_GROESSE + 2 * STATUS_ICON_ABSTAND + STATUS_SPALTE_Y0)
+/* Update-Symbol bleibt eigenstaendig LINKS der Spalte (Peters Wunsch: "das
+ * spielt hier keine Rolle") statt mit hineingestapelt zu werden - auf
+ * gleicher Hoehe wie das OBERSTE Symbol (WLAN), das wirkt aufgeraeumter als
+ * mittig zur ganzen Spalte (per Screenshot verglichen, Peters Wahl).
+ * STATUS_GRENZE_X trennt die beiden Tippflaechen ueberschneidungsfrei (wie
+ * zuvor bei 640, siehe FALLSTRICKE #34-Umfeld). */
+#define STATUS_UPDATE_X   660
+#define STATUS_UPDATE_Y   STATUS_SPALTE_Y0
+#define STATUS_GRENZE_X   700
 
 /* Analoge Zusatzuhr (Peters Idee): per Tipp lassen sich Digital- und
  * Analoganzeige tauschen - eine ist immer "gross" (Bildschirmmitte, wie
@@ -919,14 +944,14 @@ static void status_icon_ok_setzen(status_icon_t *icon, bool ok)
     lvgl_port_unlock();
 }
 
-static void status_icon_erzeugen(status_icon_t *icon, lv_obj_t *scr, int32_t x)
+static void status_icon_erzeugen(status_icon_t *icon, lv_obj_t *scr, int32_t x, int32_t y)
 {
     icon->glyph_anzahl = 0;
 
     icon->container = lv_obj_create(scr);
     lv_obj_remove_style_all(icon->container);
     lv_obj_set_size(icon->container, STATUS_ICON_GROESSE, STATUS_ICON_GROESSE);
-    lv_obj_set_pos(icon->container, x, 14);
+    lv_obj_set_pos(icon->container, x, y);
     lv_obj_remove_flag(icon->container, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(icon->container, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1402,17 +1427,13 @@ static void ui_aufbauen(void)
      * Button rechts, oeffnen Tages-/Heute-Fenster mit Terminen/Tabletten. */
     tagesansicht_erstellen(s_bildschirm);
 
-    /* Update-Hinweis links vor den Verbindungs-Symbolen - startet
-     * unsichtbar und erscheint erst, wenn eine neue Firmware bereitsteht
-     * (siehe uhr_tick). Kein Durchstrich: es gibt hier kein "kaputt", das
-     * Symbol ist entweder da oder nicht. */
-    /* Im selben 50px-Raster wie die drei Status-Symbole (650/700/750) - das
-     * Update-Symbol ist damit sichtbar Teil derselben Reihe. Der erste
-     * Versuch setzte es auf x=560, um Abstand zur Tippflaeche der
-     * Status-Symbole zu halten; auf dem Geraet lag es dann aber mitten im
-     * Wochentag ("SAMSTAG" reicht bei 72px-Schrift bis x=587). Die
-     * Tippflaechen-Grenze wird stattdessen mitverschoben (siehe unten). */
-    status_icon_erzeugen(&s_status_update, s_bildschirm, 600);
+    /* Update-Hinweis links vor der Status-Spalte - startet unsichtbar und
+     * erscheint erst, wenn eine neue Firmware bereitsteht (siehe uhr_tick).
+     * Kein Durchstrich: es gibt hier kein "kaputt", das Symbol ist entweder
+     * da oder nicht. Eigene Gruen-Farbe statt des Akzent-Golds (siehe
+     * FARBE_UPDATE_GRUEN) - faellt so deutlicher auf und wirkt nicht wie
+     * eine Warnung (Peters Wunsch). */
+    status_icon_erzeugen(&s_status_update, s_bildschirm, STATUS_UPDATE_X, STATUS_UPDATE_Y);
     status_glyph_update_erzeugen(&s_status_update);
     lv_obj_add_flag(s_status_update.container, LV_OBJ_FLAG_HIDDEN);
 
@@ -1421,11 +1442,13 @@ static void ui_aufbauen(void)
      * Sackgasse - das Einstellungen-Menue haengt sonst am Zahnrad des
      * STARTbildschirms und ist nach dem Booten gar nicht mehr erreichbar,
      * das Symbol erschiene also genau dann, wenn man nichts mehr damit
-     * anfangen kann. Wird zusammen mit dem Symbol ein-/ausgeblendet. */
+     * anfangen kann. Wird zusammen mit dem Symbol ein-/ausgeblendet. Reicht
+     * ueber die volle Spaltenhoehe (nicht nur bis zum Symbol selbst) - ein
+     * grosszuegiges Ziel fuer zitternde/ungenaue Haende. */
     s_update_tippflaeche = lv_obj_create(s_bildschirm);
     lv_obj_remove_style_all(s_update_tippflaeche);
-    lv_obj_set_pos(s_update_tippflaeche, 565, 0);
-    lv_obj_set_size(s_update_tippflaeche, 640 - 565, 64);
+    lv_obj_set_pos(s_update_tippflaeche, 610, 0);
+    lv_obj_set_size(s_update_tippflaeche, STATUS_GRENZE_X - 610, STATUS_SPALTE_HOEHE);
     lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(s_update_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_HIDDEN);
@@ -1435,30 +1458,32 @@ static void ui_aufbauen(void)
     lv_obj_add_event_cb(s_update_tippflaeche, update_symbol_geklickt_cb, LV_EVENT_ALL, NULL);
 
     /* Live-Status rechts oben: spiegelt WLAN/Zeit/Kalender aus dem
-     * Startbildschirm, durchgestrichen bei fehlender Konnektivitaet. */
-    status_icon_erzeugen(&s_status_wlan, s_bildschirm, 650);
+     * Startbildschirm, durchgestrichen bei fehlender Konnektivitaet. Seit
+     * 09.08.2026 SENKRECHT gestapelt statt nebeneinander (Peters Wunsch,
+     * siehe STATUS_SPALTE_* oben) - spart Breite fuer den Wochentag-Titel. */
+    status_icon_erzeugen(&s_status_wlan, s_bildschirm, STATUS_SPALTE_X, STATUS_SPALTE_Y0);
     status_glyph_wlan_erzeugen(&s_status_wlan);
     status_icon_durchstrich_erzeugen(&s_status_wlan);
 
-    status_icon_erzeugen(&s_status_zeit, s_bildschirm, 700);
+    status_icon_erzeugen(&s_status_zeit, s_bildschirm, STATUS_SPALTE_X, STATUS_SPALTE_Y0 + STATUS_SPALTE_SCHRITT);
     status_glyph_zeit_erzeugen(&s_status_zeit);
     status_icon_durchstrich_erzeugen(&s_status_zeit);
 
-    status_icon_erzeugen(&s_status_kalender, s_bildschirm, 750);
+    status_icon_erzeugen(&s_status_kalender, s_bildschirm, STATUS_SPALTE_X, STATUS_SPALTE_Y0 + 2 * STATUS_SPALTE_SCHRITT);
     status_glyph_kalender_erzeugen(&s_status_kalender);
     status_icon_durchstrich_erzeugen(&s_status_kalender);
 
     /* Unsichtbare, grosszuegige Tippflaeche ueber allen drei Status-
      * Symbolen (Peters Idee) - oeffnet das Status-Detail-Fenster. Bewusst
      * deutlich groesser als die 34px-Symbole selbst (seniorengerechtes,
-     * leicht zu treffendes Ziel), reicht bis zur rechten/oberen Bildschirmkante,
-     * wo sonst nichts anderes liegt. */
+     * leicht zu treffendes Ziel), reicht bis zur rechten Bildschirmkante,
+     * wo sonst nichts anderes liegt, und ueber die volle Spaltenhoehe. */
     lv_obj_t *status_tippflaeche = lv_obj_create(s_bildschirm);
     lv_obj_remove_style_all(status_tippflaeche);
-    /* Beginnt bei 640, damit die beiden Tippflaechen luecken- und
-     * ueberschneidungsfrei aneinander liegen (Update: 565..640). */
-    lv_obj_set_pos(status_tippflaeche, 640, 0);
-    lv_obj_set_size(status_tippflaeche, 800 - 640, 64);
+    /* Beginnt bei STATUS_GRENZE_X, damit die beiden Tippflaechen luecken-
+     * und ueberschneidungsfrei aneinander liegen. */
+    lv_obj_set_pos(status_tippflaeche, STATUS_GRENZE_X, 0);
+    lv_obj_set_size(status_tippflaeche, 800 - STATUS_GRENZE_X, STATUS_SPALTE_HOEHE);
     lv_obj_add_flag(status_tippflaeche, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(status_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(status_tippflaeche, status_detail_oeffnen_cb, LV_EVENT_CLICKED, NULL);
@@ -1507,9 +1532,9 @@ static void modus_anwenden(anzeige_modus_t modus)
     status_icon_farbe_setzen(&s_status_wlan, lv_color_hex(FARBE_ICON_HELLGRAU));
     status_icon_farbe_setzen(&s_status_zeit, lv_color_hex(FARBE_ICON_HELLGRAU));
     status_icon_farbe_setzen(&s_status_kalender, lv_color_hex(FARBE_ICON_HELLGRAU));
-    /* Update-Symbol in der Akzentfarbe statt im Grau der Verbindungs-Symbole:
+    /* Update-Symbol in eigenem Gruen statt im Grau der Verbindungs-Symbole:
      * es ist eine Aufforderung ("ins Menue gehen"), kein Dauerzustand. */
-    status_icon_farbe_setzen(&s_status_update, lv_color_hex(FARBE_AKZENT));
+    status_icon_farbe_setzen(&s_status_update, lv_color_hex(FARBE_UPDATE_GRUEN));
     tagesansicht_sichtbarkeit_setzen(details_sichtbar);
 
     if (details_sichtbar) {
