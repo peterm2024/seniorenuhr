@@ -1,6 +1,5 @@
 #include "netz.h"
 #include "secrets.h"
-#include "webkonfig.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -275,12 +274,12 @@ static void ereignis_handler(void *arg, esp_event_base_t basis, int32_t id, void
             s_quelle_ist_secrets = false;
             s_wartung_faellig = true;
         }
-        /* Bei jeder (Wieder-)Verbindung aufgerufen - webkonfig_start() ist
-         * intern gegen Mehrfachstart abgesichert, startet also nur beim
-         * allerersten Erfolg wirklich. Hier statt in app_main(), damit die
-         * Web-Konfiguration auch dann verfuegbar wird, wenn die erste
-         * Verbindung erst per Laufbetrieb-Neuscan (s.o.) zustande kommt. */
-        webkonfig_start();
+        /* KEIN automatischer webkonfig_start() mehr hier (bis 09.08.2026 war
+         * das so) - der Webserver + mDNS kosten zusammen ca. 17 KB internen
+         * SRAM, live gemessen genug, um jede Netzoperation lahmzulegen
+         * (Namensaufloesung scheiterte, "out of memory"). Siehe FALLSTRICKE
+         * #39. Der Webserver laeuft jetzt nur noch auf Zuruf aus dem
+         * Einstellungen-Menue (einrichtung.c), nicht mehr dauerhaft. */
     } else if (basis == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
         if (!s_scan_von_uns)
             return; /* fremder Scan (z. B. beste_konfiguration_ermitteln beim Boot) - nicht anfassen */

@@ -18,6 +18,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
+#include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -2286,8 +2287,14 @@ static void diagnose_screen_zeigen_und_warten(esp_reset_reason_t grund)
 void app_main(void)
 {
     esp_reset_reason_t reset_grund = esp_reset_reason();
-    ESP_LOGI(TAG, "Start: Seniorenuhr startet (letzter Neustart-Grund: %s)",
-             reset_grund_text(reset_grund));
+    /* MAC gleich mit ins Log - es haengen zwei baugleiche Boards (Dev/COM3,
+     * Eltern/COM5) am selben PC, ein Log allein sagt sonst nicht, welches
+     * gemeint ist. WLAN-Station-MAC, dieselbe wie in "wifi:mode : sta (...)"
+     * weiter unten - hier aber schon VOR jeder anderen Zeile sichtbar. */
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    ESP_LOGI(TAG, "Start: Seniorenuhr startet (letzter Neustart-Grund: %s, MAC %02x:%02x:%02x:%02x:%02x:%02x)",
+             reset_grund_text(reset_grund), mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     /* Ganz zuerst - initialisiert bei Bedarf selbst das NVS. */
     einstellungen_laden();

@@ -125,7 +125,7 @@ static esp_err_t speichern_post_handler(httpd_req_t *req)
 void webkonfig_start(void)
 {
     if (s_server != NULL)
-        return; /* schon gestartet - z. B. erneuter Aufruf nach einem Reconnect */
+        return; /* schon gestartet */
 
     esp_err_t mdns_err = mdns_init();
     if (mdns_err == ESP_OK) {
@@ -150,6 +150,7 @@ void webkonfig_start(void)
     if (httpd_start(&s_server, &config) != ESP_OK) {
         ESP_LOGW(TAG, "Web-Konfigurationsserver konnte nicht gestartet werden");
         s_server = NULL;
+        mdns_free();
         return;
     }
 
@@ -160,4 +161,21 @@ void webkonfig_start(void)
     httpd_register_uri_handler(s_server, &speichern_uri);
 
     ESP_LOGI(TAG, "Web-Konfiguration erreichbar unter http://seniorenuhr.local/ (oder per IP-Adresse)");
+}
+
+void webkonfig_stop(void)
+{
+    if (s_server == NULL)
+        return;
+    httpd_stop(s_server);
+    s_server = NULL;
+    /* Giltiger Aufruf auch wenn mdns_init() oben fehlgeschlagen war -
+     * mdns_free() ist dagegen abgesichert (No-Op ohne vorherigen init). */
+    mdns_free();
+    ESP_LOGI(TAG, "Web-Konfiguration ausgeschaltet");
+}
+
+bool webkonfig_laeuft(void)
+{
+    return s_server != NULL;
 }

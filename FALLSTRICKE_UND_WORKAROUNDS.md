@@ -773,3 +773,63 @@ Sekunden (`ABRUF_KURZ_RETRY_US`), danach greift wieder die volle Pause. Gemessen
 **Lehre:** Der erste Netzzugriff nach dem Boot ist ein Sonderfall, kein Normalbetrieb. Eine
 Wiederholungspause, die fuer den Dauerbetrieb sinnvoll ist (Netz schonen), ist beim Anlauf viel
 zu lang. Staffeln: kurz beginnen, dann verlaengern.
+
+## 39. Dauerhaft laufender Webserver + mDNS frassen den internen SRAM - Ursache der monatelangen GitHub-Verbindungsabbrueche
+
+**Symptom:** Zwei scheinbar getrennte Probleme, dieselbe Ursache. Erstens die seit Wochen
+gesuchte Hauptbaustelle: OTA-Verbindungen zu github.com scheiterten reproduzierbar, obwohl
+`esp-x509-crt-bundle: Certificate validated` jedes Mal erschien - der Handshake kam durch, aber
+danach brach es ab. Zweitens (an einem Screenshot entdeckt): eine Auswahlliste fehlte weiterhin,
+obwohl die Reihenfolge-Korrektur aus #37 bereits eingespielt war - auf einem anderen Board als
+erwartet getestet (zwei Boards haengen am selben PC, COM3 UND COM5 - Verwechslungsgefahr).
+
+**Ursache:** Direkt an der Quelle gemessen (`webkonfig_start()`, vor/nach `mdns_init()`/
+`httpd_start()`):
+
+```
+vor  mdns_init:    frei intern 19995, groesster Block 14336
+nach mdns_init:    frei intern 15087, groesster Block  9728    ->  -4,9 KB
+nach httpd_start:  frei intern  2959, groesster Block  1920    -> -12,1 KB
+```
+
+Der lokale Webserver fuer die Kalender-URL-Konfiguration (`webkonfig.c`) lief seit seiner
+Einfuehrung DAUERHAFT, gestartet bei jeder WLAN-Verbindung. Sein Task-Stack (8192 Byte, wegen
+eines frueheren Stack-Overflows im Formular-Handler verdoppelt) plus mDNS zusammen fressen ca.
+17 KB - und Task-Stacks liegen zwingend im internen RAM, nicht im PSRAM. Uebrig blieben 2959
+Byte. Kurz danach: `lwip_arch: thread_sem_init: out of memory`, und **schon die
+Namensaufloesung** scheiterte fuer github.com, api.github.com UND calendar.google.com
+(`getaddrinfo() returns 202`). Erklaert in einem Rutsch: monatelange GitHub-Verbindungsabbrueche
+trotz validiertem Zertifikat, gelegentliche Kalender-Download-Fehlschlaege, fehlende
+Versionsliste.
+
+**Zwei Irrwege beim Eingrenzen, fuers naechste Mal:**
+1. Erst wurde das Einstellungen-Menue selbst verdaechtigt. Falsch: sein Aufbau kostet NULL Heap
+   (19999 Byte davor wie danach) - er kommt komplett aus LVGLs GETRENNTEM 64-KB-Pool.
+   **Heap und LVGL-Pool immer getrennt ausweisen** (`lv_mem_monitor()` vs. `heap_caps_get_free_size`),
+   sonst sucht man an der falschen Stelle.
+2. Eine Logdatei enthielt zwei Startvorgaenge; ohne auf die (nicht monoton laufenden)
+   Zeitstempel zu achten, sah das wie ein doppelt gefeuerter Ereignis-Handler aus. **Bei
+   Zeitstempeln immer zuerst die Boot-Grenzen suchen** (`grep "App version"`), dann interpretieren.
+
+**Loesung:** Der Webserver startet jetzt NUR AUF ZURUF aus dem Einstellungen-Menue heraus (neuer
+Knopf "Weboberflaeche einschalten"/"ausschalten" in `einrichtung.c`), nicht mehr automatisch bei
+jeder WLAN-Verbindung. Der automatische Aufruf in `netz.c`s Ereignis-Handler ist entfernt. Beim
+Verlassen des Menues (`einrichtung_einstellungen_aufraeumen()`) wird er sicherheitshalber wieder
+ausgeschaltet - er soll den Menue-Bildschirm nie unbemerkt ueberleben. Die Eltern bekommen den
+Knopf nie zu Gesicht (das Menue ist ohnehin nur per 5-Sekunden-Halten + Bestaetigungsdialog
+erreichbar, siehe app_main.c). Gemessen nach dem Umbau: **35467 Byte frei intern** im
+Normalbetrieb statt der bisherigen ~19000 - fast das Doppelte.
+
+**Lehre:** Ein Feature, das "praktisch nichts kostet, wenn es niemand benutzt" (hier: ein
+Webserver, der die meiste Zeit einfach nur lauscht), kann trotzdem staendig Ressourcen BINDEN,
+die andere Teile des Systems dringend brauchen. Auf einem Geraet mit knappem internem SRAM
+gehoert jede Wartungsfunktion, die nicht zum Kernbetrieb zaehlt, standardmaessig AUS und wird nur
+auf Zuruf eingeschaltet - dieselbe Grundhaltung, die vorher schon beim Einstellungen-Menue selbst
+galt (5-Sekunden-Halten statt Dauerzugriff).
+
+**Zweite Lehre (Board-Verwechslung):** Zwei baugleiche Boards am selben PC (COM3 = Dev, COM5 =
+Eltern-Testgeraet) sind per Log ab sofort an der WLAN-Station-MAC unterscheidbar - sie steht seit
+diesem Fix in der allerersten Boot-Zeile (`app_main.c`). Vorher stand sie erst deutlich spaeter
+in `wifi:mode : sta (...)`, und ein Log konnte leicht dem falschen Board zugeschrieben werden.
+**Vor jedem Flash klaeren, an welchem Port der Nutzer gerade sitzt** - sonst testet er
+versehentlich eine Firmware, die die untersuchte Korrektur gar nicht enthaelt.

@@ -2,6 +2,7 @@
 #include "einstellungen.h"
 #include "netz.h"
 #include "ota.h"
+#include "webkonfig.h"
 #include "zeit.h"
 
 #include <stdio.h>
@@ -523,6 +524,14 @@ static volatile einstellungen_aktion_t s_einstellungen_aktion = EINSTELLUNGEN_AK
 static lv_obj_t *s_signal_label;
 static lv_obj_t *s_signal_bar;
 static lv_timer_t *s_signal_timer;
+/* Weboberflaeche (webkonfig.c) - seit FALLSTRICKE #39 NUR AUF ZURUF (kostet
+ * dauerhaft ca. 17 KB internen SRAM), deshalb hier ein Knopf statt eines
+ * blossen Hinweistexts. s_webkonfig_hinweis_label sitzt IM Knopf, dessen Text
+ * aendert sich je nach Zustand ("einschalten"/"ausschalten"). */
+static lv_obj_t *s_webkonfig_hinweis;
+static lv_obj_t *s_webkonfig_knopf_label;
+static lv_obj_t *s_firmware_label;    /* darunter, Position haengt von dessen Hoehe ab */
+static int32_t s_webkonfig_hinweis_y; /* fest (Knopfhoehe ist konstant), zum Nachmessen der Hoehe */
 /* Update-Bereich: eigener Container, weil er sich nachtraeglich fuellt,
  * sobald die angestossene Pruefung geantwortet hat. Feste Hoehe, damit
  * nichts darunter verrutscht - Schalter, Signalbalken und Hinweis stehen an
@@ -554,6 +563,8 @@ static lv_obj_t *einstellungen_nav_button_erzeugen(lv_obj_t *parent, const char 
 static void einstellungen_update_cb(lv_event_t *e);
 static void einstellungen_version_zurueck_cb(lv_event_t *e);
 static void einstellungen_version_waehlen_cb(lv_event_t *e);
+static void webkonfig_knopf_cb(lv_event_t *e);
+static void webkonfig_bereich_aktualisieren(void);
 
 /* Dbm-Spanne, auf die der Balken 0-100% abbildet - -90 dBm (praktisch
  * unbrauchbar) bis -30 dBm (denkbar bestmoeglicher Empfang in Router-Naehe). */
@@ -817,6 +828,54 @@ static void einstellungen_buzzer_cb(lv_event_t *e)
     einstellungen_buzzer_aktiv_setzen(lv_obj_has_state(sw, LV_STATE_CHECKED));
 }
 
+/* Fuellt Knopf-Beschriftung und Hinweistext passend zum aktuellen Zustand -
+ * beim Aufbau des Menues UND nach jedem Tipp auf den Knopf selbst. Die
+ * Firmware-Zeile darunter wird dabei neu positioniert: der Hinweistext hat je
+ * nach Zustand (an/aus, IP bekannt/unbekannt) unterschiedlich viele Zeilen,
+ * seine Hoehe wird GEMESSEN statt geraten (FALLSTRICKE #22). */
+static void webkonfig_bereich_aktualisieren(void)
+{
+    if (!s_webkonfig_hinweis || !s_webkonfig_knopf_label)
+        return;
+
+    if (webkonfig_laeuft()) {
+        lv_label_set_text(s_webkonfig_knopf_label, "Weboberflaeche ausschalten");
+        char ip_text[16];
+        netz_ip_text(ip_text, sizeof ip_text);
+        char text[192];
+        if (ip_text[0])
+            snprintf(text, sizeof text,
+                     "Weboberflaeche an - Kalender-Adresse aendern unter:\n"
+                     "Handy: http://seniorenuhr.local/\n"
+                     "Windows-PC: http://%s/", ip_text);
+        else
+            snprintf(text, sizeof text,
+                     "Weboberflaeche an, aber noch kein WLAN - Adresse erscheint hier, sobald verbunden.");
+        lv_label_set_text(s_webkonfig_hinweis, text);
+    } else {
+        lv_label_set_text(s_webkonfig_knopf_label, "Weboberflaeche einschalten");
+        lv_label_set_text(s_webkonfig_hinweis,
+                           "Weboberflaeche aus - zum Aendern der Kalender-Adresse per Browser "
+                           "kurz einschalten (kostet Speicher, deshalb nicht dauerhaft an).");
+    }
+
+    if (s_firmware_label) {
+        lv_obj_update_layout(s_webkonfig_hinweis);
+        lv_obj_align(s_firmware_label, LV_ALIGN_TOP_LEFT, 30,
+                     s_webkonfig_hinweis_y + lv_obj_get_height(s_webkonfig_hinweis) + 14);
+    }
+}
+
+static void webkonfig_knopf_cb(lv_event_t *e)
+{
+    (void)e;
+    if (webkonfig_laeuft())
+        webkonfig_stop();
+    else
+        webkonfig_start();
+    webkonfig_bereich_aktualisieren();
+}
+
 /* Breite passt sich per LV_SIZE_CONTENT der Beschriftung an (wie das
  * "Heute"-Button-Muster in tagesansicht.c) - eine geratene Festbreite hatte
  * zuvor laengere Texte ("Datum, Uhrzeit einstellen", "Schliessen")
@@ -879,6 +938,9 @@ void einrichtung_einstellungen_zeigen(void)
     /* Zeiger auf Kinder des soeben geloeschten Screens ungueltig machen -
      * das Dropdown wird weiter unten nur unter Bedingungen neu angelegt. */
     s_versionen_dropdown = NULL;
+    s_webkonfig_hinweis = NULL;
+    s_webkonfig_knopf_label = NULL;
+    s_firmware_label = NULL;
 
     s_einstellungen_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_einstellungen_screen, lv_color_black(), 0);
@@ -981,31 +1043,37 @@ void einrichtung_einstellungen_zeigen(void)
 
     signal_aktualisieren();
 
-    /* Hinweis auf die Web-Konfiguration (webkonfig.c) - loest das muehsame
-     * Abtippen der langen Kalender-URL auf dem Touchscreen ab. Bei jedem
-     * Aufbau neu ermittelt statt per Timer - die IP-Adresse aendert sich
-     * waehrend einer laufenden Sitzung praktisch nie. */
-    char ip_text[16];
-    netz_ip_text(ip_text, sizeof ip_text);
-    char hinweis_text[224];
-    if (ip_text[0])
-        snprintf(hinweis_text, sizeof hinweis_text,
-                 "Kalender-Adresse per Browser aendern:\n"
-                 "Handy: http://seniorenuhr.local/\n"
-                 "Windows-PC: http://%s/\n"
-                 "Laufende Firmware: %s", ip_text, ota_laufende_version());
-    else
-        snprintf(hinweis_text, sizeof hinweis_text,
-                 "Kalender-Adresse per Browser aendern - verfuegbar, sobald WLAN verbunden ist.\n"
-                 "Laufende Firmware: %s", ota_laufende_version());
+    /* Weboberflaeche (webkonfig.c): Knopf schaltet Webserver+mDNS EIN/AUS
+     * statt sie dauerhaft laufen zu lassen (FALLSTRICKE #39 - kosteten
+     * zusammen ca. 17 KB internen SRAM, genug um jede Netzoperation
+     * lahmzulegen). Startet nie von selbst; beim Verlassen des Menues wird
+     * sicherheitshalber wieder ausgeschaltet (einrichtung_einstellungen_aufraeumen). */
+    lv_obj_t *webkonfig_knopf = einstellungen_nav_button_erzeugen(
+        s_einstellungen_screen, "Weboberflaeche einschalten", webkonfig_knopf_cb);
+    lv_obj_align(webkonfig_knopf, LV_ALIGN_TOP_LEFT, 30, schalter_y + 124);
+    s_webkonfig_knopf_label = lv_obj_get_child(webkonfig_knopf, 0);
 
-    lv_obj_t *hinweis = lv_label_create(s_einstellungen_screen);
-    lv_label_set_text(hinweis, hinweis_text);
-    lv_label_set_long_mode(hinweis, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(hinweis, 740);
-    lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
-    lv_obj_set_style_text_color(hinweis, lv_color_hex(0xa0a0a0), 0);
-    lv_obj_align(hinweis, LV_ALIGN_TOP_LEFT, 30, schalter_y + 124);
+    s_webkonfig_hinweis = lv_label_create(s_einstellungen_screen);
+    lv_label_set_long_mode(s_webkonfig_hinweis, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_webkonfig_hinweis, 740);
+    lv_obj_set_style_text_font(s_webkonfig_hinweis, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(s_webkonfig_hinweis, lv_color_hex(0xa0a0a0), 0);
+    s_webkonfig_hinweis_y = schalter_y + 180;
+    lv_obj_align(s_webkonfig_hinweis, LV_ALIGN_TOP_LEFT, 30, s_webkonfig_hinweis_y);
+
+    char firmware_text[64];
+    snprintf(firmware_text, sizeof firmware_text, "Laufende Firmware: %s", ota_laufende_version());
+    s_firmware_label = lv_label_create(s_einstellungen_screen);
+    lv_label_set_text(s_firmware_label, firmware_text);
+    lv_obj_set_style_text_font(s_firmware_label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(s_firmware_label, lv_color_hex(0xa0a0a0), 0);
+
+    /* Text setzen UND Firmware-Zeile positionieren - erst jetzt, wo beide
+     * Labels existieren (siehe webkonfig_bereich_aktualisieren: die
+     * tatsaechliche Hoehe des Hinweistexts wird gemessen statt geraten, dessen
+     * Zeilenzahl je nach Zustand/IP-Adresse schwankt - FALLSTRICKE #22). */
+    webkonfig_bereich_aktualisieren();
+
     /* Timer nur EINMAL erzeugen und danach pausieren/fortsetzen statt bei
      * jedem Menue-Aufbau loeschen und neu anlegen: das staendige
      * lv_timer_delete/lv_timer_create bei den Bildschirm-Uebergaengen war
@@ -1036,6 +1104,11 @@ einstellungen_aktion_t einrichtung_einstellungen_aktion_abfragen(void)
 
 void einrichtung_einstellungen_aufraeumen(void)
 {
+    /* Sicherheitsnetz: die Weboberflaeche soll den Menue-Bildschirm nie
+     * ueberleben, egal auf welchem Weg er verlassen wird - sonst liefe sie
+     * unbemerkt weiter und der Speicher bliebe knapp (FALLSTRICKE #39). */
+    webkonfig_stop();
+
     lvgl_port_lock(0);
     if (s_signal_timer)
         lv_timer_pause(s_signal_timer); /* pausieren statt loeschen, siehe _zeigen */
