@@ -398,6 +398,11 @@ static void button_geklickt_cb(lv_event_t *e)
 void screenshot_debug_start(void)
 {
     lvgl_port_lock(0);
+    if (s_button) { /* schon an - z.B. Dev-Boot-Autostart + Menue-Knopf-Tipp */
+        lvgl_port_unlock();
+        return;
+    }
+
     /* lv_layer_top() liegt automatisch UEBER jedem per lv_screen_load()
      * aktivierten Screen, unabhaengig davon welcher gerade aktiv ist - der
      * Button muss also nur EINMAL hier angelegt werden, nicht in jeder
@@ -419,4 +424,25 @@ void screenshot_debug_start(void)
 
     lvgl_port_unlock();
     ESP_LOGI(TAG, "Screenshot-Debug bereit: Button unten Mitte antippen fuer ein Bildschirmfoto ueber die serielle Ausgabe");
+}
+
+void screenshot_debug_stop(void)
+{
+    if (s_laeuft) { /* screenshot_task haelt s_button/s_label - erst NACH dessen Ende loeschen */
+        ESP_LOGW(TAG, "Screenshot-Werkzeug abschalten verschoben - Aufnahme/Uebertragung laeuft noch");
+        return;
+    }
+
+    lvgl_port_lock(0);
+    if (s_button) {
+        lv_obj_delete(s_button); /* loescht s_label als Kind mit */
+        s_button = NULL;
+        s_label = NULL;
+    }
+    lvgl_port_unlock();
+}
+
+bool screenshot_debug_laeuft(void)
+{
+    return s_button != NULL;
 }

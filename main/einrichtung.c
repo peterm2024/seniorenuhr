@@ -2,6 +2,7 @@
 #include "einstellungen.h"
 #include "netz.h"
 #include "ota.h"
+#include "screenshot_debug.h"
 #include "webkonfig.h"
 #include "zeit.h"
 
@@ -563,6 +564,14 @@ static lv_obj_t *s_webkonfig_hinweis;
 static lv_obj_t *s_webkonfig_knopf_label;
 static lv_obj_t *s_firmware_label;    /* darunter, Position haengt von dessen Hoehe ab */
 static int32_t s_webkonfig_hinweis_y; /* fest (Knopfhoehe ist konstant), zum Nachmessen der Hoehe */
+/* Screenshot-Werkzeug (screenshot_debug.c): urspruenglich nur automatischer
+ * Dev-Boot-Start, seit 09.08.2026 zusaetzlich hier schaltbar - auch im
+ * Produktions-Build ("Elternmodus"), siehe screenshot_debug.h. Bleibt anders
+ * als die Weboberflaeche beim Verlassen des Menues bewusst AN (kein
+ * screenshot_debug_stop() in einrichtung_einstellungen_aufraeumen()): das
+ * Werkzeug kostet im Leerlauf keinen internen SRAM (nur ein kleiner LVGL-
+ * Button aus dem separaten 64-KB-Pool), anders als Webserver+mDNS. */
+static lv_obj_t *s_screenshot_knopf_label;
 /* Update-Bereich: eigener Container, weil er sich nachtraeglich fuellt,
  * sobald die angestossene Pruefung geantwortet hat. Feste Hoehe, damit
  * nichts darunter verrutscht - Schalter, Signalbalken und Hinweis stehen an
@@ -607,6 +616,7 @@ static void einstellungen_version_zurueck_cb(lv_event_t *e);
 static void einstellungen_version_waehlen_cb(lv_event_t *e);
 static void webkonfig_knopf_cb(lv_event_t *e);
 static void webkonfig_bereich_aktualisieren(void);
+static void screenshot_knopf_cb(lv_event_t *e);
 
 /* Dbm-Spanne, auf die der Balken 0-100% abbildet - -90 dBm (praktisch
  * unbrauchbar) bis -30 dBm (denkbar bestmoeglicher Empfang in Router-Naehe). */
@@ -939,6 +949,20 @@ static void webkonfig_knopf_cb(lv_event_t *e)
     webkonfig_bereich_aktualisieren();
 }
 
+static void screenshot_knopf_cb(lv_event_t *e)
+{
+    (void)e;
+    if (screenshot_debug_laeuft())
+        screenshot_debug_stop();
+    else
+        screenshot_debug_start();
+    /* screenshot_debug_stop() verschiebt das Abschalten, solange eine
+     * Aufnahme/Uebertragung laeuft (siehe screenshot_debug.h) - deshalb hier
+     * den TATSAECHLICHEN Zustand erfragen statt blind umzuschalten. */
+    lv_label_set_text(s_screenshot_knopf_label, screenshot_debug_laeuft()
+                       ? "Screenshot-Werkzeug ausschalten" : "Screenshot-Werkzeug einschalten");
+}
+
 /* Breite passt sich per LV_SIZE_CONTENT der Beschriftung an (wie das
  * "Heute"-Button-Muster in tagesansicht.c) - eine geratene Festbreite hatte
  * zuvor laengere Texte ("Datum, Uhrzeit einstellen", "Schliessen")
@@ -1004,6 +1028,7 @@ void einrichtung_einstellungen_zeigen(void)
     s_webkonfig_hinweis = NULL;
     s_webkonfig_knopf_label = NULL;
     s_firmware_label = NULL;
+    s_screenshot_knopf_label = NULL;
 
     s_einstellungen_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_einstellungen_screen, lv_color_black(), 0);
@@ -1136,6 +1161,30 @@ void einrichtung_einstellungen_zeigen(void)
      * tatsaechliche Hoehe des Hinweistexts wird gemessen statt geraten, dessen
      * Zeilenzahl je nach Zustand/IP-Adresse schwankt - FALLSTRICKE #22). */
     webkonfig_bereich_aktualisieren();
+
+    /* Screenshot-Werkzeug: gleiches An/Aus-Knopf-Muster wie die Weboberflaeche
+     * oben, unter der Firmware-Zeile. Position dynamisch gemessen statt
+     * geraten (FALLSTRICKE #22) - die Hoehe von s_firmware_label steht erst
+     * nach lv_obj_update_layout() fest. */
+    lv_obj_update_layout(s_firmware_label);
+    int32_t screenshot_y = lv_obj_get_y(s_firmware_label) + lv_obj_get_height(s_firmware_label) + 20;
+
+    lv_obj_t *screenshot_knopf = einstellungen_nav_button_erzeugen(
+        s_einstellungen_screen,
+        screenshot_debug_laeuft() ? "Screenshot-Werkzeug ausschalten" : "Screenshot-Werkzeug einschalten",
+        screenshot_knopf_cb);
+    lv_obj_align(screenshot_knopf, LV_ALIGN_TOP_LEFT, 30, screenshot_y);
+    s_screenshot_knopf_label = lv_obj_get_child(screenshot_knopf, 0);
+
+    lv_obj_t *screenshot_hinweis = lv_label_create(s_einstellungen_screen);
+    lv_label_set_long_mode(screenshot_hinweis, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(screenshot_hinweis, 740);
+    lv_obj_set_style_text_font(screenshot_hinweis, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(screenshot_hinweis, lv_color_hex(0xa0a0a0), 0);
+    lv_label_set_text(screenshot_hinweis,
+                       "Fuer Fehlersuche/Dokumentation: Knopf unten mittig auf dem Bildschirm "
+                       "nimmt ein Bildschirmfoto auf, ausgegeben ueber die serielle USB-Verbindung.");
+    lv_obj_align(screenshot_hinweis, LV_ALIGN_TOP_LEFT, 30, screenshot_y + 62);
 
     /* Timer nur EINMAL erzeugen und danach pausieren/fortsetzen statt bei
      * jedem Menue-Aufbau loeschen und neu anlegen: das staendige
