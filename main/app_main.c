@@ -1372,6 +1372,25 @@ static void status_detail_oeffnen_cb(lv_event_t *e)
     lvgl_port_unlock();
 }
 
+/* Setzt die FESTEN Texte des Hauptbildschirms neu - noetig nach einem
+ * Sprachwechsel (siehe texte.h). Alles andere dort aktualisiert sich von
+ * selbst: Wochentag, Datum und Tageszeit schreibt uhr_tick jede Sekunde neu,
+ * die Uebersichtsspalten bei jeder Kalenderaenderung. Nur diese beiden
+ * Ueberschriften und die Wochentag-Spalte (siehe
+ * tagesansicht_texte_aktualisieren) entstehen einmalig beim Aufbau und waeren
+ * sonst bis zum naechsten Neustart in der alten Sprache stehengeblieben. */
+static void hauptbildschirm_texte_aktualisieren(void)
+{
+    lvgl_port_lock(0);
+    if (s_tabletten_ueberschrift)
+        lv_label_set_text(s_tabletten_ueberschrift, text(TXT_TABLETTEN_HEUTE));
+    if (s_termine_ueberschrift)
+        lv_label_set_text(s_termine_ueberschrift, text(TXT_TERMINE_HEUTE));
+    lvgl_port_unlock();
+
+    tagesansicht_texte_aktualisieren();
+}
+
 static void ui_aufbauen(void)
 {
     lvgl_port_lock(0);
@@ -2095,6 +2114,11 @@ static bool einstellungen_bildschirm_verarbeiten(void)
             uint8_t naechste = (uint8_t)((einstellungen_sprache() + 1) % SPRACHE_ANZAHL);
             einstellungen_sprache_setzen(naechste);
             ESP_LOGI(TAG, "Sprache gewechselt auf %s", sprache_name((sprache_t)naechste));
+            /* Auch den Hauptbildschirm nachziehen - er wird nur beim Boot
+             * aufgebaut und liegt hier im Hintergrund. Ohne das staende man
+             * nach dem Schliessen des Menues wieder vor deutschen
+             * Ueberschriften und einem deutschen "Heute"-Knopf. */
+            hauptbildschirm_texte_aktualisieren();
             einrichtung_einstellungen_zeigen();
             break;
         }

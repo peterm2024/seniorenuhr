@@ -1238,6 +1238,47 @@ void tagesansicht_tag_aktualisieren(void)
     lvgl_port_unlock();
 }
 
+/* Setzt alle festen Beschriftungen der Wochentag-Spalte neu - noetig nach
+ * einem Sprachwechsel (siehe texte.h). Diese Beschriftungen entstehen sonst
+ * nur EINMAL beim Aufbau des Hauptbildschirms:
+ *   - der "Heute"-Knopf wird von tagesansicht_tag_aktualisieren() bewusst
+ *     uebersprungen (dort "if (versatz != 0)"), sein Text stand also seit dem
+ *     Boot fest;
+ *   - die Wochentagskuerzel werden zwar dort gesetzt, aber die Funktion steigt
+ *     vorher aus, wenn sich der TAG nicht geaendert hat - nach einem
+ *     Sprachwechsel haetten sie bis Mitternacht in der alten Sprache
+ *     gestanden.
+ * Deshalb hier den Tages-Merker entwerten und die Aktualisierung erzwingen. */
+void tagesansicht_texte_aktualisieren(void)
+{
+    /* Die Wochentag-Spalte gehoert zum Hauptbildschirm und existiert erst
+     * nach tagesansicht_erstellen(). Das Einstellungen-Menue ist aber schon
+     * WAEHREND der Boot-Phasen ueber das Zahnrad des Startbildschirms
+     * erreichbar - dann sind die Zeiger noch NULL, und
+     * tagesansicht_tag_aktualisieren() unten wuerde sie ungeprueft
+     * dereferenzieren. Beim spaeteren Aufbau stehen die Beschriftungen
+     * ohnehin gleich in der richtigen Sprache. */
+    if (!s_tag_labels[HEUTE_INDEX])
+        return;
+
+    lvgl_port_lock(0);
+    lv_label_set_text(s_tag_labels[HEUTE_INDEX], text(TXT_HEUTE));
+    lvgl_port_unlock();
+
+    /* Nur den Tages-Merker entwerten, die Aktualisierung NICHT selbst
+     * anstossen: tagesansicht_tag_aktualisieren() geht ueber
+     * button_terminfarbe_setzen() in den Kalender-Parser - dieselbe
+     * Aufrufkette mit dem grossen Eintrags-Puffer, die in diesem Projekt
+     * schon dreimal einen Stack gesprengt hat (FALLSTRICKE #8/#10/#24). Der
+     * Aufrufer ist hier der Einstellungen-Task mit 8 KB, waehrend die
+     * Funktion sonst ausschliesslich aus uhr_tick auf dem LVGL-Task mit
+     * 16 KB laeuft - beim ersten Versuch stuerzte genau das ab
+     * (InstrFetchProhibited, PC=0). uhr_tick ruft sie ohnehin jede Sekunde
+     * auf und erledigt es dank des entwerteten Merkers beim naechsten Tick
+     * auf dem bewaehrten Weg. */
+    s_letzter_tag_schluessel = -1;
+}
+
 void tagesansicht_sichtbarkeit_setzen(bool sichtbar)
 {
     for (int i = 0; i < TAGE_ANZAHL; i++) {

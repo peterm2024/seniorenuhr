@@ -20,6 +20,12 @@ void tagesansicht_erstellen(lv_obj_t *scr);
  * ueber Aenderungserkennung gegen unnoetige Redraws abgesichert). */
 void tagesansicht_tag_aktualisieren(void);
 
+/* Nach einem Sprachwechsel aufzurufen (siehe texte.h): setzt den "Heute"-
+ * Knopf und die Wochentagskuerzel neu. Beide entstehen sonst nur beim Aufbau
+ * des Hauptbildschirms bzw. beim Tageswechsel und blieben deshalb in der
+ * alten Sprache stehen. */
+void tagesansicht_texte_aktualisieren(void);
+
 /* Sichtbarkeit der Buttons - nachts wie Tabletten/Termine komplett
  * ausgeblendet. Wird ebenfalls bereits gesperrt aufgerufen. */
 void tagesansicht_sichtbarkeit_setzen(bool sichtbar);
