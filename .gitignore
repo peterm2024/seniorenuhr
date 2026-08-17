@@ -7,7 +7,6 @@ build_prod/
 managed_components/
 sdkconfig
 sdkconfig.old
-dependencies.lock
 
 # Heruntergeladene Schriftdatei und kompilierte Tests
 tools/fonts/*.ttf
@@ -38,3 +37,7 @@ __pycache__/
 # stand - auch echte Termine und Tablettennamen von den Eltern. Was in die
 # Doku soll, wird von Hand nach docs/screenshots/ kopiert (das ist eingecheckt).
 screenshots_lokal/
+
+# Claude-Code-Session-Einstellungen (lokale Pfade, Freigaben) - keine
+# Projektkonvention, gehoert nicht in ein oeffentliches Repo
+.claude/settings.json

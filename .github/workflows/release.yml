@@ -109,5 +109,5 @@ jobs:
             Firmware-Datei fuer die Seniorenuhr (ESP32-S3).
 
             Das Geraet laedt diese Datei selbst herunter, sobald das Update
-            im Einstellungen-Menue bestaetigt wird. Der Quellcode liegt in
-            einem separaten, privaten Repo.
+            im Einstellungen-Menue bestaetigt wird. Der Quellcode liegt im
+            separaten Repository peterm2024/seniorenuhr.

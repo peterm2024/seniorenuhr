@@ -1,0 +1,33 @@
+name: Host-Tests
+
+# Der ICS-Parser (components/kalender) ist portabel geschrieben und laeuft
+# unveraendert auch auf dem PC (siehe test_host/teste.ps1 fuer die lokale
+# Windows-Variante). Dieser Workflow baut denselben Test mit gcc unter Linux
+# und laeuft bei jedem Push/PR, ohne den ESP-IDF-Container zu brauchen.
+on:
+  push:
+    paths:
+      - "components/kalender/**"
+      - "test_host/**"
+  pull_request:
+    paths:
+      - "components/kalender/**"
+      - "test_host/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: ICS-Parser-Tests bauen
+        run: |
+          gcc -std=c99 -Wall -Wextra -Werror \
+            -Icomponents/kalender/include \
+            components/kalender/ics_parser.c \
+            test_host/test_ics_parser.c \
+            -o test_host/test_ics
+
+      - name: Tests ausfuehren
+        run: ./test_host/test_ics

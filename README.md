@@ -110,19 +110,26 @@ Download und Parsen — Netzwerkprobleme können die Anzeige dadurch nie ins
 Stocken bringen.
 
 Der ICS-Parser ist als portable Komponente (`components/kalender`) geschrieben
-und läuft unverändert auch auf dem PC, wo ihn eine Testsuite mit 25 Prüfungen
+und läuft unverändert auch auf dem PC, wo ihn eine Testsuite mit 35 Prüfungen
 abdeckt (`test_host/`). Die Schriften sind selbst generierte LVGL-Fonts auf
 Basis von Montserrat, da die in LVGL eingebauten Fonts keine deutschen Umlaute
 enthalten.
+
+Firmware-Updates kommen automatisch per OTA von GitHub Releases, werden aber
+nie ohne Bestätigung im Einstellungen-Menü installiert — und rollen sich
+selbst zurück, falls sich eine neue Version nicht innerhalb weniger Minuten
+als funktionsfähig (WLAN und Kalenderabruf) erweist. Die Oberfläche gibt es
+auf Deutsch und Englisch, umschaltbar im Einstellungen-Menü; weitere Sprachen
+lassen sich bei Bedarf ergänzen.
 
 Die ausführliche Dokumentation liegt im Repository:
 
 - [FAHRPLAN.md](FAHRPLAN.md) — Architektur, Entwurfsentscheidungen und die
   komplette Entwicklungsgeschichte
 - [ENTWICKLUNG.md](ENTWICKLUNG.md) — Entwicklungsumgebung und tägliche Befehle
-- [FALLSTRICKE_UND_WORKAROUNDS.md](FALLSTRICKE_UND_WORKAROUNDS.md) — zwanzig
-  gelöste Probleme mit Ursache und Lösung, vom Flash-Größen-Assert bis zu
-  LVGL-Speicherlecks
+- [FALLSTRICKE_UND_WORKAROUNDS.md](FALLSTRICKE_UND_WORKAROUNDS.md) — über
+  vierzig gelöste Probleme mit Ursache und Lösung, vom Flash-Größen-Assert bis
+  zu LVGL-Speicherlecks
 
 ## Bauen und Flashen
 
