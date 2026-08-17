@@ -36,8 +36,12 @@ erhalten.
   mit Countdown-Ring, Kalender-Schritt steht noch aus). Aufgenommen auf dem
   zweiten Board nach Behebung des 121px-Versatzes (FALLSTRICKE #19,
   Fallstrick E)
-- `tagesansicht_2026-07-22.png` / `..._proportional.png` — Tagesansicht-Dialog
-  ("Heute", 22. Juli 2026) mit den drei Tabletten-Erinnerungen Frueh/Mittag/
-  Abend als Kippschalter, Mittag bereits abgehakt. Aufgenommen auf Board 1
-  (Entwicklungsboard) - erste Aufnahme mit der neuen Referenzmarken-
-  Selbstkontrolle (kein Versatz erkannt, siehe FALLSTRICKE #19, Fallstrick E)
+- `tagesansicht_2026-08-18.png` / `..._proportional.png` — Tagesansicht-Dialog
+  ("Heute", 18. August 2026) im ueberarbeiteten Layout (Ausbaustufe 2):
+  Liste statt Einzelfenster, Checkbox pro Tablette statt Kippschalter,
+  Aenderungen werden erst mit "OK" uebernommen ("Abbrechen"/X verwerfen sie
+  wieder). Ersetzt die aeltere Aufnahme vom 22. Juli 2026 (zeigte noch die
+  Kippschalter-Fassung). Aufgenommen auf Board 1 (Entwicklungsboard)
+- `einstellungen_2026-08-18.png` / `..._proportional.png` — Einstellungen-Menue
+  mit dem neuen Sprachknopf ("Sprache: Deutsch/English", umschaltbar ohne
+  Neuflashen). Aufgenommen auf Board 1 (Entwicklungsboard)

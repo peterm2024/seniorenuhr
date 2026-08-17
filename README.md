@@ -54,8 +54,12 @@ Menschen bewährt haben:
 
 | Tagesansicht | Startbildschirm |
 |---|---|
-| <img src="docs/screenshots/tagesansicht_2026-07-22_proportional.png" alt="Tagesansicht mit Tabletten-Schaltern" width="360"> | <img src="docs/screenshots/startbildschirm_2026-07-21_proportional.png" alt="Startbildschirm beim Booten" width="360"> |
-| *Der „Heute"-Dialog: jede Tablette wird mit einem breiten Schiebeschalter abgehakt.* | *Beim Start zeigen drei Ringe den Fortschritt: WLAN, Zeitabgleich, Kalenderabruf.* |
+| <img src="docs/screenshots/tagesansicht_2026-08-18_proportional.png" alt="Tagesansicht mit Tabletten-Checkboxen" width="360"> | <img src="docs/screenshots/startbildschirm_2026-07-21_proportional.png" alt="Startbildschirm beim Booten" width="360"> |
+| *Der „Heute"-Dialog: fällige Tabletten werden per Checkbox angehakt, „OK" übernimmt die Änderungen erst nach Bestätigung.* | *Beim Start zeigen drei Ringe den Fortschritt: WLAN, Zeitabgleich, Kalenderabruf.* |
+
+<img src="docs/screenshots/einstellungen_2026-08-18_proportional.png" alt="Einstellungen-Menü mit Sprachumschaltung" width="480">
+
+*Das Einstellungen-Menü: Sprache, WLAN, Datum/Uhrzeit, Kalender-Adresse und Updates — alles ohne Neuflashen erreichbar.*
 
 Weitere Bildschirmfotos, direkt vom Gerät aufgenommen, liegen unter
 [docs/screenshots/](docs/screenshots/).
