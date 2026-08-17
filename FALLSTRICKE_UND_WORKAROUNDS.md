@@ -937,3 +937,39 @@ der Bootloader die vorherige Version zurueck, ganz ohne diese Frist.
 - **Was blockierend wartet, blockiert mehr als man denkt.** Eine Warteschleife am Anfang eines
   Tasks legt ALLES lahm, was dieser Task sonst noch tut. Diese Codebasis hat dasselbe Muster
   schon in #37 gehabt (schnelle Abfrage hinter langsamer in derselben Schlange).
+
+---
+
+## 42. Hauptanzeige blitzte beim Booten ungedimmt auf, bevor sie eingeblendet wurde
+
+**Problem:** Peters Beobachtung: "Beim Starten werden die 3 Symbole angezeigt und anschliessend
+kurz der Hauptbildschirm, danach dunkel und der Hauptbildschirm wird wieder eingeblendet." Die
+fertige Hauptanzeige war also einmal kurz zu sehen, verschwand wieder und kam dann per
+Einblend-Animation zurueck.
+
+**Ursache:** `app_main()` setzt das Dimm-Overlay vor dem Bildschirmwechsel bewusst auf
+`LV_OPA_COVER` (schwarz), damit die Hauptanzeige nicht mit halbfertigen Werten aufblitzt - und
+ruft direkt danach `uhr_tick(NULL)`, um die echten Farben/Texte zu setzen. Der Kommentar dort
+versprach "unsichtbar, da das Overlay noch komplett deckt". Das stimmte nicht: `uhr_tick()`
+laeuft beim ALLERERSTEN Aufruf garantiert durch `modus_anwenden()` (der erste Aufruf zaehlt dort
+immer als Moduswechsel - absichtlich, damit die Status-Symbole ihre Farbe bekommen), und
+`modus_anwenden()` setzt das Overlay auf die Deckkraft des aktuellen Modus, tagsueber also auf
+`LV_OPA_TRANSP`. Die Absicherung hob sich damit selbst auf.
+
+**Messung statt Vermutung:** Zwei temporaere Log-Zeilen (in `modus_anwenden()` und direkt vor dem
+Animationsstart) zeigten die Luecke exakt: Overlay-Deckkraft `0` gesetzt bei `t=16198032 us`,
+beim Animationsstart immer noch `0` bei `t=16312680 us` - **114,6 ms** ungedimmt sichtbar, bei
+der Bildrate des Panels mehrere vollstaendig gezeichnete Frames.
+
+**Loesung:** `uhr_tick(NULL)`, das Zuruecksetzen des Overlays auf `LV_OPA_COVER` und der
+Animationsstart laufen jetzt unter EINEM durchgehenden `lvgl_port_lock()` - der LVGL-Task
+zeichnet dazwischen keinen einzigen Frame. Der verschachtelte Lock in `modus_anwenden()` ist
+unproblematisch, weil `lvgl_port_lock()` auf `xSemaphoreTakeRecursive` aufsetzt (nachgesehen in
+`managed_components/espressif__esp_lvgl_port/src/lvgl9/esp_lvgl_port.c`). Kontrollmessung nach
+dem Fix: Deckkraft beim Animationsstart `255`, Animation weiterhin 2s, kein Deadlock.
+
+**Lehre:** Ein Kommentar, der eine Annahme behauptet ("unsichtbar, da abgedeckt"), ist keine
+Garantie - eine dazwischenliegende Funktion kann genau die Bedingung aufheben, auf die er sich
+beruft. Wo eine Reihenfolge fuer die Optik zwingend ist, muss sie erzwungen werden (hier: ein
+gemeinsamer Lock), nicht nur beschrieben. Und erneut: Peters Beobachtung war praezise richtig
+(nach #19, #28, #41 das vierte Mal).

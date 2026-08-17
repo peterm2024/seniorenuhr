@@ -2441,19 +2441,36 @@ void app_main(void)
     ESP_LOGI(TAG, "Start: Bildschirm gewechselt (schwarz ueberdeckt)");
     startbildschirm_aufraeumen();
 
-    /* Jetzt die echten Farben/Texte setzen - unsichtbar, da das Overlay
-     * noch komplett deckt. */
-    uhr_tick(NULL);
-    ESP_LOGI(TAG, "Start: Werte gesetzt, starte Einblend-Animation");
-
     lv_opa_t einblend_ziel = overlay_ziel_fuer_modus(aktueller_modus());
 
-    /* lv_anim- und lv_timer_create-Aufrufe sind LVGL-Kernfunktionen -
-     * ohne Lock hier lief "main" mit dem LVGL-Task in einen Datenwettlauf
-     * auf dessen interne Listen, der main() in eine Endlosschleife trieb
-     * (Task-Watchdog-Absturz, sichtbar als haengenbleibender schwarzer
-     * Bildschirm nach einem Kaltstart). */
+    /* Ab hier bis zum Animationsstart EIN durchgehender Lock, damit der
+     * LVGL-Task dazwischen keinen einzigen Frame zeichnet.
+     *
+     * Grund: uhr_tick() laeuft beim allerersten Aufruf garantiert durch
+     * modus_anwenden() (der erste Aufruf zaehlt dort immer als Moduswechsel,
+     * bewusst so) - und jene Funktion setzt das Dimm-Overlay auf die
+     * Deckkraft des aktuellen Modus, tagsueber also auf durchsichtig. Die
+     * fertige Hauptanzeige war dadurch gemessene ~115ms lang ungedimmt zu
+     * sehen, bevor die Einblend-Animation sie wieder auf Schwarz zurueck-
+     * warf: Startbildschirm -> Hauptanzeige -> dunkel -> Hauptanzeige
+     * (Peters Beobachtung). Das Overlay wird deshalb direkt nach uhr_tick()
+     * wieder auf Schwarz gesetzt, noch innerhalb desselben Locks.
+     *
+     * Der Lock ist zudem noetig, weil lv_anim-/lv_timer_create-Aufrufe
+     * LVGL-Kernfunktionen sind - ohne ihn lief "main" mit dem LVGL-Task in
+     * einen Datenwettlauf auf dessen interne Listen, der main() in eine
+     * Endlosschleife trieb (Task-Watchdog-Absturz, sichtbar als haengen-
+     * bleibender schwarzer Bildschirm nach einem Kaltstart).
+     * lvgl_port_lock() ist rekursiv (xSemaphoreTakeRecursive), der eigene
+     * Lock in modus_anwenden() ist also unproblematisch. */
     lvgl_port_lock(0);
+
+    /* Die echten Farben/Texte setzen - unsichtbar, weil bis zum Verlassen
+     * dieses Locks nichts gezeichnet wird. */
+    uhr_tick(NULL);
+    lv_obj_set_style_bg_opa(s_dimm_overlay, LV_OPA_COVER, 0);
+    ESP_LOGI(TAG, "Start: Werte gesetzt, starte Einblend-Animation");
+
     static lv_anim_t einblend_anim;
     lv_anim_init(&einblend_anim);
     lv_anim_set_var(&einblend_anim, s_dimm_overlay);
