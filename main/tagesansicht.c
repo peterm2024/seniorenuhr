@@ -7,6 +7,7 @@
 
 #include "esp_lvgl_port.h"
 #include "kalender_anzeige.h"
+#include "texte.h"
 #include "zeit.h"
 
 LV_FONT_DECLARE(schrift_klein_28);
@@ -446,7 +447,7 @@ static void tagesfenster_spalte_zeichnen(lv_obj_t *parent, int32_t x, const char
 
     if (gefiltert == 0) {
         lv_obj_t *label = lv_label_create(parent);
-        lv_label_set_text(label, tabletten_spalte ? "Keine Tabletten." : "Keine Termine.");
+        lv_label_set_text(label, tabletten_spalte ? text(TXT_KEINE_TABLETTEN_KURZ) : text(TXT_KEINE_TERMINE_KURZ));
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
         lv_obj_set_pos(label, x, y);
@@ -479,9 +480,11 @@ static void tagesfenster_spalte_zeichnen(lv_obj_t *parent, int32_t x, const char
 
     if (gefiltert > gezeigt) {
         lv_obj_t *mehr = lv_label_create(parent);
-        char text[24];
-        snprintf(text, sizeof text, "+%d weitere", gefiltert - gezeigt);
-        lv_label_set_text(mehr, text);
+        /* "mehr_text", nicht "text" - sonst wuerde die lokale Variable die
+         * Uebersetzungsfunktion text() aus texte.h verdecken. */
+        char mehr_text[24];
+        snprintf(mehr_text, sizeof mehr_text, text(TXT_WEITERE), gefiltert - gezeigt);
+        lv_label_set_text(mehr, mehr_text);
         lv_obj_set_style_text_font(mehr, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(mehr, lv_color_hex(FARBE_VERGANGEN), 0);
         lv_obj_set_pos(mehr, x, y);
@@ -513,9 +516,9 @@ static void tages_fenster_oeffnen(int tage_versatz, lv_obj_t *button)
                                                      X_BUTTON_RAND_STANDARD, NULL);
     aktiven_button_setzen(button);
 
-    tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_LINKS, "TABLETTEN",
+    tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_LINKS, text(TXT_TABLETTEN_SPALTE),
                                  eintraege, anzahl, true, tag_vergangen);
-    tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_RECHTS, "TERMINE",
+    tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_RECHTS, text(TXT_TERMINE_SPALTE),
                                  eintraege, anzahl, false, tag_vergangen);
 
     s_tages_fenster_timer = lv_timer_create(tagesfenster_timer_cb, TAGESFENSTER_ANZEIGEDAUER_MS, NULL);
@@ -742,7 +745,7 @@ static void ok_abbrechen_erzeugen(lv_obj_t *parent, lv_event_cb_t ok_cb, lv_even
     lv_obj_align(btn_abbrechen, LV_ALIGN_BOTTOM_LEFT, 20, -OK_ABBRECHEN_RAND_UNTEN);
     lv_obj_add_event_cb(btn_abbrechen, abbrechen_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *abbrechen_label = lv_label_create(btn_abbrechen);
-    lv_label_set_text(abbrechen_label, "Abbrechen");
+    lv_label_set_text(abbrechen_label, text(TXT_ABBRECHEN));
     lv_obj_set_style_text_font(abbrechen_label, &schrift_klein_28, 0);
     lv_obj_center(abbrechen_label);
 
@@ -754,7 +757,7 @@ static void ok_abbrechen_erzeugen(lv_obj_t *parent, lv_event_cb_t ok_cb, lv_even
     lv_obj_align(btn_ok, LV_ALIGN_BOTTOM_RIGHT, -20, -OK_ABBRECHEN_RAND_UNTEN);
     lv_obj_add_event_cb(btn_ok, ok_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *ok_label = lv_label_create(btn_ok);
-    lv_label_set_text(ok_label, "OK");
+    lv_label_set_text(ok_label, text(TXT_OK));
     lv_obj_set_style_text_font(ok_label, &schrift_klein_28, 0);
     lv_obj_center(ok_label);
 }
@@ -818,7 +821,7 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
     /* Einzeiliger Kopf ("HEUTE  8. August 2026") - der gesparte Platz kommt
      * der scrollbaren Liste darunter zugute (Peters Vorschlag). Das "X" wird
      * buendig zur rechten Checkbox-Kante gesetzt (LISTE_X_BUTTON_RAND). */
-    s_heute_fenster = fenster_mit_inhaltshoehe_erzeugen("HEUTE", datum, HEUTE_INHALT_GESAMT_HOEHE,
+    s_heute_fenster = fenster_mit_inhaltshoehe_erzeugen(text(TXT_HEUTE_GROSS), datum, HEUTE_INHALT_GESAMT_HOEHE,
                                                          heutefenster_schliessen_cb, true,
                                                          LISTE_X_BUTTON_RAND);
     aktiven_button_setzen(aktiver_button);
@@ -843,7 +846,7 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
     }
     if (!tablette_vorhanden) {
         lv_obj_t *label = lv_label_create(inhalt);
-        lv_label_set_text(label, "Keine Tabletten heute.");
+        lv_label_set_text(label, text(TXT_KEINE_TABLETTEN_HEUTE));
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_FENSTER_TEXT), 0);
         lv_obj_set_pos(label, 20, y + 8);
@@ -856,7 +859,7 @@ static void heute_oeffnen_intern(lv_obj_t *aktiver_button)
             continue;
         if (!termin_ueberschrift_da) {
             lv_obj_t *ueberschrift = lv_label_create(inhalt);
-            lv_label_set_text(ueberschrift, "TERMINE");
+            lv_label_set_text(ueberschrift, text(TXT_TERMINE_SPALTE));
             lv_obj_set_style_text_font(ueberschrift, &schrift_klein_28, 0);
             lv_obj_set_style_text_color(ueberschrift, lv_color_hex(FARBE_FENSTER_AKZENT), 0);
             lv_obj_set_pos(ueberschrift, 20, y + 8);
@@ -951,8 +954,8 @@ void tagesansicht_erinnerung_zeigen(void)
     /* Zweizeiliger Kopf (beide Texte nebeneinander waeren breiter als das
      * Fenster), aber sonst derselbe Aufbau wie das "Heute"-Fenster: gemessene
      * Fensterhoehe, scrollbare Liste, "X" buendig zu den Checkboxen. */
-    s_erinnerung_fenster = fenster_mit_inhaltshoehe_erzeugen(n == 1 ? "TABLETTE NEHMEN" : "TABLETTEN NEHMEN",
-                                                              "Bitte bestaetigen",
+    s_erinnerung_fenster = fenster_mit_inhaltshoehe_erzeugen(n == 1 ? text(TXT_TABLETTE_NEHMEN) : text(TXT_TABLETTEN_NEHMEN),
+                                                              text(TXT_BITTE_BESTAETIGEN),
                                                               ERINNERUNG_INHALT_GESAMT_HOEHE,
                                                               erinnerung_schliessen_cb, false,
                                                               LISTE_X_BUTTON_RAND);
@@ -1034,8 +1037,8 @@ void tagesansicht_update_fenster_zeigen(void)
     erinnerung_intern_schliessen();
 
     lv_obj_t *untertitel = NULL;
-    s_update_fenster = fenster_grundgeruest_erzeugen("AKTUALISIERUNG",
-                                                       "Bitte kurz warten - das Geraet startet danach neu",
+    s_update_fenster = fenster_grundgeruest_erzeugen(text(TXT_AKTUALISIERUNG),
+                                                       text(TXT_UPDATE_BITTE_WARTEN),
                                                        FENSTER_HOEHE_UPDATE, update_fenster_schliessen_cb, false,
                                                        X_BUTTON_RAND_STANDARD, &untertitel);
 
@@ -1075,7 +1078,7 @@ void tagesansicht_update_fenster_zeigen(void)
      * Von Peter am Geraet gesehen - im Screenshot war der Satz nicht mehr
      * lesbar. Zentriert, weil der Text mal kurz ("40 %") und mal lang ist. */
     s_update_prozent_label = lv_label_create(s_update_fenster);
-    lv_label_set_text(s_update_prozent_label, "Laedt...");
+    lv_label_set_text(s_update_prozent_label, text(TXT_LAEDT));
     lv_label_set_long_mode(s_update_prozent_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_update_prozent_label, lv_pct(100));
     lv_obj_set_style_text_align(s_update_prozent_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -1115,7 +1118,7 @@ void tagesansicht_update_fenster_fortschritt_setzen(int prozent)
             snprintf(text, sizeof text, "%d %%", prozent);
             lv_label_set_text(s_update_prozent_label, text);
         } else {
-            lv_label_set_text(s_update_prozent_label, "Laedt...");
+            lv_label_set_text(s_update_prozent_label, text(TXT_LAEDT));
         }
     }
     lvgl_port_unlock();
@@ -1175,7 +1178,7 @@ void tagesansicht_erstellen(lv_obj_t *scr)
                              ist_heute ? NULL : (void *)(intptr_t)versatz);
 
         lv_obj_t *label = lv_label_create(btn);
-        lv_label_set_text(label, ist_heute ? "Heute" : "...");
+        lv_label_set_text(label, ist_heute ? text(TXT_HEUTE) : "...");
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_BUTTON_TEXT), 0);
         lv_obj_center(label);

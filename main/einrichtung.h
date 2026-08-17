@@ -64,6 +64,12 @@ typedef enum {
     /* Eine gezielt aus der Auswahlliste gewaehlte Version installieren -
      * welche, liefert einrichtung_einstellungen_gewaehlte_version(). */
     EINSTELLUNGEN_AKTION_VERSION_WAEHLEN,
+    /* Zur naechsten Sprache weiterschalten (texte.h) - der Aufrufer baut das
+     * Menue danach neu auf, damit alle Beschriftungen sofort wechseln. Wie
+     * bei WLAN/Datum/Kalender-Adresse bewusst NICHT direkt im Button-Callback
+     * erledigt: der wuerde sonst den gerade aktiven Screen loeschen, waehrend
+     * dessen eigener Klick-Handler noch laeuft. */
+    EINSTELLUNGEN_AKTION_SPRACHE,
 } einstellungen_aktion_t;
 
 /* Nur nach EINSTELLUNGEN_AKTION_VERSION_WAEHLEN aussagekraeftig. */

@@ -3,6 +3,7 @@
 #include "netz.h"
 #include "ota.h"
 #include "screenshot_debug.h"
+#include "texte.h"
 #include "webkonfig.h"
 #include "zeit.h"
 
@@ -163,7 +164,7 @@ static void wlan_dropdown_geaendert_cb(lv_event_t *e)
         s_wlan_pass_ist_platzhalter = netz_profil_bekannt(s_wlan_scan_ergebnisse[index].ssid);
         lv_textarea_set_text(s_pass_ta, s_wlan_pass_ist_platzhalter ? WLAN_PASS_PLATZHALTER : "");
         lv_textarea_set_placeholder_text(s_pass_ta,
-                                          s_wlan_pass_ist_platzhalter ? "Passwort (bekannt)" : "Passwort");
+                                          s_wlan_pass_ist_platzhalter ? text(TXT_PASSWORT_BEKANNT) : text(TXT_PASSWORT));
     }
 }
 
@@ -217,7 +218,7 @@ static void wlan_scan_tick_cb(lv_timer_t *timer)
 
     char optionen[NETZ_SCAN_MAX * (sizeof s_wlan_scan_ergebnisse[0].ssid + 1)];
     if (s_wlan_scan_anzahl == 0) {
-        snprintf(optionen, sizeof optionen, "Suche Netzwerke...");
+        snprintf(optionen, sizeof optionen, "%s", text(TXT_SUCHE_NETZE));
     } else {
         size_t pos = 0;
         for (int i = 0; i < s_wlan_scan_anzahl; i++) {
@@ -287,7 +288,7 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_remove_flag(s_wlan_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
 
     lv_obj_t *titel = lv_label_create(s_wlan_screen);
-    lv_label_set_text(titel, "WLAN-Zugangsdaten aendern");
+    lv_label_set_text(titel, text(TXT_WLAN_EINRICHTEN));
     lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(titel, lv_color_white(), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 15);
@@ -308,7 +309,7 @@ void einrichtung_wlan_zeigen(void)
     netz_scan_starten();
 
     s_wlan_dropdown = lv_dropdown_create(s_wlan_screen);
-    lv_dropdown_set_options(s_wlan_dropdown, "Suche Netzwerke...");
+    lv_dropdown_set_options(s_wlan_dropdown, text(TXT_SUCHE_NETZE));
     lv_obj_set_style_text_font(s_wlan_dropdown, &schrift_klein_28, 0);
     lv_obj_set_size(s_wlan_dropdown, 600, 46);
     lv_obj_align(s_wlan_dropdown, LV_ALIGN_TOP_MID, 0, 50);
@@ -323,7 +324,7 @@ void einrichtung_wlan_zeigen(void)
 
     s_ssid_ta = lv_textarea_create(s_wlan_screen);
     lv_textarea_set_one_line(s_ssid_ta, true);
-    lv_textarea_set_placeholder_text(s_ssid_ta, "Netzwerkname (SSID)");
+    lv_textarea_set_placeholder_text(s_ssid_ta, text(TXT_SSID_PLATZHALTER));
     lv_obj_set_style_text_font(s_ssid_ta, &schrift_klein_28, 0);
     lv_obj_set_size(s_ssid_ta, 600, 44);
     lv_obj_align(s_ssid_ta, LV_ALIGN_TOP_MID, 0, 100);
@@ -332,7 +333,7 @@ void einrichtung_wlan_zeigen(void)
     s_pass_ta = lv_textarea_create(s_wlan_screen);
     lv_textarea_set_one_line(s_pass_ta, true);
     lv_textarea_set_password_mode(s_pass_ta, true);
-    lv_textarea_set_placeholder_text(s_pass_ta, "Passwort");
+    lv_textarea_set_placeholder_text(s_pass_ta, text(TXT_PASSWORT));
     lv_obj_set_style_text_font(s_pass_ta, &schrift_klein_28, 0);
     lv_obj_set_size(s_pass_ta, 600, 44);
     lv_obj_align(s_pass_ta, LV_ALIGN_TOP_MID, 0, 148);
@@ -343,7 +344,7 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_align(btn_speichern, LV_ALIGN_TOP_LEFT, 30, 198);
     lv_obj_add_event_cb(btn_speichern, wlan_speichern_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l1 = lv_label_create(btn_speichern);
-    lv_label_set_text(l1, "Speichern");
+    lv_label_set_text(l1, text(TXT_SPEICHERN));
     lv_obj_set_style_text_font(l1, &schrift_klein_28, 0);
     lv_obj_center(l1);
 
@@ -352,7 +353,7 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_align(btn_abbrechen, LV_ALIGN_TOP_RIGHT, -30, 198);
     lv_obj_add_event_cb(btn_abbrechen, wlan_abbrechen_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l2 = lv_label_create(btn_abbrechen);
-    lv_label_set_text(l2, "Abbrechen");
+    lv_label_set_text(l2, text(TXT_ABBRECHEN));
     lv_obj_set_style_text_font(l2, &schrift_klein_28, 0);
     lv_obj_center(l2);
 
@@ -364,6 +365,16 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_align(s_wlan_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_textarea(s_wlan_keyboard, s_ssid_ta);
 
+    /* BEKANNTER FEHLER (gefunden 10.08.2026, noch nicht behoben): der Titel
+     * "WLAN-Zugangsdaten aendern" erscheint oben abgeschnitten - per
+     * Screenshot in Deutsch UND Englisch bestaetigt, also unabhaengig von der
+     * Sprache und schon vor der Sprachumstellung vorhanden. Ein Versuch,
+     * einen vermuteten Auto-Scroll durch lv_keyboard_set_textarea() mit
+     * lv_obj_scroll_to(s_wlan_screen, 0, 0, LV_ANIM_OFF) zurueckzusetzen,
+     * behob es NICHT - die eigentliche Ursache ist also etwas anderes.
+     * Naechster Schritt: mit dem Screenshot-Werkzeug systematisch eingrenzen,
+     * ab welchem Konstruktionsschritt der Versatz entsteht (Titel sofort nach
+     * lv_obj_align noch bei y=15 pruefen, dann nach jedem weiteren Element). */
     lv_screen_load(s_wlan_screen);
     lvgl_port_unlock();
 }
@@ -466,7 +477,7 @@ void einrichtung_zeit_zeigen(void)
     lv_obj_remove_flag(s_zeit_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
 
     lv_obj_t *titel = lv_label_create(s_zeit_screen);
-    lv_label_set_text(titel, "Datum und Uhrzeit einstellen");
+    lv_label_set_text(titel, text(TXT_DATUM_EINSTELLEN));
     lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(titel, lv_color_white(), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 15);
@@ -496,25 +507,36 @@ void einrichtung_zeit_zeigen(void)
     roller_zahlen_optionen(stunde_optionen, sizeof stunde_optionen, 0, 23, true);
     char minute_optionen[256];
     roller_zahlen_optionen(minute_optionen, sizeof minute_optionen, 0, 59, true);
-    static const char *monat_optionen =
-        "Januar\nFebruar\nMaerz\nApril\nMai\nJuni\n"
-        "Juli\nAugust\nSeptember\nOktober\nNovember\nDezember";
+    /* Aus zeit_monatsname() aufgebaut statt einer eigenen Kopie der Namen -
+     * vorher stand hier eine zweite, leicht abweichende Liste ("Maerz" ohne
+     * Umlaut, waehrend zeit.c "März" fuehrt). Eine einzige Quelle schliesst
+     * so ein Auseinanderdriften aus und liefert die Namen automatisch in der
+     * eingestellten Sprache. */
+    char monat_optionen[160];
+    size_t pos = 0;
+    for (int i = 0; i < 12 && pos < sizeof monat_optionen; i++) {
+        int n = snprintf(monat_optionen + pos, sizeof monat_optionen - pos, "%s%s",
+                          i > 0 ? "\n" : "", zeit_monatsname(i));
+        if (n < 0)
+            break;
+        pos += (size_t)n;
+    }
 
     /* Spaltenmittelpunkte relativ zur Bildschirmmitte, je nach Breite des
      * Inhalts (der Monatsname "September" braucht deutlich mehr Platz als
      * eine zweistellige Zahl). */
-    s_roller_tag = roller_erzeugen(s_zeit_screen, "Tag", tag_optionen, -310, 100, start_tag);
-    s_roller_monat = roller_erzeugen(s_zeit_screen, "Monat", monat_optionen, -130, 220, start_monat);
-    s_roller_jahr = roller_erzeugen(s_zeit_screen, "Jahr", jahr_optionen, 60, 120, start_jahr);
-    s_roller_stunde = roller_erzeugen(s_zeit_screen, "Std", stunde_optionen, 190, 100, start_stunde);
-    s_roller_minute = roller_erzeugen(s_zeit_screen, "Min", minute_optionen, 310, 100, start_minute);
+    s_roller_tag = roller_erzeugen(s_zeit_screen, text(TXT_TAG), tag_optionen, -310, 100, start_tag);
+    s_roller_monat = roller_erzeugen(s_zeit_screen, text(TXT_MONAT), monat_optionen, -130, 220, start_monat);
+    s_roller_jahr = roller_erzeugen(s_zeit_screen, text(TXT_JAHR), jahr_optionen, 60, 120, start_jahr);
+    s_roller_stunde = roller_erzeugen(s_zeit_screen, text(TXT_STUNDE_KURZ), stunde_optionen, 190, 100, start_stunde);
+    s_roller_minute = roller_erzeugen(s_zeit_screen, text(TXT_MINUTE_KURZ), minute_optionen, 310, 100, start_minute);
 
     lv_obj_t *btn_uebernehmen = lv_button_create(s_zeit_screen);
     lv_obj_set_size(btn_uebernehmen, 260, 60);
     lv_obj_align(btn_uebernehmen, LV_ALIGN_BOTTOM_MID, -150, -20);
     lv_obj_add_event_cb(btn_uebernehmen, zeit_uebernehmen_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l1 = lv_label_create(btn_uebernehmen);
-    lv_label_set_text(l1, "Uebernehmen");
+    lv_label_set_text(l1, text(TXT_UEBERNEHMEN));
     lv_obj_set_style_text_font(l1, &schrift_klein_28, 0);
     lv_obj_center(l1);
 
@@ -523,7 +545,7 @@ void einrichtung_zeit_zeigen(void)
     lv_obj_align(btn_abbrechen, LV_ALIGN_BOTTOM_MID, 150, -20);
     lv_obj_add_event_cb(btn_abbrechen, zeit_abbrechen_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l2 = lv_label_create(btn_abbrechen);
-    lv_label_set_text(l2, "Abbrechen");
+    lv_label_set_text(l2, text(TXT_ABBRECHEN));
     lv_obj_set_style_text_font(l2, &schrift_klein_28, 0);
     lv_obj_center(l2);
 
@@ -634,15 +656,18 @@ static void screenshot_knopf_cb(lv_event_t *e);
 static void signal_aktualisieren(void)
 {
     int rssi = netz_rssi_dbm();
-    char text[64];
+    /* Heisst bewusst NICHT "text" - das wuerde die gleichnamige
+     * Uebersetzungsfunktion text() aus texte.h in dieser Funktion
+     * verdecken. */
+    char anzeige_text[64];
     int pct = 0;
     lv_color_t farbe;
     if (rssi == 0) {
-        snprintf(text, sizeof text, "WLAN-Signal: nicht verbunden");
+        snprintf(anzeige_text, sizeof anzeige_text, "%s", text(TXT_WLAN_SIGNAL_NICHT_VERBUNDEN));
         farbe = lv_palette_main(LV_PALETTE_GREY);
     } else {
-        const char *guete = rssi >= -67 ? "gut" : (rssi >= -80 ? "schwach" : "sehr schwach");
-        snprintf(text, sizeof text, "WLAN-Signal: %d dBm (%s)", rssi, guete);
+        const char *guete = rssi >= -67 ? text(TXT_GUT) : (rssi >= -80 ? text(TXT_SCHWACH) : text(TXT_SEHR_SCHWACH));
+        snprintf(anzeige_text, sizeof anzeige_text, text(TXT_WLAN_SIGNAL_WERT), rssi, guete);
 
         pct = (rssi - SIGNAL_DBM_MIN) * 100 / (SIGNAL_DBM_MAX - SIGNAL_DBM_MIN);
         if (pct < 0)
@@ -658,8 +683,8 @@ static void signal_aktualisieren(void)
         lv_bar_set_value(s_signal_bar, pct, LV_ANIM_OFF);
         lv_obj_set_style_bg_color(s_signal_bar, farbe, LV_PART_INDICATOR);
     }
-    if (strcmp(text, lv_label_get_text(s_signal_label)) != 0)
-        lv_label_set_text(s_signal_label, text);
+    if (strcmp(anzeige_text, lv_label_get_text(s_signal_label)) != 0)
+        lv_label_set_text(s_signal_label, anzeige_text);
 }
 
 /* Fuellt den Update-Bereich passend zum aktuellen Wissensstand. Wird beim
@@ -688,11 +713,11 @@ static void update_bereich_aufbauen(void)
      * sobald nichts mehr zu erklaeren ist. */
     const char *status_text = "";
     if (!verbunden)
-        status_text = "WLAN wird verbunden...";
+        status_text = text(TXT_WLAN_WIRD_VERBUNDEN);
     else if (suche)
-        status_text = "Suche nach Updates...";
+        status_text = text(TXT_SUCHE_NACH_UPDATES);
     else if (!update_da && !zurueck_da && anzahl == 0)
-        status_text = "Keine andere Version gefunden.";
+        status_text = text(TXT_KEINE_ANDERE_VERSION);
 
     lv_obj_t *status_label = lv_label_create(s_update_bereich);
     lv_label_set_text(status_label, status_text);
@@ -717,10 +742,10 @@ static void update_bereich_aufbauen(void)
 
     char beschriftung[64];
     if (update_da)
-        snprintf(beschriftung, sizeof beschriftung, "Update auf %s installieren",
+        snprintf(beschriftung, sizeof beschriftung, text(TXT_UPDATE_INSTALLIEREN),
                  ota_verfuegbare_version());
     else
-        snprintf(beschriftung, sizeof beschriftung, "Kein Update verfuegbar");
+        snprintf(beschriftung, sizeof beschriftung, "%s", text(TXT_KEIN_UPDATE_VERFUEGBAR));
     lv_obj_t *update_knopf = einstellungen_nav_button_erzeugen(knopfreihe, beschriftung, einstellungen_update_cb);
     if (!update_da)
         lv_obj_add_state(update_knopf, LV_STATE_DISABLED);
@@ -729,9 +754,9 @@ static void update_bereich_aufbauen(void)
      * Version liegt bereits in der zweiten Flash-Partition, es wird nichts
      * heruntergeladen - der Wechsel ist sofort fertig und braucht kein Netz. */
     if (zurueck_da)
-        snprintf(beschriftung, sizeof beschriftung, "Sofort zurueck auf %s", vorherige);
+        snprintf(beschriftung, sizeof beschriftung, text(TXT_SOFORT_ZURUECK), vorherige);
     else
-        snprintf(beschriftung, sizeof beschriftung, "Keine vorherige Version");
+        snprintf(beschriftung, sizeof beschriftung, "%s", text(TXT_KEINE_VORHERIGE_VERSION));
     lv_obj_t *zurueck_knopf = einstellungen_nav_button_erzeugen(knopfreihe, beschriftung, einstellungen_version_zurueck_cb);
     if (!zurueck_da)
         lv_obj_add_state(zurueck_knopf, LV_STATE_DISABLED);
@@ -755,7 +780,7 @@ static void update_bereich_aufbauen(void)
      * auf die Weboberflaeche ganz heraus (per Screenshot aufgefallen). Die
      * laufende Version steht jetzt unten bei den uebrigen Statusangaben. */
     lv_obj_t *laufend = lv_label_create(versionszeile);
-    lv_label_set_text(laufend, "Aus dem Netz laden:");
+    lv_label_set_text(laufend, text(TXT_AUS_DEM_NETZ_LADEN));
     lv_obj_set_style_text_font(laufend, &schrift_klein_28, 0);
     lv_obj_set_style_text_color(laufend, lv_color_white(), 0);
 
@@ -768,7 +793,7 @@ static void update_bereich_aufbauen(void)
      * beim fehlenden Haken-Symbol, siehe "[x] "-Praefix bei den Tabletten. */
     lv_dropdown_set_symbol(s_versionen_dropdown, NULL);
 
-    lv_obj_t *installieren_knopf = einstellungen_nav_button_erzeugen(versionszeile, "Installieren",
+    lv_obj_t *installieren_knopf = einstellungen_nav_button_erzeugen(versionszeile, text(TXT_INSTALLIEREN),
                                                                       einstellungen_version_waehlen_cb);
     if (anzahl > 0) {
         /* Optionen einmalig beim Aufbau setzen (nie waehrend die Liste offen
@@ -785,7 +810,7 @@ static void update_bereich_aufbauen(void)
         }
         lv_dropdown_set_options(s_versionen_dropdown, optionen);
     } else {
-        lv_dropdown_set_options(s_versionen_dropdown, "(keine)");
+        lv_dropdown_set_options(s_versionen_dropdown, text(TXT_KEINE_AUSWAHL));
         lv_obj_add_state(s_versionen_dropdown, LV_STATE_DISABLED);
         lv_obj_add_state(installieren_knopf, LV_STATE_DISABLED);
     }
@@ -853,6 +878,12 @@ static void einstellungen_demo_cb(lv_event_t *e)
     s_einstellungen_aktion = EINSTELLUNGEN_AKTION_DEMO;
 }
 
+static void einstellungen_sprache_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_SPRACHE;
+}
+
 static void einstellungen_update_cb(lv_event_t *e)
 {
     (void)e;
@@ -912,24 +943,20 @@ static void webkonfig_bereich_aktualisieren(void)
         return;
 
     if (webkonfig_laeuft()) {
-        lv_label_set_text(s_webkonfig_knopf_label, "Weboberflaeche ausschalten");
+        lv_label_set_text(s_webkonfig_knopf_label, text(TXT_WEB_AUSSCHALTEN));
         char ip_text[16];
         netz_ip_text(ip_text, sizeof ip_text);
-        char text[192];
+        /* Heisst bewusst "hinweis_text", nicht "text" - sonst wuerde die
+         * lokale Variable die Uebersetzungsfunktion text() verdecken. */
+        char hinweis_text[192];
         if (ip_text[0])
-            snprintf(text, sizeof text,
-                     "Weboberflaeche an - Kalender-Adresse aendern unter:\n"
-                     "Handy: http://seniorenuhr.local/\n"
-                     "Windows-PC: http://%s/", ip_text);
+            snprintf(hinweis_text, sizeof hinweis_text, text(TXT_WEB_AN_ADRESSE), ip_text);
         else
-            snprintf(text, sizeof text,
-                     "Weboberflaeche an, aber noch kein WLAN - Adresse erscheint hier, sobald verbunden.");
-        lv_label_set_text(s_webkonfig_hinweis, text);
+            snprintf(hinweis_text, sizeof hinweis_text, "%s", text(TXT_WEB_AN_KEIN_WLAN));
+        lv_label_set_text(s_webkonfig_hinweis, hinweis_text);
     } else {
-        lv_label_set_text(s_webkonfig_knopf_label, "Weboberflaeche einschalten");
-        lv_label_set_text(s_webkonfig_hinweis,
-                           "Weboberflaeche aus - zum Aendern der Kalender-Adresse per Browser "
-                           "kurz einschalten (kostet Speicher, deshalb nicht dauerhaft an).");
+        lv_label_set_text(s_webkonfig_knopf_label, text(TXT_WEB_EINSCHALTEN));
+        lv_label_set_text(s_webkonfig_hinweis, text(TXT_WEB_AUS_HINWEIS));
     }
 
     if (s_firmware_label) {
@@ -960,7 +987,7 @@ static void screenshot_knopf_cb(lv_event_t *e)
      * Aufnahme/Uebertragung laeuft (siehe screenshot_debug.h) - deshalb hier
      * den TATSAECHLICHEN Zustand erfragen statt blind umzuschalten. */
     lv_label_set_text(s_screenshot_knopf_label, screenshot_debug_laeuft()
-                       ? "Screenshot-Werkzeug ausschalten" : "Screenshot-Werkzeug einschalten");
+                       ? text(TXT_SCREENSHOT_AUSSCHALTEN) : text(TXT_SCREENSHOT_EINSCHALTEN));
 }
 
 /* Breite passt sich per LV_SIZE_CONTENT der Beschriftung an (wie das
@@ -1050,12 +1077,12 @@ void einrichtung_einstellungen_zeigen(void)
     lv_obj_set_style_pad_right(s_einstellungen_screen, 4, LV_PART_SCROLLBAR);
 
     lv_obj_t *titel = lv_label_create(s_einstellungen_screen);
-    lv_label_set_text(titel, "Einstellungen");
+    lv_label_set_text(titel, text(TXT_EINSTELLUNGEN));
     lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(titel, lv_color_white(), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 8);
 
-    lv_obj_t *btn_schliessen = einstellungen_nav_button_erzeugen(s_einstellungen_screen, "Schliessen",
+    lv_obj_t *btn_schliessen = einstellungen_nav_button_erzeugen(s_einstellungen_screen, text(TXT_SCHLIESSEN),
                                                                   einstellungen_schliessen_cb);
     lv_obj_align(btn_schliessen, LV_ALIGN_TOP_RIGHT, -20, 6);
 
@@ -1072,10 +1099,21 @@ void einrichtung_einstellungen_zeigen(void)
     lv_obj_set_style_pad_row(reihe, 12, 0);
     lv_obj_align(reihe, LV_ALIGN_TOP_LEFT, 30, 64);
 
-    einstellungen_nav_button_erzeugen(reihe, "WLAN wechseln", einstellungen_wlan_cb);
-    einstellungen_nav_button_erzeugen(reihe, "Datum, Uhrzeit einstellen", einstellungen_datum_cb);
-    einstellungen_nav_button_erzeugen(reihe, "Kalender-Adresse aendern", einstellungen_kalenderurl_cb);
-    einstellungen_nav_button_erzeugen(reihe, "Demo-Modus", einstellungen_demo_cb);
+    einstellungen_nav_button_erzeugen(reihe, text(TXT_WLAN_WECHSELN), einstellungen_wlan_cb);
+    einstellungen_nav_button_erzeugen(reihe, text(TXT_DATUM_UHRZEIT), einstellungen_datum_cb);
+    einstellungen_nav_button_erzeugen(reihe, text(TXT_KALENDER_ADRESSE), einstellungen_kalenderurl_cb);
+    einstellungen_nav_button_erzeugen(reihe, text(TXT_DEMO_MODUS), einstellungen_demo_cb);
+
+    /* Sprachknopf: zeigt Ausgangs- UND Zielsprache im selben Text ("Sprache:
+     * Deutsch"), ein Tipp schaltet zur naechsten Sprache weiter (Wrap-Around
+     * bei mehr als zwei). Der Name der Sprache steht IMMER in der Sprache
+     * selbst (sprache_name), nicht in der gerade eingestellten - sonst
+     * faende sich jemand, der die aktuelle Sprache nicht lesen kann, nie
+     * zu seiner eigenen zurueck. */
+    char sprache_beschriftung[48];
+    snprintf(sprache_beschriftung, sizeof sprache_beschriftung, "%s: %s",
+             text(TXT_SPRACHE), sprache_name(sprache_aktuell()));
+    einstellungen_nav_button_erzeugen(reihe, sprache_beschriftung, einstellungen_sprache_cb);
 
     /* Tatsaechliche Hoehe der Reihe erst nach dem Layout-Durchlauf bekannt
      * (haengt davon ab, ob die Buttons in eine oder zwei Zeilen passen) -
@@ -1111,7 +1149,7 @@ void einrichtung_einstellungen_zeigen(void)
 
     int32_t schalter_y = naechste_y + UPDATE_BEREICH_HOEHE + 14;
 
-    einstellungen_schalter_zeile(s_einstellungen_screen, schalter_y, "Signalton bei Erinnerungen",
+    einstellungen_schalter_zeile(s_einstellungen_screen, schalter_y, text(TXT_SIGNALTON),
                                   einstellungen_buzzer_aktiv(), einstellungen_buzzer_cb);
 
     /* WLAN-Signalstaerke als Text + Balken, regelmaessig aktualisiert
@@ -1137,7 +1175,7 @@ void einrichtung_einstellungen_zeigen(void)
      * lahmzulegen). Startet nie von selbst; beim Verlassen des Menues wird
      * sicherheitshalber wieder ausgeschaltet (einrichtung_einstellungen_aufraeumen). */
     lv_obj_t *webkonfig_knopf = einstellungen_nav_button_erzeugen(
-        s_einstellungen_screen, "Weboberflaeche einschalten", webkonfig_knopf_cb);
+        s_einstellungen_screen, text(TXT_WEB_EINSCHALTEN), webkonfig_knopf_cb);
     lv_obj_align(webkonfig_knopf, LV_ALIGN_TOP_LEFT, 30, schalter_y + 124);
     s_webkonfig_knopf_label = lv_obj_get_child(webkonfig_knopf, 0);
 
@@ -1150,7 +1188,7 @@ void einrichtung_einstellungen_zeigen(void)
     lv_obj_align(s_webkonfig_hinweis, LV_ALIGN_TOP_LEFT, 30, s_webkonfig_hinweis_y);
 
     char firmware_text[64];
-    snprintf(firmware_text, sizeof firmware_text, "Laufende Firmware: %s", ota_laufende_version());
+    snprintf(firmware_text, sizeof firmware_text, text(TXT_LAUFENDE_FIRMWARE), ota_laufende_version());
     s_firmware_label = lv_label_create(s_einstellungen_screen);
     lv_label_set_text(s_firmware_label, firmware_text);
     lv_obj_set_style_text_font(s_firmware_label, &schrift_klein_28, 0);
@@ -1171,7 +1209,7 @@ void einrichtung_einstellungen_zeigen(void)
 
     lv_obj_t *screenshot_knopf = einstellungen_nav_button_erzeugen(
         s_einstellungen_screen,
-        screenshot_debug_laeuft() ? "Screenshot-Werkzeug ausschalten" : "Screenshot-Werkzeug einschalten",
+        screenshot_debug_laeuft() ? text(TXT_SCREENSHOT_AUSSCHALTEN) : text(TXT_SCREENSHOT_EINSCHALTEN),
         screenshot_knopf_cb);
     lv_obj_align(screenshot_knopf, LV_ALIGN_TOP_LEFT, 30, screenshot_y);
     s_screenshot_knopf_label = lv_obj_get_child(screenshot_knopf, 0);
@@ -1181,9 +1219,7 @@ void einrichtung_einstellungen_zeigen(void)
     lv_obj_set_width(screenshot_hinweis, 740);
     lv_obj_set_style_text_font(screenshot_hinweis, &schrift_klein_28, 0);
     lv_obj_set_style_text_color(screenshot_hinweis, lv_color_hex(0xa0a0a0), 0);
-    lv_label_set_text(screenshot_hinweis,
-                       "Fuer Fehlersuche/Dokumentation: Knopf unten mittig auf dem Bildschirm "
-                       "nimmt ein Bildschirmfoto auf, ausgegeben ueber die serielle USB-Verbindung.");
+    lv_label_set_text(screenshot_hinweis, text(TXT_SCREENSHOT_HINWEIS));
     lv_obj_align(screenshot_hinweis, LV_ALIGN_TOP_LEFT, 30, screenshot_y + 62);
 
     /* Timer nur EINMAL erzeugen und danach pausieren/fortsetzen statt bei
@@ -1262,7 +1298,7 @@ void einrichtung_kalenderurl_zeigen(void)
     lv_obj_remove_flag(s_kalenderurl_screen, LV_OBJ_FLAG_SCROLLABLE); /* siehe app_main.c/ui_aufbauen */
 
     lv_obj_t *titel = lv_label_create(s_kalenderurl_screen);
-    lv_label_set_text(titel, "Kalender-Adresse aendern");
+    lv_label_set_text(titel, text(TXT_KALENDER_ADRESSE));
     lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(titel, lv_color_white(), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 15);
@@ -1273,7 +1309,7 @@ void einrichtung_kalenderurl_zeigen(void)
      * vollstaendig lesbar. */
     s_kalenderurl_ta = lv_textarea_create(s_kalenderurl_screen);
     lv_textarea_set_one_line(s_kalenderurl_ta, false);
-    lv_textarea_set_placeholder_text(s_kalenderurl_ta, "Kalender-Adresse (ICS-URL)");
+    lv_textarea_set_placeholder_text(s_kalenderurl_ta, text(TXT_KALENDER_URL_PLATZHALTER));
     char aktuelle_url[EINSTELLUNGEN_KALENDER_URL_MAX];
     einstellungen_kalender_url_effektiv(aktuelle_url, sizeof aktuelle_url);
     lv_textarea_set_text(s_kalenderurl_ta, aktuelle_url);
@@ -1286,7 +1322,7 @@ void einrichtung_kalenderurl_zeigen(void)
     lv_obj_align(btn_speichern, LV_ALIGN_TOP_LEFT, 30, 185);
     lv_obj_add_event_cb(btn_speichern, kalenderurl_speichern_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l1 = lv_label_create(btn_speichern);
-    lv_label_set_text(l1, "Speichern");
+    lv_label_set_text(l1, text(TXT_SPEICHERN));
     lv_obj_set_style_text_font(l1, &schrift_klein_28, 0);
     lv_obj_center(l1);
 
@@ -1295,7 +1331,7 @@ void einrichtung_kalenderurl_zeigen(void)
     lv_obj_align(btn_abbrechen, LV_ALIGN_TOP_RIGHT, -30, 185);
     lv_obj_add_event_cb(btn_abbrechen, kalenderurl_abbrechen_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l2 = lv_label_create(btn_abbrechen);
-    lv_label_set_text(l2, "Abbrechen");
+    lv_label_set_text(l2, text(TXT_ABBRECHEN));
     lv_obj_set_style_text_font(l2, &schrift_klein_28, 0);
     lv_obj_center(l2);
 

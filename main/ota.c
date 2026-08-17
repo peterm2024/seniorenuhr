@@ -1,6 +1,7 @@
 #include "ota.h"
 #include "kalender_anzeige.h"
 #include "netz.h"
+#include "texte.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -144,7 +145,7 @@ const char *ota_laufende_version(void) { return esp_app_get_description()->versi
 static void installation_anstossen_intern(void)
 {
     s_fortschritt_prozent = -1;
-    snprintf(s_meldung, sizeof s_meldung, "Update wird vorbereitet...");
+    snprintf(s_meldung, sizeof s_meldung, "%s", text(TXT_UPDATE_WIRD_VORBEREITET));
     s_laeuft = true;
     s_installation_gewuenscht = true;
 }
@@ -648,18 +649,18 @@ static void installation_mit_wiederholung(const char *version)
     s_fortschritt_prozent = -1;
 
     for (int versuch = 1; versuch <= OTA_PRUEFUNG_VERSUCHE; versuch++) {
-        snprintf(s_meldung, sizeof s_meldung, "Verbinde mit GitHub (Versuch %d von %d)...",
+        snprintf(s_meldung, sizeof s_meldung, text(TXT_VERBINDE_MIT_GITHUB),
                  versuch, OTA_PRUEFUNG_VERSUCHE);
         if (ota_durchlauf(true, version)) {
             /* Bei Erfolg startet das Geraet im Durchlauf selbst neu; hierher
              * kommt man nur, wenn das Einspielen scheiterte. */
-            snprintf(s_meldung, sizeof s_meldung, "Update fehlgeschlagen - Geraet laeuft unveraendert weiter");
+            snprintf(s_meldung, sizeof s_meldung, "%s", text(TXT_UPDATE_FEHLGESCHLAGEN));
             break;
         }
         if (versuch < OTA_PRUEFUNG_VERSUCHE)
             vTaskDelay(pdMS_TO_TICKS(OTA_PRUEFUNG_PAUSE_MS));
         else
-            snprintf(s_meldung, sizeof s_meldung, "Keine Verbindung zu GitHub - bitte spaeter erneut versuchen");
+            snprintf(s_meldung, sizeof s_meldung, "%s", text(TXT_KEINE_VERBINDUNG_GITHUB));
     }
 
     ESP_LOGW(TAG, "Installation beendet: %s", s_meldung);

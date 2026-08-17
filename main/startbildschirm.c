@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_lvgl_port.h"
+#include "texte.h"
 
 LV_FONT_DECLARE(schrift_klein_28);
 
@@ -279,8 +280,8 @@ void startbildschirm_erstellen(void)
     icon_kalender_erzeugen(&s_icons[STARTBILDSCHIRM_KALENDER], icon_container_erzeugen(s_screen, 600));
     s_ringe[STARTBILDSCHIRM_KALENDER] = ring_erzeugen(s_screen, 600);
 
-    s_btn_wlan_wechseln = hilfe_button_erzeugen(s_screen, "WLAN wechseln", LV_ALIGN_BOTTOM_MID, -150, btn_wlan_wechseln_cb);
-    s_btn_offline = hilfe_button_erzeugen(s_screen, "Offline", LV_ALIGN_BOTTOM_MID, 150, btn_offline_cb);
+    s_btn_wlan_wechseln = hilfe_button_erzeugen(s_screen, text(TXT_WLAN_WECHSELN), LV_ALIGN_BOTTOM_MID, -150, btn_wlan_wechseln_cb);
+    s_btn_offline = hilfe_button_erzeugen(s_screen, text(TXT_OFFLINE_WEITER), LV_ALIGN_BOTTOM_MID, 150, btn_offline_cb);
 
     s_btn_einstellungen = lv_obj_create(s_screen);
     lv_obj_remove_style_all(s_btn_einstellungen);

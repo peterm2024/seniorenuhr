@@ -39,6 +39,13 @@ void zeit_uebernehmen(time_t zeitstempel);
  * NTP-Sync gelingt (siehe zeit_sntp_starten). */
 bool zeit_ist_manuell_gesetzt(void);
 
+/* Monatsname in der aktuell eingestellten Sprache (texte.h), 0 = Januar bis
+ * 11 = Dezember. Ausserhalb dieses Bereichs ein leerer String. Wird sowohl
+ * von zeit_datum_text() als auch vom Monats-Roller der Datumseingabe
+ * (einrichtung.c) genutzt, damit die Namen an nur EINER Stelle gepflegt
+ * werden. */
+const char *zeit_monatsname(int monat_index);
+
 /* Deutscher Wochentag in Grossbuchstaben, z. B. "MONTAG". */
 const char *zeit_wochentag_gross(const struct tm *t);
 

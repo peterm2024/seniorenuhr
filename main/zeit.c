@@ -101,16 +101,27 @@ const char *zeit_wochentag_kurz(const struct tm *t)
     return namen[sprache_aktuell()][t->tm_wday];
 }
 
+/* Dateiweit, nicht nur lokal in zeit_datum_text(): zeit_monatsname() (fuer
+ * den Monats-Roller in einrichtung.c) nutzt dieselbe Tabelle, damit die
+ * Namen an nur einer Stelle gepflegt werden. */
+static const char *const MONATSNAMEN[SPRACHE_ANZAHL][12] = {
+    { "Januar", "Februar", "März", "April", "Mai", "Juni",
+      "Juli", "August", "September", "Oktober", "November", "Dezember" },
+    { "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December" },
+};
+
+const char *zeit_monatsname(int monat_index)
+{
+    if (monat_index < 0 || monat_index > 11)
+        return "";
+    return MONATSNAMEN[sprache_aktuell()][monat_index];
+}
+
 void zeit_datum_text(const struct tm *t, char *puffer, size_t puffer_groesse)
 {
-    static const char *const monate[SPRACHE_ANZAHL][12] = {
-        { "Januar", "Februar", "März", "April", "Mai", "Juni",
-          "Juli", "August", "September", "Oktober", "November", "Dezember" },
-        { "January", "February", "March", "April", "May", "June",
-          "July", "August", "September", "October", "November", "December" },
-    };
     sprache_t sprache = sprache_aktuell();
-    const char *monat = (t->tm_mon >= 0 && t->tm_mon < 12) ? monate[sprache][t->tm_mon] : "";
+    const char *monat = zeit_monatsname(t->tm_mon);
     /* Nicht nur die Monatsnamen, auch die REIHENFOLGE unterscheidet sich:
      * "10. August 2026" gegenueber "August 10, 2026". */
     if (sprache == SPRACHE_ENGLISCH)

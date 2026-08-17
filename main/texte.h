@@ -15,6 +15,11 @@
  *     Uebersetzte Logs waeren beim Fehlersuchen aktiv hinderlich.
  *   - Quelltext-Kommentare, Bezeichner, Doku (FAHRPLAN/FALLSTRICKE) - die
  *     Projektsprache bleibt Deutsch.
+ *   - Die Weboberflaeche (webkonfig.c) - reines HTML fuer einen Browser auf
+ *     einem fremden Geraet, nicht das Touchdisplay. Bleibt vorerst deutsch.
+ *   - Sprachneutrale Platzhalter/Symbole ("...", "-", "X", "--:--") - die
+ *     stehen weiterhin direkt im Code, eine Uebersetzungstabelle dafuer
+ *     waere Aufwand ohne Nutzen.
  *
  * Deutsch ist die REFERENZSPRACHE: bei jeder neuen Zeichenkette zuerst den
  * deutschen Text schreiben, dann uebersetzen. Fehlt eine Uebersetzung, faellt
@@ -37,6 +42,14 @@ typedef enum {
     /* Startbildschirm / Boot */
     TXT_WLAN_WECHSELN,
     TXT_OFFLINE_WEITER,
+    TXT_VERBINDE_MIT_WLAN,          /* Boot-Statuszeile, siehe auch TXT_WLAN_WIRD_VERBUNDEN */
+    TXT_UHRZEIT_WIRD_GEHOLT,
+    TXT_WARTE_AUF_WLAN,
+
+    /* Zahnrad-Zwischendialog ("Einstellungen oeffnen?") */
+    TXT_EINSTELLUNGEN_OEFFNEN_TITEL,
+    TXT_NUR_FUER_WARTUNG,
+    TXT_OEFFNEN,
 
     /* Hauptbildschirm */
     TXT_TABLETTEN_HEUTE,
@@ -44,6 +57,19 @@ typedef enum {
     TXT_HEUTE,
     TXT_KEINE_EINTRAEGE,
     TXT_WEITERE,            /* "+%d weitere" */
+
+    /* Status-Detailfenster (Tipp auf WLAN/Uhr/Kalender-Symbol) */
+    TXT_STATUS_TITEL,
+    TXT_NOCH_NIE,
+    TXT_VOR_SEKUNDEN,               /* "vor %lds" */
+    TXT_VOR_MINUTEN,                /* "vor %ldmin" */
+    TXT_VOR_STUNDEN_MINUTEN,        /* "vor %ldh %ldmin" */
+    TXT_STATUS_WLAN_VERBUNDEN,      /* "WLAN: %s (%d dBm)\nIP %s" */
+    TXT_STATUS_WLAN_GETRENNT,
+    TXT_STATUS_ZEIT_SYNC,           /* "Uhrzeit: synchronisiert (%s)" */
+    TXT_STATUS_ZEIT_UNBESTAETIGT,   /* "Uhrzeit: nicht bestaetigt\n(letzter Sync %s)" */
+    TXT_STATUS_KALENDER_AKTUELL,    /* "Kalender: aktuell (%s)" */
+    TXT_STATUS_KALENDER_VERALTET,   /* "Kalender: veraltet\n(letzter Sync %s)" */
 
     /* Tageszeiten (zeit.c) */
     TXT_VORMITTAG,
@@ -54,28 +80,33 @@ typedef enum {
     /* Fenster */
     TXT_TABLETTE_NEHMEN,
     TXT_TABLETTEN_NEHMEN,
+    TXT_BITTE_BESTAETIGEN,
     TXT_OK,
     TXT_ABBRECHEN,
     TXT_AKTUALISIERUNG,
     TXT_UPDATE_BITTE_WARTEN,
     TXT_LAEDT,
-    TXT_KEINE_TABLETTEN_HEUTE,
+    TXT_KEINE_TABLETTEN_HEUTE,      /* Heute-Fenster: "Keine Tabletten heute." */
     TXT_KEINE_TERMINE_HEUTE,
+    TXT_KEINE_TABLETTEN_KURZ,       /* Tages-Fenster (andere Tage): "Keine Tabletten." */
+    TXT_KEINE_TERMINE_KURZ,
+    TXT_TABLETTEN_SPALTE,           /* Spaltenkopf im Tages-/Heute-Fenster: "TABLETTEN" */
+    TXT_TERMINE_SPALTE,
+    TXT_HEUTE_GROSS,                /* Kopfzeile des Heute-Fensters: "HEUTE" */
 
     /* Einstellungen-Menue */
     TXT_EINSTELLUNGEN,
     TXT_SCHLIESSEN,
-    TXT_DATUM_UHRZEIT,
+    TXT_DATUM_UHRZEIT,              /* Knopf im Menue: "Datum, Uhrzeit einstellen" */
     TXT_KALENDER_ADRESSE,
     TXT_DEMO_MODUS,
     TXT_SIGNALTON,
     TXT_SPRACHE,
     TXT_LAUFENDE_FIRMWARE,
-    TXT_SIGNAL,
 
     /* Update-Bereich */
     TXT_SUCHE_NACH_UPDATES,
-    TXT_WLAN_WIRD_VERBUNDEN,
+    TXT_WLAN_WIRD_VERBUNDEN,        /* Statuszeile im Menue, siehe auch TXT_VERBINDE_MIT_WLAN */
     TXT_KEIN_UPDATE_VERFUEGBAR,
     TXT_KEINE_ANDERE_VERSION,
     TXT_KEINE_VORHERIGE_VERSION,
@@ -89,7 +120,8 @@ typedef enum {
     TXT_UPDATE_FEHLGESCHLAGEN,
     TXT_KEINE_VERBINDUNG_GITHUB,
 
-    /* Weboberflaeche */
+    /* Weboberflaeche (nur der Knopf/Hinweis im Menue - die Webseite selbst
+     * bleibt deutsch, siehe Abgrenzung oben) */
     TXT_WEB_EINSCHALTEN,
     TXT_WEB_AUSSCHALTEN,
     TXT_WEB_AN_ADRESSE,           /* mehrzeilig, mit %s fuer die IP */
@@ -102,21 +134,43 @@ typedef enum {
     TXT_SCREENSHOT_HINWEIS,
 
     /* WLAN-Einrichtung */
-    TXT_WLAN_EINRICHTEN,
-    TXT_NETZ_WAEHLEN,
+    TXT_WLAN_EINRICHTEN,          /* Bildschirmtitel: "WLAN-Zugangsdaten aendern" */
+    TXT_SSID_PLATZHALTER,
     TXT_PASSWORT,
     TXT_PASSWORT_BEKANNT,
     TXT_SPEICHERN,
     TXT_ZURUECK,
     TXT_SUCHE_NETZE,
+    TXT_WLAN_SIGNAL_NICHT_VERBUNDEN,
+    TXT_WLAN_SIGNAL_WERT,          /* "WLAN-Signal: %d dBm (%s)" */
+    TXT_GUT,
+    TXT_SCHWACH,
+    TXT_SEHR_SCHWACH,
 
     /* Datum/Uhrzeit-Einrichtung */
-    TXT_DATUM_EINSTELLEN,
+    TXT_DATUM_EINSTELLEN,         /* Bildschirmtitel: "Datum und Uhrzeit einstellen" */
     TXT_UEBERNEHMEN,
+    TXT_KALENDER_URL_PLATZHALTER,
+    TXT_TAG,
+    TXT_MONAT,
+    TXT_JAHR,
+    TXT_STUNDE_KURZ,
+    TXT_MINUTE_KURZ,
 
     /* Absturz-Diagnose */
     TXT_DIAGNOSE_TITEL,
     TXT_DIAGNOSE_BESTAETIGEN,
+    TXT_VERSTANDEN,
+    TXT_ZEIT_NIE_GESETZT,
+    TXT_GRUND,                    /* "Grund: %s" */
+    TXT_ZULETZT_AKTIV,            /* "Zuletzt aktiv: %s" */
+    TXT_ABSTURZ_NUMMER,           /* "Absturz Nr. %lu" */
+    TXT_ABSTURZ_PROGRAMMABSTURZ,
+    TXT_ABSTURZ_TASK_WATCHDOG,
+    TXT_ABSTURZ_INTERRUPT_WATCHDOG,
+    TXT_ABSTURZ_WATCHDOG,
+    TXT_ABSTURZ_UNTERSPANNUNG,
+    TXT_ABSTURZ_UNBEKANNT,
 
     TXT_ANZAHL
 } text_id_t;

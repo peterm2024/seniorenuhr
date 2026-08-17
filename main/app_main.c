@@ -29,6 +29,7 @@
 #include "screenshot_debug.h"
 #include "startbildschirm.h"
 #include "tagesansicht.h"
+#include "texte.h"
 #include "zeit.h"
 
 /* Entwicklungswerkzeuge, die nur auf dem Entwicklungsboard laufen sollen,
@@ -517,7 +518,7 @@ static void liste_text_aufbauen(const kalender_tag_eintrag_t *eintraege, int anz
         }
     }
     if (gefunden == 0)
-        snprintf(ziel, ziel_groesse, "-");
+        snprintf(ziel, ziel_groesse, "%s", text(TXT_KEINE_EINTRAEGE));
 }
 
 static void uebersicht_spalte_leeren(uebersicht_spalte_t *spalte)
@@ -639,7 +640,7 @@ static void uebersicht_spalte_neu_aufbauen(uebersicht_spalte_t *spalte, int32_t 
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(FARBE_TEXT_HELL), 0);
         lv_obj_set_pos(label, 0, 0);
-        lv_label_set_text(label, "-");
+        lv_label_set_text(label, text(TXT_KEINE_EINTRAEGE));
         uebersicht_tippbar_machen(label, nur_tabletten ? tabletten_geklickt_cb : uebersicht_geklickt_cb);
         spalte->zeilen[spalte->anzahl++] = label;
     }
@@ -863,13 +864,13 @@ static void update_dialog_zeigen(void)
     lv_obj_set_style_radius(s_update_dialog, 12, 0);
 
     lv_obj_t *titel = lv_label_create(s_update_dialog);
-    lv_label_set_text(titel, "Einstellungen oeffnen?");
+    lv_label_set_text(titel, text(TXT_EINSTELLUNGEN_OEFFNEN_TITEL));
     lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(titel, lv_color_hex(FARBE_AKZENT), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 10);
 
     lv_obj_t *hinweis = lv_label_create(s_update_dialog);
-    lv_label_set_text(hinweis, "Nur fuer die Wartung gedacht.");
+    lv_label_set_text(hinweis, text(TXT_NUR_FUER_WARTUNG));
     lv_label_set_long_mode(hinweis, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(hinweis, lv_pct(100));
     lv_obj_set_style_text_align(hinweis, LV_TEXT_ALIGN_CENTER, 0);
@@ -880,11 +881,11 @@ static void update_dialog_zeigen(void)
     /* Abbrechen links, Oeffnen rechts - dieselbe Anordnung wie bei
      * OK/Abbrechen in den Tabletten-Fenstern, damit die Bedienung ueberall
      * gleich funktioniert. */
-    lv_obj_t *abbrechen = dialog_button_erzeugen(s_update_dialog, "Abbrechen", FARBE_DIALOG_NEIN,
+    lv_obj_t *abbrechen = dialog_button_erzeugen(s_update_dialog, text(TXT_ABBRECHEN), FARBE_DIALOG_NEIN,
                                                   update_dialog_abbrechen_cb);
     lv_obj_align(abbrechen, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
-    lv_obj_t *oeffnen = dialog_button_erzeugen(s_update_dialog, "Oeffnen", FARBE_DIALOG_JA,
+    lv_obj_t *oeffnen = dialog_button_erzeugen(s_update_dialog, text(TXT_OEFFNEN), FARBE_DIALOG_JA,
                                                 update_dialog_oeffnen_cb);
     lv_obj_align(oeffnen, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
@@ -1248,18 +1249,18 @@ static void uhr_tausch_cb(lv_event_t *e)
 static void seit_text_formatieren(time_t zeitpunkt, char *ziel, size_t ziel_groesse)
 {
     if (zeitpunkt == 0) {
-        snprintf(ziel, ziel_groesse, "noch nie");
+        snprintf(ziel, ziel_groesse, "%s", text(TXT_NOCH_NIE));
         return;
     }
     long sekunden = (long)difftime(time(NULL), zeitpunkt);
     if (sekunden < 0)
         sekunden = 0;
     if (sekunden < 60)
-        snprintf(ziel, ziel_groesse, "vor %lds", sekunden);
+        snprintf(ziel, ziel_groesse, text(TXT_VOR_SEKUNDEN), sekunden);
     else if (sekunden < 3600)
-        snprintf(ziel, ziel_groesse, "vor %ldmin", sekunden / 60);
+        snprintf(ziel, ziel_groesse, text(TXT_VOR_MINUTEN), sekunden / 60);
     else
-        snprintf(ziel, ziel_groesse, "vor %ldh %ldmin", sekunden / 3600, (sekunden / 60) % 60);
+        snprintf(ziel, ziel_groesse, text(TXT_VOR_STUNDEN_MINUTEN), sekunden / 3600, (sekunden / 60) % 60);
 }
 
 static void status_fenster_intern_schliessen(void)
@@ -1325,19 +1326,19 @@ static void status_detail_oeffnen_cb(lv_event_t *e)
 
     char zeile_wlan[96], zeile_zeit[96], zeile_kalender[96];
     if (wlan_ok)
-        snprintf(zeile_wlan, sizeof zeile_wlan, "WLAN: %s (%d dBm)\nIP %s", ssid, netz_rssi_dbm(), ip);
+        snprintf(zeile_wlan, sizeof zeile_wlan, text(TXT_STATUS_WLAN_VERBUNDEN), ssid, netz_rssi_dbm(), ip);
     else
-        snprintf(zeile_wlan, sizeof zeile_wlan, "WLAN: nicht verbunden");
+        snprintf(zeile_wlan, sizeof zeile_wlan, "%s", text(TXT_STATUS_WLAN_GETRENNT));
 
     if (zeit_ok)
-        snprintf(zeile_zeit, sizeof zeile_zeit, "Uhrzeit: synchronisiert (%s)", seit_zeit);
+        snprintf(zeile_zeit, sizeof zeile_zeit, text(TXT_STATUS_ZEIT_SYNC), seit_zeit);
     else
-        snprintf(zeile_zeit, sizeof zeile_zeit, "Uhrzeit: nicht bestaetigt\n(letzter Sync %s)", seit_zeit);
+        snprintf(zeile_zeit, sizeof zeile_zeit, text(TXT_STATUS_ZEIT_UNBESTAETIGT), seit_zeit);
 
     if (kalender_ok)
-        snprintf(zeile_kalender, sizeof zeile_kalender, "Kalender: aktuell (%s)", seit_kalender);
+        snprintf(zeile_kalender, sizeof zeile_kalender, text(TXT_STATUS_KALENDER_AKTUELL), seit_kalender);
     else
-        snprintf(zeile_kalender, sizeof zeile_kalender, "Kalender: veraltet\n(letzter Sync %s)", seit_kalender);
+        snprintf(zeile_kalender, sizeof zeile_kalender, text(TXT_STATUS_KALENDER_VERALTET), seit_kalender);
 
     if (!kalender_ok)
         kalender_anzeige_jetzt_pruefen();
@@ -1356,7 +1357,7 @@ static void status_detail_oeffnen_cb(lv_event_t *e)
     lv_obj_align(s_status_fenster, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *titel = lv_label_create(s_status_fenster);
-    lv_label_set_text(titel, "STATUS");
+    lv_label_set_text(titel, text(TXT_STATUS_TITEL));
     lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(titel, lv_color_hex(FARBE_AKZENT), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 15);
@@ -1406,7 +1407,7 @@ static void ui_aufbauen(void)
     lv_obj_add_event_cb(s_analog_uhr.container, uhr_tausch_cb, LV_EVENT_CLICKED, NULL);
 
     s_status_label = lv_label_create(s_bildschirm);
-    lv_label_set_text(s_status_label, "Verbinde mit WLAN...");
+    lv_label_set_text(s_status_label, text(TXT_VERBINDE_MIT_WLAN));
     lv_obj_set_style_text_font(s_status_label, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(FARBE_STATUS_HELL), 0);
     lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 275);
@@ -1415,11 +1416,11 @@ static void ui_aufbauen(void)
      * Etwas schmaler/eingerueckt als urspruenglich (war 20..390/410..780),
      * damit links die Wochentag-Buttons und rechts der Heute-Button Platz
      * haben (siehe tagesansicht_erstellen unten). */
-    s_tabletten_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TABLETTEN HEUTE", 80, 335, 300);
+    s_tabletten_ueberschrift = ueberschrift_erzeugen(s_bildschirm, text(TXT_TABLETTEN_HEUTE), 80, 335, 300);
     s_tabletten_spalte.container = uebersicht_container_erzeugen(s_bildschirm, 80, 385, UEBERSICHT_SPALTE_BREITE);
     uebersicht_tippbar_machen(s_tabletten_ueberschrift, tabletten_geklickt_cb);
 
-    s_termine_ueberschrift = ueberschrift_erzeugen(s_bildschirm, "TERMINE HEUTE", 420, 335, 300);
+    s_termine_ueberschrift = ueberschrift_erzeugen(s_bildschirm, text(TXT_TERMINE_HEUTE), 420, 335, 300);
     s_termine_spalte.container = uebersicht_container_erzeugen(s_bildschirm, 420, 385, UEBERSICHT_SPALTE_BREITE);
     uebersicht_tippbar_machen(s_termine_ueberschrift, uebersicht_geklickt_cb);
 
@@ -1685,7 +1686,7 @@ static void uhr_tick(lv_timer_t *timer)
     } else {
         snprintf(uhrzeit, sizeof uhrzeit, "--:--");
         wochentag = "...";
-        status = netz_ist_verbunden() ? "Uhrzeit wird geholt..." : "Warte auf WLAN...";
+        status = netz_ist_verbunden() ? text(TXT_UHRZEIT_WIRD_GEHOLT) : text(TXT_WARTE_AUF_WLAN);
     }
 
     /* Jedes Label nur bei tatsaechlicher Textaenderung neu setzen -
@@ -2085,6 +2086,18 @@ static bool einstellungen_bildschirm_verarbeiten(void)
             einrichtung_kalenderurl_aufraeumen();
             break;
         }
+        case EINSTELLUNGEN_AKTION_SPRACHE: {
+            /* Ausserhalb des Button-Klick-Callbacks umgesetzt (siehe
+             * Kommentar bei EINSTELLUNGEN_AKTION_SPRACHE in einrichtung.h) -
+             * einrichtung_einstellungen_zeigen() loescht dabei den gerade
+             * aktiven Menue-Screen und baut ihn neu auf, was aus dessen
+             * eigenem Klick-Handler heraus nicht sicher waere. */
+            uint8_t naechste = (uint8_t)((einstellungen_sprache() + 1) % SPRACHE_ANZAHL);
+            einstellungen_sprache_setzen(naechste);
+            ESP_LOGI(TAG, "Sprache gewechselt auf %s", sprache_name((sprache_t)naechste));
+            einrichtung_einstellungen_zeigen();
+            break;
+        }
         default:
             break;
         }
@@ -2201,12 +2214,12 @@ static bool reset_ist_absturz(esp_reset_reason_t grund)
 static const char *reset_grund_kurz(esp_reset_reason_t grund)
 {
     switch (grund) {
-    case ESP_RST_PANIC:    return "Programmabsturz";
-    case ESP_RST_TASK_WDT: return "Haenger (Task-Watchdog)";
-    case ESP_RST_INT_WDT:  return "Haenger (Interrupt-Watchdog)";
-    case ESP_RST_WDT:      return "Watchdog";
-    case ESP_RST_BROWNOUT: return "Unterspannung (Netzteil?)";
-    default:               return "unbekannt";
+    case ESP_RST_PANIC:    return text(TXT_ABSTURZ_PROGRAMMABSTURZ);
+    case ESP_RST_TASK_WDT: return text(TXT_ABSTURZ_TASK_WATCHDOG);
+    case ESP_RST_INT_WDT:  return text(TXT_ABSTURZ_INTERRUPT_WATCHDOG);
+    case ESP_RST_WDT:      return text(TXT_ABSTURZ_WATCHDOG);
+    case ESP_RST_BROWNOUT: return text(TXT_ABSTURZ_UNTERSPANNUNG);
+    default:               return text(TXT_ABSTURZ_UNBEKANNT);
     }
 }
 
@@ -2236,19 +2249,27 @@ static void diagnose_screen_zeigen_und_warten(esp_reset_reason_t grund)
     if (letzte > 0) {
         struct tm tm_letzte;
         localtime_r(&letzte, &tm_letzte);
-        snprintf(zeit_txt, sizeof zeit_txt, "%02d.%02d.%04d, %02d:%02d Uhr",
-                 tm_letzte.tm_mday, tm_letzte.tm_mon + 1, tm_letzte.tm_year + 1900,
-                 tm_letzte.tm_hour, tm_letzte.tm_min);
+        /* Reihenfolge/Format unterscheiden sich wie beim Datum auf dem
+         * Hauptbildschirm (siehe zeit_datum_text) - Deutsch TT.MM.JJJJ mit
+         * "Uhr", Englisch MM/DD/JJJJ ohne. */
+        if (sprache_aktuell() == SPRACHE_ENGLISCH)
+            snprintf(zeit_txt, sizeof zeit_txt, "%02d/%02d/%04d, %02d:%02d",
+                     tm_letzte.tm_mon + 1, tm_letzte.tm_mday, tm_letzte.tm_year + 1900,
+                     tm_letzte.tm_hour, tm_letzte.tm_min);
+        else
+            snprintf(zeit_txt, sizeof zeit_txt, "%02d.%02d.%04d, %02d:%02d Uhr",
+                     tm_letzte.tm_mday, tm_letzte.tm_mon + 1, tm_letzte.tm_year + 1900,
+                     tm_letzte.tm_hour, tm_letzte.tm_min);
     } else {
-        snprintf(zeit_txt, sizeof zeit_txt, "unbekannt (Zeit nie gesetzt)");
+        snprintf(zeit_txt, sizeof zeit_txt, "%s", text(TXT_ZEIT_NIE_GESETZT));
     }
 
     char grund_txt[64];
-    snprintf(grund_txt, sizeof grund_txt, "Grund: %s", reset_grund_kurz(grund));
+    snprintf(grund_txt, sizeof grund_txt, text(TXT_GRUND), reset_grund_kurz(grund));
     char zeit_zeile[80];
-    snprintf(zeit_zeile, sizeof zeit_zeile, "Zuletzt aktiv: %s", zeit_txt);
+    snprintf(zeit_zeile, sizeof zeit_zeile, text(TXT_ZULETZT_AKTIV), zeit_txt);
     char nummer_zeile[48];
-    snprintf(nummer_zeile, sizeof nummer_zeile, "Absturz Nr. %lu",
+    snprintf(nummer_zeile, sizeof nummer_zeile, text(TXT_ABSTURZ_NUMMER),
              (unsigned long)einstellungen_absturz_zaehler());
 
     lvgl_port_lock(0);
@@ -2259,7 +2280,7 @@ static void diagnose_screen_zeigen_und_warten(esp_reset_reason_t grund)
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *titel = lv_label_create(screen);
-    lv_label_set_text(titel, "NEUSTART NACH FEHLER");
+    lv_label_set_text(titel, text(TXT_DIAGNOSE_TITEL));
     lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
     lv_obj_set_style_text_color(titel, lv_color_hex(FARBE_WARNUNG), 0);
     lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 40);
@@ -2283,7 +2304,7 @@ static void diagnose_screen_zeigen_und_warten(esp_reset_reason_t grund)
     lv_obj_align(n, LV_ALIGN_TOP_MID, 0, 230);
 
     lv_obj_t *hinweis = lv_label_create(screen);
-    lv_label_set_text(hinweis, "Bitte abfotografieren, dann bestaetigen.");
+    lv_label_set_text(hinweis, text(TXT_DIAGNOSE_BESTAETIGEN));
     lv_obj_set_style_text_font(hinweis, &schrift_klein_28, 0);
     lv_obj_set_style_text_color(hinweis, lv_color_hex(FARBE_STATUS_HELL), 0);
     lv_obj_align(hinweis, LV_ALIGN_TOP_MID, 0, 290);
@@ -2293,7 +2314,7 @@ static void diagnose_screen_zeigen_und_warten(esp_reset_reason_t grund)
     lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -40);
     lv_obj_add_event_cb(btn, diagnose_ok_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *btn_label = lv_label_create(btn);
-    lv_label_set_text(btn_label, "Verstanden");
+    lv_label_set_text(btn_label, text(TXT_VERSTANDEN));
     lv_obj_set_style_text_font(btn_label, &schrift_mittel_40, 0);
     lv_obj_center(btn_label);
 
