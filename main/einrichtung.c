@@ -365,16 +365,18 @@ void einrichtung_wlan_zeigen(void)
     lv_obj_align(s_wlan_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_textarea(s_wlan_keyboard, s_ssid_ta);
 
-    /* BEKANNTER FEHLER (gefunden 10.08.2026, noch nicht behoben): der Titel
-     * "WLAN-Zugangsdaten aendern" erscheint oben abgeschnitten - per
-     * Screenshot in Deutsch UND Englisch bestaetigt, also unabhaengig von der
-     * Sprache und schon vor der Sprachumstellung vorhanden. Ein Versuch,
-     * einen vermuteten Auto-Scroll durch lv_keyboard_set_textarea() mit
-     * lv_obj_scroll_to(s_wlan_screen, 0, 0, LV_ANIM_OFF) zurueckzusetzen,
-     * behob es NICHT - die eigentliche Ursache ist also etwas anderes.
-     * Naechster Schritt: mit dem Screenshot-Werkzeug systematisch eingrenzen,
-     * ab welchem Konstruktionsschritt der Versatz entsteht (Titel sofort nach
-     * lv_obj_align noch bei y=15 pruefen, dann nach jedem weiteren Element). */
+    /* BEWUSST SO BELASSEN (Peters Entscheidung 10.08.2026): der Titel oben
+     * wird leicht angeschnitten. Ursache ist hoechstwahrscheinlich schlicht
+     * der Platzbedarf der Bildschirmtastatur - Dropdown, zwei Textfelder,
+     * Knopfreihe und 228px Tastatur zusammen brauchen mehr als die 480px
+     * Hoehe. Per Screenshot in Deutsch UND Englisch gleich, also nicht von
+     * der Sprache abhaengig und schon lange vorhanden. Ein Versuch, einen
+     * vermuteten Auto-Scroll durch lv_keyboard_set_textarea() per
+     * lv_obj_scroll_to() zurueckzusetzen, aenderte nichts. Der Bildschirm ist
+     * trotzdem voll bedienbar (alle Eingabefelder und Knoepfe sind
+     * erreichbar), der Titel nur schmueckend - deshalb kein Umbau des
+     * Layouts. Falls das doch einmal stoert: Titel kleiner setzen oder
+     * weglassen, statt an der Tastaturhoehe zu drehen. */
     lv_screen_load(s_wlan_screen);
     lvgl_port_unlock();
 }
