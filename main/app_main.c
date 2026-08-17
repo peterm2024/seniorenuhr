@@ -2068,6 +2068,11 @@ static bool einstellungen_bildschirm_verarbeiten(void)
             ota_version_installieren(gewaehlt);
             break;
         }
+        case EINSTELLUNGEN_AKTION_NEUSTART:
+            ESP_LOGI(TAG, "Neustart ueber das Einstellungen-Menue ausgeloest");
+            vTaskDelay(pdMS_TO_TICKS(500)); /* Log rausschreiben + "Neustart..." kurz zeigen */
+            esp_restart();
+            break;
         case EINSTELLUNGEN_AKTION_VERSION_ZURUECK:
             if (ota_auf_vorherige_version_wechseln() == ESP_OK) {
                 ESP_LOGI(TAG, "Zurueck auf vorherige Version - Neustart");

@@ -886,6 +886,19 @@ static void einstellungen_sprache_cb(lv_event_t *e)
     s_einstellungen_aktion = EINSTELLUNGEN_AKTION_SPRACHE;
 }
 
+static void einstellungen_neustart_cb(lv_event_t *e)
+{
+    /* Sofort sichtbare Rueckmeldung noch im Klick-Callback: der eigentliche
+     * Neustart passiert erst gut eine halbe Sekunde spaeter (app_main.c gibt
+     * dem Log Zeit zum Rausschreiben). Ohne diesen Text sieht man in der
+     * Zwischenzeit gar nichts und tippt womoeglich ein zweites Mal - genau
+     * das Problem, das der Update-Knopf frueher hatte. */
+    lv_obj_t *label = lv_obj_get_child(lv_event_get_target(e), 0);
+    if (label)
+        lv_label_set_text(label, text(TXT_NEUSTART_LAEUFT));
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_NEUSTART;
+}
+
 static void einstellungen_update_cb(lv_event_t *e)
 {
     (void)e;
@@ -1116,6 +1129,7 @@ void einrichtung_einstellungen_zeigen(void)
     snprintf(sprache_beschriftung, sizeof sprache_beschriftung, "%s: %s",
              text(TXT_SPRACHE), sprache_name(sprache_aktuell()));
     einstellungen_nav_button_erzeugen(reihe, sprache_beschriftung, einstellungen_sprache_cb);
+    einstellungen_nav_button_erzeugen(reihe, text(TXT_NEUSTART), einstellungen_neustart_cb);
 
     /* Tatsaechliche Hoehe der Reihe erst nach dem Layout-Durchlauf bekannt
      * (haengt davon ab, ob die Buttons in eine oder zwei Zeilen passen) -

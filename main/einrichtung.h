@@ -70,6 +70,14 @@ typedef enum {
      * erledigt: der wuerde sonst den gerade aktiven Screen loeschen, waehrend
      * dessen eigener Klick-Handler noch laeuft. */
     EINSTELLUNGEN_AKTION_SPRACHE,
+    /* Geraet neu starten (Peters Wunsch): der bisher einzige Weg dazu war,
+     * den Stecker zu ziehen - unpraktisch bei einem Geraet, das weit
+     * entfernt an der Wand steht und per Telefon bedient wird. Bewusst OHNE
+     * Sicherheitsabfrage, wie alle anderen Knoepfe dieses Menues: ein
+     * versehentlicher Neustart kostet nur die Boot-Zeit, und das Menue ist
+     * fuer die Eltern ohnehin unerreichbar (siehe Zugangskonzept unten).
+     * Bestaetigte Tabletten ueberleben ihn (kalender_speicher.c). */
+    EINSTELLUNGEN_AKTION_NEUSTART,
 } einstellungen_aktion_t;
 
 /* Nur nach EINSTELLUNGEN_AKTION_VERSION_WAEHLEN aussagekraeftig. */

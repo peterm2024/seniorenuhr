@@ -87,6 +87,8 @@ static const char *const TABELLE[TXT_ANZAHL][SPRACHE_ANZAHL] = {
     [TXT_DEMO_MODUS]                = { "Demo-Modus", "Demo mode" },
     [TXT_SIGNALTON]                 = { "Signalton bei Erinnerungen", "Sound on reminders" },
     [TXT_SPRACHE]                   = { "Sprache", "Language" },
+    [TXT_NEUSTART]                  = { "Neustart", "Restart" },
+    [TXT_NEUSTART_LAEUFT]           = { "Neustart...", "Restarting..." },
     [TXT_LAUFENDE_FIRMWARE]         = { "Laufende Firmware: %s", "Running firmware: %s" },
 
     [TXT_SUCHE_NACH_UPDATES]        = { "Suche nach Updates...", "Checking for updates..." },

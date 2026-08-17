@@ -102,6 +102,8 @@ typedef enum {
     TXT_DEMO_MODUS,
     TXT_SIGNALTON,
     TXT_SPRACHE,
+    TXT_NEUSTART,                   /* Knopf im Menue: startet das Geraet neu */
+    TXT_NEUSTART_LAEUFT,            /* Beschriftung desselben Knopfes nach dem Tipp */
     TXT_LAUFENDE_FIRMWARE,
 
     /* Update-Bereich */
