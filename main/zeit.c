@@ -1,4 +1,5 @@
 #include "zeit.h"
+#include "texte.h"
 #include "einstellungen.h"
 
 #include <stdio.h>
@@ -77,43 +78,55 @@ void zeit_uebernehmen(time_t zeitstempel)
 
 const char *zeit_wochentag_gross(const struct tm *t)
 {
-    static const char *namen[7] = {
-        "SONNTAG", "MONTAG", "DIENSTAG", "MITTWOCH",
-        "DONNERSTAG", "FREITAG", "SAMSTAG"
+    static const char *const namen[SPRACHE_ANZAHL][7] = {
+        { "SONNTAG", "MONTAG", "DIENSTAG", "MITTWOCH", "DONNERSTAG", "FREITAG", "SAMSTAG" },
+        { "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY" },
     };
     if (t->tm_wday < 0 || t->tm_wday > 6)
         return "";
-    return namen[t->tm_wday];
+    return namen[sprache_aktuell()][t->tm_wday];
 }
 
 const char *zeit_wochentag_kurz(const struct tm *t)
 {
-    static const char *namen[7] = {
-        "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"
+    /* Zwei Zeichen, weil die Wochentag-Spalte des Hauptbildschirms genau
+     * dafuer bemessen ist - im Englischen waeren drei ueblicher ("Sun"),
+     * das passt aber nicht in die Buttons. */
+    static const char *const namen[SPRACHE_ANZAHL][7] = {
+        { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa" },
+        { "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" },
     };
     if (t->tm_wday < 0 || t->tm_wday > 6)
         return "";
-    return namen[t->tm_wday];
+    return namen[sprache_aktuell()][t->tm_wday];
 }
 
 void zeit_datum_text(const struct tm *t, char *puffer, size_t puffer_groesse)
 {
-    static const char *monate[12] = {
-        "Januar", "Februar", "März", "April", "Mai", "Juni",
-        "Juli", "August", "September", "Oktober", "November", "Dezember"
+    static const char *const monate[SPRACHE_ANZAHL][12] = {
+        { "Januar", "Februar", "März", "April", "Mai", "Juni",
+          "Juli", "August", "September", "Oktober", "November", "Dezember" },
+        { "January", "February", "March", "April", "May", "June",
+          "July", "August", "September", "October", "November", "December" },
     };
-    const char *monat = (t->tm_mon >= 0 && t->tm_mon < 12) ? monate[t->tm_mon] : "";
-    snprintf(puffer, puffer_groesse, "%d. %s %d", t->tm_mday, monat, t->tm_year + 1900);
+    sprache_t sprache = sprache_aktuell();
+    const char *monat = (t->tm_mon >= 0 && t->tm_mon < 12) ? monate[sprache][t->tm_mon] : "";
+    /* Nicht nur die Monatsnamen, auch die REIHENFOLGE unterscheidet sich:
+     * "10. August 2026" gegenueber "August 10, 2026". */
+    if (sprache == SPRACHE_ENGLISCH)
+        snprintf(puffer, puffer_groesse, "%s %d, %d", monat, t->tm_mday, t->tm_year + 1900);
+    else
+        snprintf(puffer, puffer_groesse, "%d. %s %d", t->tm_mday, monat, t->tm_year + 1900);
 }
 
 const char *zeit_tageszeit(const struct tm *t)
 {
     int stunde = t->tm_hour;
     if (stunde >= 22 || stunde < 6)
-        return "Nacht";
+        return text(TXT_NACHT);
     if (stunde < 12)
-        return "Vormittag";
+        return text(TXT_VORMITTAG);
     if (stunde < 18)
-        return "Nachmittag";
-    return "Abend";
+        return text(TXT_NACHMITTAG);
+    return text(TXT_ABEND);
 }

@@ -197,6 +197,32 @@ int main(void)
     n = ics_termine_fuer_tag("kein ics", 8, 2026, 7, 15, t, 16);
     PRUEFE(n == 0, "Nicht-ICS-Text ergibt leere Liste");
 
+    /* Sprachunabhaengige Tabletten-Praefixe (siehe TABLETTEN_PRAEFIXE in
+     * ics_parser.c): das Praefix steht in den KALENDERDATEN des Nutzers, ein
+     * Wechsel der Oberflaechensprache darf bestehende Eintraege deshalb nie
+     * entwerten - sonst waeren aus allen Tabletten schlagartig gewoehnliche
+     * Termine geworden und die Erinnerung haette geschwiegen. */
+    printf("== Tabletten-Praefixe, sprachunabhaengig ==\n");
+    static const char ENG[] =
+        "BEGIN:VCALENDAR\r\n"
+        "BEGIN:VEVENT\r\nDTSTART:20260715T060000Z\r\nSUMMARY:PILL: Aspirin\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nDTSTART:20260715T070000Z\r\nSUMMARY:pills: Vitamin D\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nDTSTART:20260715T080000Z\r\nSUMMARY:MED: Insulin\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nDTSTART:20260715T090000Z\r\nSUMMARY:TABLETTE: Herz\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nDTSTART:20260715T100000Z\r\nSUMMARY:Zahnarzt\r\nEND:VEVENT\r\n"
+        "END:VCALENDAR\r\n";
+    n = ics_termine_fuer_tag(ENG, sizeof ENG - 1, 2026, 7, 15, t, 16);
+    int i_asp = suche(t, n, "Aspirin");
+    int i_vit = suche(t, n, "Vitamin D");
+    int i_ins = suche(t, n, "Insulin");
+    int i_herz = suche(t, n, "Herz");
+    int i_zahn = suche(t, n, "Zahnarzt");
+    PRUEFE(i_asp >= 0 && t[i_asp].ist_tablette, "englisches PILL: wird als Tablette erkannt");
+    PRUEFE(i_vit >= 0 && t[i_vit].ist_tablette, "pills: erkannt (Gross-/Kleinschreibung egal)");
+    PRUEFE(i_ins >= 0 && t[i_ins].ist_tablette, "MED: wird als Tablette erkannt");
+    PRUEFE(i_herz >= 0 && t[i_herz].ist_tablette, "deutsches TABLETTE: funktioniert unveraendert");
+    PRUEFE(i_zahn >= 0 && !t[i_zahn].ist_tablette, "gewoehnlicher Termin bleibt Termin");
+
     printf("\n%d Pruefungen, %d Fehler\n", geprueft, fehler);
     return fehler ? 1 : 0;
 }

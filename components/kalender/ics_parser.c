@@ -369,16 +369,33 @@ static void text_escape_kopieren(const char *roh, char *ziel, size_t ziel_kapazi
     ziel[o] = '\0';
 }
 
-/* Titel aufbereiten: TABLETTE:-Praefix erkennen, dann Escapes aufloesen. */
+/* Praefixe, die einen Kalendereintrag als Tablette kennzeichnen.
+ *
+ * BEWUSST SPRACHUNABHAENGIG: hier werden IMMER alle Varianten erkannt, egal
+ * welche Oberflaechensprache eingestellt ist (siehe texte.h). Das Praefix
+ * steht in den KALENDERDATEN des Nutzers, nicht in der Oberflaeche - wuerde
+ * es der Spracheinstellung folgen, haette ein Umschalten schlagartig alle
+ * bestehenden Eintraege zu gewoehnlichen Terminen gemacht und damit die
+ * Tabletten-Erinnerung stillgelegt. Eine neue Sprache ergaenzt hier also nur
+ * eine Zeile, nimmt aber nie eine weg. */
+static const char *const TABLETTEN_PRAEFIXE[] = {
+    "TABLETTE:", "TABLETTEN:",   /* deutsch */
+    "PILL:", "PILLS:", "MED:",   /* englisch */
+};
+
+/* Titel aufbereiten: Tabletten-Praefix erkennen, dann Escapes aufloesen. */
 static void titel_uebernehmen(const char *roh, ics_termin_t *ziel)
 {
     const char *p = roh;
 
     ziel->ist_tablette = false;
-    if (beginnt_mit_ci(p, "TABLETTE:") || beginnt_mit_ci(p, "TABLETTEN:")) {
-        ziel->ist_tablette = true;
-        p = strchr(p, ':') + 1;
-        while (*p == ' ') p++;
+    for (size_t i = 0; i < sizeof TABLETTEN_PRAEFIXE / sizeof TABLETTEN_PRAEFIXE[0]; i++) {
+        if (beginnt_mit_ci(p, TABLETTEN_PRAEFIXE[i])) {
+            ziel->ist_tablette = true;
+            p = strchr(p, ':') + 1;
+            while (*p == ' ') p++;
+            break;
+        }
     }
 
     text_escape_kopieren(p, ziel->titel, sizeof ziel->titel);

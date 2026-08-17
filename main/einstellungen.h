@@ -25,6 +25,13 @@ void einstellungen_laden(void);
 bool einstellungen_buzzer_aktiv(void);
 void einstellungen_buzzer_aktiv_setzen(bool an);
 
+/* Sprache der Oberflaeche (siehe texte.h). Als uint8_t statt sprache_t, damit
+ * dieser Header nicht texte.h einziehen muss; einstellungen_laden() reicht den
+ * Wert beim Start selbst an sprache_setzen() weiter, sodass die Oberflaeche von
+ * der ersten gezeichneten Zeile an in der richtigen Sprache steht. */
+uint8_t einstellungen_sprache(void);
+void einstellungen_sprache_setzen(uint8_t sprache);
+
 /* Kalender-Adresse: liefert den manuell gesetzten Override, falls vorhanden,
  * sonst KALENDER_ICS_URL aus secrets.h. puffer wird immer nullterminiert. */
 void einstellungen_kalender_url_effektiv(char *puffer, size_t puffer_groesse);

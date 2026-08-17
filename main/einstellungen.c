@@ -1,4 +1,5 @@
 #include "einstellungen.h"
+#include "texte.h"
 #include "secrets.h"
 
 #include <stdio.h>
@@ -19,6 +20,7 @@
 static const char *TAG = "einstellungen";
 
 static bool s_buzzer_aktiv;
+static uint8_t s_sprache;
 static char s_kalender_url[EINSTELLUNGEN_KALENDER_URL_MAX];
 static time_t s_letzte_anzeige;
 static time_t s_letzte_anzeige_nvs_stand;
@@ -45,6 +47,9 @@ void einstellungen_laden(void)
     if (nvs_get_u8(h, "buzzer", &u8) == ESP_OK)
         s_buzzer_aktiv = u8 != 0;
 
+    if (nvs_get_u8(h, "sprache", &u8) == ESP_OK)
+        s_sprache = u8;
+
     size_t laenge = sizeof s_kalender_url;
     if (nvs_get_str(h, "kal_url", s_kalender_url, &laenge) != ESP_OK)
         s_kalender_url[0] = '\0';
@@ -62,11 +67,30 @@ void einstellungen_laden(void)
     nvs_get_u32(h, "crashcnt", &s_absturz_zaehler);
 
     nvs_close(h);
-    ESP_LOGI(TAG, "Einstellungen geladen (Buzzer=%d, Kalender-Override=%s)",
-             s_buzzer_aktiv, s_kalender_url[0] ? "ja" : "nein");
+
+    /* Sprache sofort setzen, noch bevor irgendein Bildschirm entsteht -
+     * sonst zeigte der Startbildschirm kurz Deutsch und wechselte spaeter. */
+    sprache_setzen((sprache_t)s_sprache);
+
+    ESP_LOGI(TAG, "Einstellungen geladen (Buzzer=%d, Kalender-Override=%s, Sprache=%s)",
+             s_buzzer_aktiv, s_kalender_url[0] ? "ja" : "nein", sprache_name((sprache_t)s_sprache));
 }
 
 bool einstellungen_buzzer_aktiv(void) { return s_buzzer_aktiv; }
+
+uint8_t einstellungen_sprache(void) { return s_sprache; }
+
+void einstellungen_sprache_setzen(uint8_t sprache)
+{
+    s_sprache = sprache;
+    sprache_setzen((sprache_t)sprache);
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMENSRAUM, NVS_READWRITE, &h) != ESP_OK)
+        return;
+    nvs_set_u8(h, "sprache", sprache);
+    nvs_commit(h);
+    nvs_close(h);
+}
 
 void einstellungen_buzzer_aktiv_setzen(bool an)
 {
