@@ -1,6 +1,6 @@
 # Seniorenuhr
 
-🇩🇪 **Deutsch** (dieses Dokument) · 🇬🇧 [**English summary**](#english-summary)
+:de: **Deutsch** (dieses Dokument) · :gb: [**English summary**](#english-summary)
 
 *The interface is available in German and English (further languages on
 demand). Documentation and source comments are in German.*
@@ -232,12 +232,12 @@ Teil dieses Repositories, sondern werden beim Bauen über den
 ESP-IDF-Komponentenmanager bezogen; sie stehen unter ihren eigenen permissiven
 Lizenzen (Apache 2.0 bzw. MIT).
 
-<!-- Expliziter Anker: die Ueberschrift traegt eine Flagge, und GitHub wuerde
-     daraus einen anderen Namen ableiten ("#-english-summary"). So bleibt der
-     Verweis aus der Kopfzeile stabil, egal was mit der Ueberschrift passiert. -->
+<!-- Expliziter Anker: die Ueberschrift traegt eine Flagge, GitHub leitet daraus
+     einen anderen Namen ab ("#gb-english-summary"). So bleibt der Verweis aus
+     der Kopfzeile stabil, egal was mit der Ueberschrift noch passiert. -->
 <a id="english-summary"></a>
 
-## 🇬🇧 English summary
+## :gb: English summary
 
 A calendar clock for very old people, built on the Waveshare
 ESP32-S3-Touch-LCD-7 (7-inch touch display, 800 × 480). The device sits
