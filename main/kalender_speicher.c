@@ -24,7 +24,9 @@ static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 esp_err_t kalender_speicher_init(void)
 {
     const esp_vfs_fat_mount_config_t mount_cfg = {
-        .max_files = 2,
+        /* 4 statt 2: das Tabletten-Protokoll (tabletten_protokoll.c) haelt
+         * beim Kuerzen kurzzeitig Quell- UND Zieldatei gleichzeitig offen. */
+        .max_files = 4,
         .format_if_mount_failed = true,
         .allocation_unit_size = 4096,
     };

@@ -8,10 +8,12 @@ on:
   push:
     paths:
       - "components/kalender/**"
+      - "main/tabletten_protokoll.*"
       - "test_host/**"
   pull_request:
     paths:
       - "components/kalender/**"
+      - "main/tabletten_protokoll.*"
       - "test_host/**"
 
 jobs:
@@ -29,5 +31,19 @@ jobs:
             test_host/test_ics_parser.c \
             -o test_host/test_ics
 
-      - name: Tests ausfuehren
+      - name: ICS-Parser-Tests ausfuehren
         run: ./test_host/test_ics
+
+      # Liegt in main/ und braucht deshalb die ESP-Header-Stubs; die Dateipfade
+      # werden auf temporaere Namen umgebogen (der Test legt Dateien an).
+      - name: Protokoll-Tests bauen
+        run: |
+          gcc -std=c99 -Wall -Wextra -Werror \
+            -Icomponents/kalender/include -Imain -Itest_host/stubs \
+            -include test_host/stubs/testpfade.h \
+            main/tabletten_protokoll.c \
+            test_host/test_protokoll.c \
+            -o test_host/test_protokoll
+
+      - name: Protokoll-Tests ausfuehren
+        run: cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/test_host/test_protokoll"

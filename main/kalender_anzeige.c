@@ -2,6 +2,7 @@
 #include "einstellungen.h"
 #include "kalender_holen.h"
 #include "kalender_speicher.h"
+#include "tabletten_protokoll.h"
 #include "netz.h"
 #include "zeit.h"
 #include "ics_parser.h"
@@ -172,11 +173,38 @@ static void fuer_heute_neu_parsen(void)
             ESP_LOGI(TAG, "%d bereits bestaetigte Tablette(n) von Flash uebernommen (nach Neustart)",
                      n_gespeichert);
     }
+    /* Letzte Gelegenheit, den abgeschlossenen Vortag zu sichern: gleich
+     * ueberschreibt das memcpy s_heute_eintraege unwiederbringlich. Nur bei
+     * einem ECHTEN Tageswechsel im laufenden Betrieb - beim ersten Parse nach
+     * dem Start (s_letzter_tag_schluessel == -1) liegt kein vollstaendiger
+     * Vortag vor, und ein halber Tag wuerde die Bilanz verfaelschen (siehe
+     * tabletten_protokoll.h). Hier nur einsammeln; geschrieben wird nach dem
+     * Freigeben des Mutex, damit die Anzeige nicht auf den Flash wartet. */
+    static tabletten_protokoll_eintrag_t s_archiv[KALENDER_EINTRAEGE_MAX];
+    int archiv_anzahl = 0;
+    if (neuer_tag && s_letzter_tag_schluessel != -1) {
+        for (int i = 0; i < s_heute_anzahl && archiv_anzahl < KALENDER_EINTRAEGE_MAX; i++) {
+            const kalender_tag_eintrag_t *alt = &s_heute_eintraege[i];
+            if (!alt->ist_tablette || alt->ganztags)
+                continue; /* ohne Uhrzeit gibt es kein Einnahme-Fenster zu bewerten */
+            s_archiv[archiv_anzahl].tag_schluessel = s_letzter_tag_schluessel;
+            s_archiv[archiv_anzahl].soll_minute = alt->stunde * 60 + alt->minute;
+            s_archiv[archiv_anzahl].ende_minute = kalender_tablette_fenster_ende(alt);
+            s_archiv[archiv_anzahl].ist_minute = alt->bestaetigt ? alt->bestaetigt_minute : -1;
+            snprintf(s_archiv[archiv_anzahl].titel, ICS_TITEL_MAX, "%.*s",
+                     ICS_TITEL_MAX - 1, alt->titel);
+            archiv_anzahl++;
+        }
+    }
+
     memcpy(s_heute_eintraege, neue_eintraege, sizeof neue_eintraege[0] * (size_t)neue_anzahl);
     s_heute_anzahl = neue_anzahl;
 
     s_version++;
     xSemaphoreGive(s_mutex);
+
+    if (archiv_anzahl > 0)
+        tabletten_protokoll_tag_ablegen(s_archiv, archiv_anzahl);
 
     s_letzter_tag_schluessel = schluessel;
     ESP_LOGI(TAG, "Anzeige aktualisiert (%d Termine/Tabletten heute)", n);
