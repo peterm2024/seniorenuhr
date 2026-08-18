@@ -60,3 +60,8 @@ Projekts - es gibt passende Entwuerfe fuer das Board frei verfuegbar.
 - `geraet_2026-08-18.jpg` — Kamerafoto des laufenden Geraets im Gehaeuse
   (Abendmodus, gedimmt). Erste Aufnahme, die das Geraet als Gegenstand zeigt
   statt nur seinen Bildschirminhalt
+- `kalender_beispiel_2026-08-18.png` — Auszug aus dem Google-Kalender, der die
+  Uhr speist (Testkalender "Seniorenuhr"). Zeigt die Pflege-Seite, die auf dem
+  Geraet selbst nie sichtbar wird: `Tablette:`-Praefix, taegliche Wiederholung,
+  Endzeit als Einnahme-Fenster und die Beschreibung, die spaeter als Notiz
+  unter der Tablette erscheint

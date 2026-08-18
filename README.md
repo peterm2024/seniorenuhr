@@ -34,10 +34,26 @@ Tabletten sind gewöhnliche wiederkehrende Kalendereinträge mit dem Präfix
 Liste und lässt sie per Fingertipp abhaken; der Abhak-Status wird lokal
 gespeichert und übersteht auch einen Neustart.
 
+<img src="docs/screenshots/kalender_beispiel_2026-08-18.png" alt="Google-Kalender mit täglich wiederkehrenden Tabletten-Einträgen" width="620">
+
+*So sieht die Pflege im Google Kalender aus: ein eigener Kalender „Seniorenuhr"
+mit täglich wiederkehrenden Einträgen.*
+
+Zwei Angaben aus dem Kalendereintrag nutzt die Uhr darüber hinaus:
+
+- **Die Endzeit legt das Einnahme-Fenster fest.** Der Eintrag oben gilt von
+  11:30 bis 13:00 — erst danach zählt eine Bestätigung als „zu spät". Ohne
+  Endzeit nimmt die Uhr 60 Minuten an.
+- **Die Beschreibung erscheint als Notiz unter der Tablette**, hier „Vor dem
+  Essen". Gedacht für kurze Hinweise wie „nüchtern" oder „mit viel Wasser".
+
 Erkannt werden neben `TABLETTE:`/`TABLETTEN:` auch die englischen Varianten
 `PILL:`, `PILLS:` und `MED:` — und zwar **immer**, unabhängig von der
 eingestellten Oberflächensprache. Ein Sprachwechsel darf bestehende
 Kalendereinträge nie entwerten.
+
+Alles ohne Präfix ist ein gewöhnlicher Termin und landet in der rechten Spalte
+(im Bild etwa der Arzttermin am 18.).
 
 Die Uhrzeit kommt per NTP (Zeitzone Europe/Berlin, Sommerzeit automatisch). Das
 Board hat keine batteriegepufferte Echtzeituhr — nach einem Stromausfall holt
@@ -234,7 +250,10 @@ Medication entries are ordinary recurring calendar events prefixed with
 recognised **regardless of the selected interface language**, so switching
 languages never devalues existing calendar entries. The clock lists these
 entries separately and lets them be checked off by touch; the state is stored
-locally and survives a restart.
+locally and survives a restart. The event's **end time defines the intake
+window** (a confirmation after it counts as late; without one, 60 minutes are
+assumed), and its **description is shown as a note** beneath the medication —
+see the calendar screenshot in the German section above.
 
 **Design principles.** Large type, high contrast, no scrolling on the main
 screen, and a three-stage day/evening/night colour scheme. Deliberate, long
