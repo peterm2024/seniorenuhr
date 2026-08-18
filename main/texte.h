@@ -116,6 +116,7 @@ typedef enum {
     TXT_RUECKBLICK_LEER,            /* wenn noch gar nichts aufgezeichnet wurde */
     TXT_RUECKBLICK_WEITERE,         /* "... und %d weitere" */
     TXT_MINUTEN_KURZ,               /* Einheit in "(+130 min)" */
+    TXT_GESTERN_KURZ,               /* Marke vor nachhaengenden Tabletten des Vortags */
     TXT_LAUFENDE_FIRMWARE,
 
     /* Update-Bereich */

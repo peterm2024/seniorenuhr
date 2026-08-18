@@ -101,6 +101,7 @@ static const char *const TABELLE[TXT_ANZAHL][SPRACHE_ANZAHL] = {
                                         "Nothing recorded yet.\nThe first day appears here after midnight." },
     [TXT_RUECKBLICK_WEITERE]        = { "... und %d weitere", "... and %d more" },
     [TXT_MINUTEN_KURZ]              = { "Min", "min" },
+    [TXT_GESTERN_KURZ]              = { "Gestern", "Yesterday" },
     [TXT_LAUFENDE_FIRMWARE]         = { "Laufende Firmware: %s", "Running firmware: %s" },
 
     [TXT_SUCHE_NACH_UPDATES]        = { "Suche nach Updates...", "Checking for updates..." },

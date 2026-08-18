@@ -1830,6 +1830,7 @@ static void uhr_tick(lv_timer_t *timer)
     }
     lvgl_port_unlock();
 
+
     /* Wochentag-Buttons der Tagesansicht - intern gegen unnoetige Updates
      * abgesichert (nur bei tatsaechlichem Tageswechsel). */
     tagesansicht_tag_aktualisieren();
@@ -1926,6 +1927,38 @@ static void uhr_tick(lv_timer_t *timer)
      * passiert nichts) soll die Erinnerung ja gerade greifen. */
     if (hat_daten && zeit_bekannt)
         erinnerung_pruefen(eintraege, anzahl, jetzt_minuten, modus);
+
+    /* Nachts bleibt die Tabletten-Spalte sichtbar, SOLANGE etwas offen ist
+     * (Peters Entscheidung 18.08.2026). modus_anwenden() blendet nachts alles
+     * Zusaetzliche aus - das gilt weiter fuer die Termine, aber eine faellige
+     * Tablette soll nicht unsichtbar werden, nur weil es 22 Uhr ist. Bewusst
+     * ohne Popup und ohne Aufhellen (siehe erinnerung_pruefen): der Bildschirm
+     * bleibt ruhig, wer hinschaut sieht es.
+     *
+     * Hier im Sekunden-Tick statt in modus_anwenden(), weil sich der Zustand
+     * auch OHNE Moduswechsel aendert - eine Tablette wird faellig oder
+     * abgehakt. Ausserhalb des Nachtmodus wird nichts angefasst, dort
+     * entscheidet weiterhin allein modus_anwenden(). */
+    if (modus == MODUS_NACHT && s_tabletten_ueberschrift && s_tabletten_spalte.container) {
+        bool offene_tablette = false;
+        for (int k = 0; k < anzahl && !offene_tablette; k++) {
+            if (!eintraege[k].ist_tablette || eintraege[k].bestaetigt)
+                continue;
+            kalender_tablette_status_t st =
+                kalender_tablette_status(&eintraege[k], zeit_bekannt, jetzt_minuten);
+            offene_tablette = (st == KALENDER_TABLETTE_FAELLIG ||
+                               st == KALENDER_TABLETTE_UEBERFAELLIG);
+        }
+        lvgl_port_lock(0);
+        if (offene_tablette) {
+            lv_obj_remove_flag(s_tabletten_ueberschrift, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(s_tabletten_spalte.container, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_tabletten_ueberschrift, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_tabletten_spalte.container, LV_OBJ_FLAG_HIDDEN);
+        }
+        lvgl_port_unlock();
+    }
 
     /* Update-Hinweisfenster: folgt dem ota_laeuft()-Zustand unabhaengig
      * davon, ob sich sonst an der Anzeige etwas geaendert hat - deshalb

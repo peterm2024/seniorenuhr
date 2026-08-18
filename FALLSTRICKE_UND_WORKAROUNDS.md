@@ -973,3 +973,55 @@ Garantie - eine dazwischenliegende Funktion kann genau die Bedingung aufheben, a
 beruft. Wo eine Reihenfolge fuer die Optik zwingend ist, muss sie erzwungen werden (hier: ein
 gemeinsamer Lock), nicht nur beschrieben. Und erneut: Peters Beobachtung war praezise richtig
 (nach #19, #28, #41 das vierte Mal).
+
+---
+
+## 43. Spaete Tabletten fielen durch Mitternacht - unsichtbar, nicht abhakbar, sofort "vergessen"
+
+**Problem:** Peters Beobachtung: "Um 1:00 Uhr sehe ich keine Checkbox bei einem Medikament, das um
+23:00 Uhr eingenommen werden sollte." Dahinter steckten vier Befunde, die erst zusammen das
+eigentliche Loch ergaben:
+
+1. **Nie erinnert.** Der Nachtmodus beginnt um 22:00 (`zeit_tageszeit`), und `erinnerung_pruefen()`
+   kehrt darin sofort zurueck - Peters ausdruecklicher Wunsch ("Bildschirm bleibt zwischen 22:00
+   und 6:00 dunkel"). Eine 23:00-Tablette bekam damit NIE ein Erinnerungsfenster.
+2. **Nicht sichtbar.** Nachts blendet `modus_anwenden()` Tabletten und Termine ganz aus.
+3. **Um 00:00 verschwunden.** `fuer_heute_neu_parsen()` baut die Tagesliste neu auf; alle
+   Zeitvergleiche rechnen in "Minuten seit heute 00:00". Die gestrige Tablette war weg, und die
+   HEUTIGE 23:00-Tablette stand korrekt ohne Checkbox da (noch 22 Stunden hin) - genau das, was
+   Peter sah.
+4. **Sofort als Versaeumnis gebucht.** Das tags zuvor eingebaute Langzeitprotokoll (#42-Nachbar,
+   `tabletten_protokoll.c`) archivierte den Vortag um 00:00 mit `ist_minute = -1`. Wer um 23:55
+   nahm und um 00:10 abhaken wollte, stand dauerhaft als "vergessen" in der Bilanz.
+
+**Loesung:** Ein "schwebender Vortag" (`s_vortag` in `kalender_anzeige.c`). Beim Tageswechsel wird
+der komplette Vortag dorthin gerettet statt archiviert; seine noch offenen Tabletten werden bei
+JEDEM Parse-Lauf vorne in die Tagesliste eingeblendet (`vom_vortag = true`) und bleiben abhakbar.
+Erst ab `KALENDER_UEBERHANG_ENDE_STUNDE` (04:00, Peters Wahl) wandert der Tag ins Protokoll und
+verschwindet aus der Anzeige.
+
+Der Kern ist die Zeitrechnung: `kalender_tablette_soll_minute()` versetzt einen Vortags-Eintrag um
+einen ganzen Tag zurueck. Ohne das galt eine 23:00-Tablette um 01:00 als "in 22 Stunden faellig"
+(ZUKUNFT) - also weiterhin ohne Checkbox. Auf dem Geraet mit temporaerer Instrumentierung
+geprueft, alle drei Faelle wie erwartet:
+
+    Vortag 23:00,       jetzt 01:00 -> soll=-60  ende=0    status=UEBERFAELLIG
+    Heute  23:00,       jetzt 01:00 -> soll=1380 ende=1440 status=ZUKUNFT
+    Vortag 23:00-23:30, jetzt 00:10 -> ende=-30           status=UEBERFAELLIG
+
+Zusaetzlich bleibt die Tabletten-Spalte nachts sichtbar, solange etwas offen ist - ohne Popup und
+ohne Aufhellen, damit die Nachtruhe erhalten bleibt (Peters Entscheidung: "Liste ja, Fenster
+nein").
+
+**Zwei Fallen beim Nachbauen:**
+
+- Die Bestaetigung eines nachhaengenden Eintrags muss an den schwebenden Vortag zurueckgeschrieben
+  werden. Sonst ist sie beim naechsten Kalender-Abruf (alle 15 min, baut die Tagesliste neu auf)
+  wieder verschwunden und fehlt spaeter im Protokoll.
+- Nachhaengende Eintraege duerfen NICHT in `tablette.txt` landen: die Datei gilt fuer den heutigen
+  Tagesschluessel, der Eintrag stammt aber von gestern - nach einem Neustart erschiene die
+  gestrige Tablette sonst als heute bereits genommen.
+
+**Lehre:** "Der Tag wechselt um Mitternacht" ist eine Kalender-Wahrheit, keine menschliche. Wo
+eine Anzeige dem Tagesrhythmus von Menschen folgen soll, braucht die Tagesgrenze einen Uebergang -
+und solange der laeuft, darf noch kein Urteil ueber den vergangenen Tag gefaellt werden.

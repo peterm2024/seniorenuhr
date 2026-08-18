@@ -65,6 +65,19 @@ static int s_letzter_tag_schluessel = -1; /* JJJJMMTT des letzten Parse-Laufs */
 static kalender_tag_eintrag_t s_heute_eintraege[KALENDER_EINTRAEGE_MAX];
 static int s_heute_anzahl = 0;
 
+/* Der "schwebende" Vortag: beim Tageswechsel hierher gerettet und erst nach
+ * KALENDER_UEBERHANG_ENDE_STUNDE ins Langzeitprotokoll geschrieben. Bis dahin
+ * werden die noch OFFENEN Tabletten daraus vorne in s_heute_eintraege
+ * eingeblendet (mit vom_vortag = true), damit sie sichtbar und abhakbar
+ * bleiben.
+ *
+ * Enthaelt bewusst AUCH die bereits bestaetigten: nur so ist der Tag beim
+ * spaeteren Archivieren vollstaendig, und die Bilanz zaehlt nicht nur die
+ * Versaeumnisse. */
+static kalender_tag_eintrag_t s_vortag[KALENDER_EINTRAEGE_MAX];
+static int s_vortag_anzahl = 0;
+static int s_vortag_schluessel = -1; /* -1 = kein schwebender Vortag */
+
 static int heute_schluessel(struct tm *ausgabe_lokal)
 {
     time_t jetzt = time(NULL);
@@ -92,6 +105,89 @@ static void eintrag_uebernehmen(kalender_tag_eintrag_t *ziel, const ics_termin_t
     ziel->ist_tablette = quelle->ist_tablette;
     ziel->bestaetigt = false;
     ziel->bestaetigt_minute = -1;
+    ziel->vom_vortag = false; /* frisch aus dem Kalender = immer der heutige Tag */
+}
+
+/* Schreibt den schwebenden Vortag ins Langzeitprotokoll und vergisst ihn.
+ * `erzwingen` = true umgeht die Uhrzeitpruefung (gebraucht, wenn ein zweiter
+ * Tageswechsel den bisherigen Vortag sonst still ueberschriebe).
+ *
+ * Aufrufer muss den Mutex halten: die Funktion liest s_vortag. Das Schreiben
+ * selbst passiert auf einem lokalen Abzug, damit der Flash-Zugriff nicht die
+ * Anzeige blockiert. */
+static void vortag_archivieren_falls_faellig(bool erzwingen)
+{
+    if (s_vortag_schluessel < 0 || s_vortag_anzahl == 0)
+        return;
+
+    if (!erzwingen) {
+        struct tm lokal;
+        int heute = heute_schluessel(&lokal);
+        /* Faellig, sobald die Ueberhang-Stunde erreicht ist - oder sobald der
+         * Vortag gar nicht mehr "gestern" ist (Geraet lief ueber mehrere Tage
+         * durch, ohne dass die Stunde je getroffen wurde). */
+        bool stunde_erreicht = (heute != s_vortag_schluessel) &&
+                               (lokal.tm_hour >= KALENDER_UEBERHANG_ENDE_STUNDE);
+        if (!stunde_erreicht)
+            return;
+    }
+
+    static tabletten_protokoll_eintrag_t s_archiv[KALENDER_EINTRAEGE_MAX];
+    int anzahl = 0;
+    for (int i = 0; i < s_vortag_anzahl && anzahl < KALENDER_EINTRAEGE_MAX; i++) {
+        const kalender_tag_eintrag_t *alt = &s_vortag[i];
+        s_archiv[anzahl].tag_schluessel = s_vortag_schluessel;
+        /* Bewusst OHNE kalender_tablette_soll_minute(): im Protokoll steht die
+         * Uhrzeit des jeweiligen Tages, nicht relativ zu heute. */
+        s_archiv[anzahl].soll_minute = alt->stunde * 60 + alt->minute;
+        s_archiv[anzahl].ende_minute = alt->hat_ende
+                                           ? alt->end_stunde * 60 + alt->end_minute
+                                           : s_archiv[anzahl].soll_minute + KALENDER_TABLETTE_UEBERFAELLIG_MIN;
+        s_archiv[anzahl].ist_minute = alt->bestaetigt ? alt->bestaetigt_minute : -1;
+        snprintf(s_archiv[anzahl].titel, ICS_TITEL_MAX, "%.*s", ICS_TITEL_MAX - 1, alt->titel);
+        anzahl++;
+    }
+
+    int schluessel = s_vortag_schluessel;
+    s_vortag_anzahl = 0;
+    s_vortag_schluessel = -1;
+
+    /* Ausserhalb des Mutex waere sauberer, ist hier aber nicht noetig: der
+     * Vorgang laeuft hoechstens einmal taeglich und schreibt wenige hundert
+     * Byte. */
+    if (anzahl > 0) {
+        tabletten_protokoll_tag_ablegen(s_archiv, anzahl);
+        ESP_LOGI(TAG, "Vortag %d ins Protokoll uebernommen (%d Tablette(n))", schluessel, anzahl);
+    }
+}
+
+/* Blendet die noch OFFENEN Tabletten des schwebenden Vortags vorne in
+ * s_heute_eintraege ein - vorne, weil sie das Dringendste sind, was auf dem
+ * Schirm steht. Aufrufer muss den Mutex halten.
+ *
+ * Wird bei JEDEM Parse-Lauf erneut aufgerufen (nicht nur beim Tageswechsel):
+ * s_heute_eintraege wird alle 15 Minuten komplett neu aufgebaut, der Ueberhang
+ * ginge sonst beim naechsten Kalender-Abruf verloren. */
+static void ueberhang_einblenden(const struct tm *jetzt)
+{
+    if (s_vortag_schluessel < 0 || s_vortag_anzahl == 0)
+        return;
+    if (jetzt->tm_hour >= KALENDER_UEBERHANG_ENDE_STUNDE)
+        return; /* Ueberhang abgelaufen - archiviert wird im naechsten Tick */
+
+    /* Von hinten nach vorne einsetzen, damit die Reihenfolge des Vortags
+     * erhalten bleibt. */
+    for (int i = s_vortag_anzahl - 1; i >= 0; i--) {
+        if (s_vortag[i].bestaetigt)
+            continue; /* erledigt - gehoert nicht mehr auf den Schirm */
+        if (s_heute_anzahl >= KALENDER_EINTRAEGE_MAX)
+            break;
+        memmove(&s_heute_eintraege[1], &s_heute_eintraege[0],
+                sizeof s_heute_eintraege[0] * (size_t)s_heute_anzahl);
+        s_heute_eintraege[0] = s_vortag[i];
+        s_heute_eintraege[0].vom_vortag = true;
+        s_heute_anzahl++;
+    }
 }
 
 static void fuer_heute_neu_parsen(void)
@@ -173,38 +269,44 @@ static void fuer_heute_neu_parsen(void)
             ESP_LOGI(TAG, "%d bereits bestaetigte Tablette(n) von Flash uebernommen (nach Neustart)",
                      n_gespeichert);
     }
-    /* Letzte Gelegenheit, den abgeschlossenen Vortag zu sichern: gleich
-     * ueberschreibt das memcpy s_heute_eintraege unwiederbringlich. Nur bei
-     * einem ECHTEN Tageswechsel im laufenden Betrieb - beim ersten Parse nach
-     * dem Start (s_letzter_tag_schluessel == -1) liegt kein vollstaendiger
-     * Vortag vor, und ein halber Tag wuerde die Bilanz verfaelschen (siehe
-     * tabletten_protokoll.h). Hier nur einsammeln; geschrieben wird nach dem
-     * Freigeben des Mutex, damit die Anzeige nicht auf den Flash wartet. */
-    static tabletten_protokoll_eintrag_t s_archiv[KALENDER_EINTRAEGE_MAX];
-    int archiv_anzahl = 0;
+    /* Letzte Gelegenheit, den abgeschlossenen Vortag zu retten: gleich
+     * ueberschreibt das memcpy s_heute_eintraege unwiederbringlich. Er wird
+     * hier NICHT sofort archiviert, sondern bleibt bis
+     * KALENDER_UEBERHANG_ENDE_STUNDE in der Schwebe - bis dahin sind seine
+     * offenen Tabletten noch abhakbar (siehe ueberhang_einblenden). Ein Urteil
+     * "vergessen" um 00:00 waere verfrueht.
+     *
+     * Nur bei einem ECHTEN Tageswechsel im laufenden Betrieb: beim ersten
+     * Parse nach dem Start (s_letzter_tag_schluessel == -1) liegt kein
+     * vollstaendiger Vortag vor, und ein halber Tag wuerde die Bilanz
+     * verfaelschen (siehe tabletten_protokoll.h). */
     if (neuer_tag && s_letzter_tag_schluessel != -1) {
-        for (int i = 0; i < s_heute_anzahl && archiv_anzahl < KALENDER_EINTRAEGE_MAX; i++) {
-            const kalender_tag_eintrag_t *alt = &s_heute_eintraege[i];
-            if (!alt->ist_tablette || alt->ganztags)
+        /* Ein noch nicht abgeschlossener aelterer Vortag (Geraet lief ueber
+         * mehrere Tageswechsel, ohne dass 04:00 erreicht wurde - praktisch nur
+         * bei verstellter Uhr) wird vorher weggeschrieben, statt still
+         * ueberschrieben zu werden. */
+        vortag_archivieren_falls_faellig(true);
+
+        s_vortag_anzahl = 0;
+        for (int i = 0; i < s_heute_anzahl && s_vortag_anzahl < KALENDER_EINTRAEGE_MAX; i++) {
+            if (!s_heute_eintraege[i].ist_tablette || s_heute_eintraege[i].ganztags)
                 continue; /* ohne Uhrzeit gibt es kein Einnahme-Fenster zu bewerten */
-            s_archiv[archiv_anzahl].tag_schluessel = s_letzter_tag_schluessel;
-            s_archiv[archiv_anzahl].soll_minute = alt->stunde * 60 + alt->minute;
-            s_archiv[archiv_anzahl].ende_minute = kalender_tablette_fenster_ende(alt);
-            s_archiv[archiv_anzahl].ist_minute = alt->bestaetigt ? alt->bestaetigt_minute : -1;
-            snprintf(s_archiv[archiv_anzahl].titel, ICS_TITEL_MAX, "%.*s",
-                     ICS_TITEL_MAX - 1, alt->titel);
-            archiv_anzahl++;
+            if (s_heute_eintraege[i].vom_vortag)
+                continue; /* Ueberhang des VORvortags nicht weiterreichen */
+            s_vortag[s_vortag_anzahl++] = s_heute_eintraege[i];
         }
+        s_vortag_schluessel = s_vortag_anzahl > 0 ? s_letzter_tag_schluessel : -1;
+        if (s_vortag_anzahl > 0)
+            ESP_LOGI(TAG, "Tageswechsel: %d Tablette(n) von %d bleiben bis %02d:00 nachhaengend",
+                     s_vortag_anzahl, s_letzter_tag_schluessel, KALENDER_UEBERHANG_ENDE_STUNDE);
     }
 
     memcpy(s_heute_eintraege, neue_eintraege, sizeof neue_eintraege[0] * (size_t)neue_anzahl);
     s_heute_anzahl = neue_anzahl;
+    ueberhang_einblenden(&lokal);
 
     s_version++;
     xSemaphoreGive(s_mutex);
-
-    if (archiv_anzahl > 0)
-        tabletten_protokoll_tag_ablegen(s_archiv, archiv_anzahl);
 
     s_letzter_tag_schluessel = schluessel;
     ESP_LOGI(TAG, "Anzeige aktualisiert (%d Termine/Tabletten heute)", n);
@@ -296,6 +398,22 @@ static void task_funktion(void *arg)
                 fuer_heute_neu_parsen();
         }
 
+        /* Laeuft der Ueberhang ab (siehe KALENDER_UEBERHANG_ENDE_STUNDE), den
+         * Vortag endgueltig ins Protokoll schreiben und aus der Anzeige
+         * nehmen. Hier im Tick statt im Parse-Lauf, weil zu dieser Stunde
+         * weder ein Tageswechsel noch ein Kalender-Abruf faellig sein muss. */
+        if (zeit_ist_synchron()) {
+            xSemaphoreTake(s_mutex, portMAX_DELAY);
+            bool war_da = (s_vortag_schluessel >= 0);
+            vortag_archivieren_falls_faellig(false);
+            bool jetzt_weg = (s_vortag_schluessel < 0);
+            xSemaphoreGive(s_mutex);
+            /* Der Ueberhang stand bis eben in s_heute_eintraege - neu
+             * aufbauen, damit er auch aus der Anzeige verschwindet. */
+            if (war_da && jetzt_weg && s_ics_text)
+                fuer_heute_neu_parsen();
+        }
+
         vTaskDelay(pdMS_TO_TICKS(TICK_MS));
     }
 }
@@ -369,6 +487,25 @@ void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt, int jetzt
          * (womoeglich puenktliche) Zeit erbt. */
         s_heute_eintraege[index].bestaetigt_minute = bestaetigt ? jetzt_minuten : -1;
 
+        /* Nachhaengender Eintrag von gestern: die Bestaetigung gehoert an den
+         * schwebenden Vortag, sonst waere sie beim naechsten Kalender-Abruf
+         * wieder verschwunden (s_heute_eintraege wird dabei neu aufgebaut) und
+         * fehlte spaeter im Protokoll. Zugeordnet wird ueber den Titel -
+         * dieselbe Kopplung wie beim Uebernehmen des Bestaetigt-Status. */
+        if (s_heute_eintraege[index].vom_vortag) {
+            for (int v = 0; v < s_vortag_anzahl; v++) {
+                if (strcmp(s_vortag[v].titel, s_heute_eintraege[index].titel) != 0)
+                    continue;
+                s_vortag[v].bestaetigt = bestaetigt;
+                /* Die Uhrzeit bleibt auf HEUTE bezogen (z.B. 70 = 01:10). Erst
+                 * beim Archivieren wird daraus wieder eine Zeit des Vortags -
+                 * dort steht dann eine Bestaetigung "nach Mitternacht"
+                 * korrekterweise als spaet, aber erfolgt da. */
+                s_vortag[v].bestaetigt_minute = bestaetigt ? jetzt_minuten + 24 * 60 : -1;
+                break;
+            }
+        }
+
         /* Sofort auf Flash sichern, damit ein unerwarteter Neustart
          * (Stromausfall/Panic) eine bereits genommene Tablette nicht
          * wieder als "faellig" erscheinen laesst (siehe FALLSTRICKE #14 -
@@ -378,6 +515,13 @@ void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt, int jetzt
         static int s_minute_bestaetigt[KALENDER_EINTRAEGE_MAX];
         int anzahl_bestaetigt = 0;
         for (int i = 0; i < s_heute_anzahl; i++) {
+            /* Nachhaengende Eintraege gehoeren NICHT in die Tagesdatei: die
+             * gilt fuer s_letzter_tag_schluessel (heute), sie stammen aber von
+             * gestern. Sonst erschiene die gestrige Tablette nach einem
+             * Neustart als heute bereits genommen. Ihr Ueberleben sichert
+             * stattdessen der schwebende Vortag weiter oben. */
+            if (s_heute_eintraege[i].vom_vortag)
+                continue;
             if (s_heute_eintraege[i].ist_tablette && s_heute_eintraege[i].bestaetigt) {
                 snprintf(s_titel_bestaetigt[anzahl_bestaetigt], ICS_TITEL_MAX, "%.*s",
                          ICS_TITEL_MAX - 1, s_heute_eintraege[i].titel);
@@ -391,11 +535,25 @@ void kalender_anzeige_tablette_bestaetigen(int index, bool bestaetigt, int jetzt
     xSemaphoreGive(s_mutex);
 }
 
-int kalender_tablette_fenster_ende(const kalender_tag_eintrag_t *eintrag)
+int kalender_tablette_soll_minute(const kalender_tag_eintrag_t *eintrag)
 {
     int soll_minuten = eintrag->stunde * 60 + eintrag->minute;
-    return eintrag->hat_ende ? eintrag->end_stunde * 60 + eintrag->end_minute
-                             : soll_minuten + KALENDER_TABLETTE_UEBERFAELLIG_MIN;
+    /* Ein nachhaengender Eintrag von gestern liegt vor dem heutigen
+     * Mitternacht - dadurch ergeben Vergleiche gegen "Minuten seit heute
+     * 00:00" ohne Sonderfaelle das Richtige. */
+    return eintrag->vom_vortag ? soll_minuten - 24 * 60 : soll_minuten;
+}
+
+int kalender_tablette_fenster_ende(const kalender_tag_eintrag_t *eintrag)
+{
+    int soll_minuten = kalender_tablette_soll_minute(eintrag);
+    if (!eintrag->hat_ende)
+        return soll_minuten + KALENDER_TABLETTE_UEBERFAELLIG_MIN;
+
+    int ende = eintrag->end_stunde * 60 + eintrag->end_minute;
+    if (eintrag->vom_vortag)
+        ende -= 24 * 60;
+    return ende;
 }
 
 bool kalender_tablette_puenktlich_bestaetigt(const kalender_tag_eintrag_t *eintrag)
@@ -424,7 +582,7 @@ kalender_tablette_status_t kalender_tablette_status(const kalender_tag_eintrag_t
     if (!zeit_bekannt || eintrag->ganztags)
         return KALENDER_TABLETTE_ZUKUNFT;
 
-    int soll_minuten = eintrag->stunde * 60 + eintrag->minute;
+    int soll_minuten = kalender_tablette_soll_minute(eintrag);
     if (jetzt_minuten < soll_minuten)
         return KALENDER_TABLETTE_ZUKUNFT;
 

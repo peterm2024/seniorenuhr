@@ -38,6 +38,13 @@ typedef struct {
      * puenktlich genommene Tablette spaeter faelschlich als verspaetet
      * gelten, weil nur noch "jetzt" bekannt waere. */
     int bestaetigt_minute;
+    /* true = dieser Eintrag stammt vom VORTAG und haengt nur noch nach
+     * (siehe KALENDER_UEBERHANG_ENDE_STUNDE). Alle Zeitrechnungen muessen das
+     * beruecksichtigen: eine 23:00-Tablette von gestern ist um 01:00 nicht
+     * "in 22 Stunden faellig", sondern laengst ueberfaellig. Deshalb wird ihre
+     * Soll-Zeit um einen ganzen Tag zurueckversetzt (siehe
+     * kalender_tablette_soll_minute). */
+    bool vom_vortag;
 } kalender_tag_eintrag_t;
 
 void kalender_task_starten(void);
@@ -104,6 +111,25 @@ typedef enum {
 } kalender_tablette_status_t;
 
 #define KALENDER_TABLETTE_UEBERFAELLIG_MIN 60
+
+/* Bis zu dieser Stunde haengen noch nicht abgehakte Tabletten des Vortags
+ * nach: sie bleiben sichtbar und abhakbar, und der Vortag wandert erst danach
+ * ins Langzeitprotokoll (Peters Entscheidung 18.08.2026).
+ *
+ * Der Anlass: eine 23:00-Tablette verschwand um Mitternacht spurlos und war
+ * nicht mehr abzuhaken - wer sie um 23:55 nahm und erst um 00:10 bestaetigen
+ * wollte, stand dauerhaft als Versaeumnis in der Bilanz.
+ *
+ * 04:00 als Grenze ist eine Abwaegung: "nachts nochmal aufgestanden" soll
+ * gehen, aber wer um 7 Uhr aufsteht, bekommt eine 23-Uhr-Tablette bewusst
+ * NICHT mehr angeboten - acht Stunden zu spaet nachnehmen waere bei den
+ * meisten Medikamenten falsch, und das Geraet soll dazu nicht auffordern. */
+#define KALENDER_UEBERHANG_ENDE_STUNDE 4
+
+/* Soll-Zeit in Minuten, bezogen auf HEUTE 00:00 - fuer Eintraege vom Vortag
+ * also negativ. Einzige Stelle, an der diese Umrechnung stattfindet; alles
+ * andere (Status, Fenster-Ende, Anzeige) baut darauf auf. */
+int kalender_tablette_soll_minute(const kalender_tag_eintrag_t *eintrag);
 
 /* `zeit_bekannt`/`jetzt_minuten` wie an anderen Stellen: jetzt_minuten nur
  * gueltig, wenn zeit_bekannt true ist (zeit_ist_synchron()). Ohne bekannte

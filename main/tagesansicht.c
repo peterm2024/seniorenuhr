@@ -408,11 +408,20 @@ static void eintrag_zeile_formatieren(const kalender_tag_eintrag_t *e, bool hake
      * -Werror=format-truncation ausgeloest wird. */
     const char *praefix = haken ? TAGESANSICHT_HAKEN_PRAEFIX : "";
     int praefix_laenge = (int)strlen(praefix);
-    if (e->ganztags)
+    if (e->ganztags) {
         snprintf(ziel, ziel_groesse, "%s%.*s", praefix, (int)ziel_groesse - 1 - praefix_laenge, e->titel);
-    else
+    } else if (e->vom_vortag) {
+        /* Nachhaengende Tablette von gestern deutlich als solche kennzeichnen -
+         * ohne den Zusatz saehe eine 23:00-Zeile um 01:00 wie ein heutiger
+         * Eintrag aus, und man haekchte womoeglich die falsche Einnahme ab. */
+        snprintf(ziel, ziel_groesse, "%s%s %02d:%02d  %.*s", praefix, text(TXT_GESTERN_KURZ),
+                 e->stunde, e->minute,
+                 (int)ziel_groesse - 8 - praefix_laenge - (int)strlen(text(TXT_GESTERN_KURZ)) - 1,
+                 e->titel);
+    } else {
         snprintf(ziel, ziel_groesse, "%s%02d:%02d  %.*s", praefix, e->stunde, e->minute,
                  (int)ziel_groesse - 8 - praefix_laenge, e->titel);
+    }
 }
 
 /* ---- Tages-Fenster (read-only, 15s) --------------------------------- */
