@@ -619,7 +619,7 @@ verliert damit **mit jedem Update** seinen Netzzugang.
 
 **Der gefaehrliche Teil:** Ohne Netz kommt nie wieder ein Update an. Das Geraet kann sich aus
 diesem Zustand nicht selbst befreien - es braucht ein USB-Kabel oder manuelle WLAN-Eingabe am
-Touchscreen. Bei einem Geraet weit entfernt bedeutet das eine Fahrt.
+Touchscreen. Bei einem weit entfernten Geraet bedeutet das eine Fahrt.
 
 **Zweite Ursache, gleich daneben:** Die Rollback-Bestaetigung prueft zwar korrekt auf WLAN UND
 Kalender, wartete darauf aber **ohne Zeitgrenze**. Eine Firmware, die zwar startet, aber kein

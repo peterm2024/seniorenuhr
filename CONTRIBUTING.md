@@ -11,8 +11,8 @@ bilingual. Issues and pull requests in English are fine.*
 ## Bevor du Zeit investierst
 
 Bei größeren Änderungen lohnt sich ein Issue vorab. Das Projekt hat eine
-konkrete Zielgruppe (hochbetagte Menschen, ein Gerät in einer Wohnung weit
-entfernt), und manches, was technisch naheliegt, passt aus diesem Grund nicht.
+konkrete Zielgruppe (hochbetagte Menschen, ein Gerät in einer weit entfernten
+Wohnung), und manches, was technisch naheliegt, passt aus diesem Grund nicht.
 Kleine Fehlerkorrekturen gerne direkt als Pull Request.
 
 ## Sprache
