@@ -59,11 +59,23 @@ Wichtig: Die ausgelesene ELF-Datei muss zur geflashten Firmware passen. Für
 das Eltern-Board also `-B build_prod` mit angeben, sonst zeigen die
 Adressen ins Leere.
 
-**Parser-Tests auf dem PC ausführen:**
+**Tests auf dem PC ausführen** (brauchen kein Board):
 
 ```powershell
 test_host\teste.ps1
 ```
+
+Baut und startet drei Suiten, zusammen 93 Prüfungen:
+
+| Suite | Prüft | Warum ohne Hardware |
+|---|---|---|
+| `test_ics` (35) | ICS-Parser (`components/kalender`) | portabel geschrieben, läuft unverändert auf dem PC |
+| `test_version` (20) | Versionsvergleich für die Update-Prüfung | sonst nur über echte Downloads prüfbar |
+| `test_protokoll` (38) | Tabletten-Langzeitprotokoll | schreibt nur beim Mitternachtswechsel — auf dem Board hieße das warten |
+
+Module aus `main/`, die ESP-Header einbinden, werden dafür gegen die Stubs in
+`test_host/stubs/` gebaut (siehe `teste.ps1`). Dieselben Suiten laufen bei
+jedem Push in der CI (`.github/workflows/test.yml`).
 
 **LVGL-Fonts neu generieren** (nur nötig, wenn Größen/Zeichen geändert werden):
 
@@ -82,7 +94,7 @@ tools\fonts\erzeuge_fonts.ps1
 ├── main/                    Firmware: app_main.c, anzeige.c (Display/LVGL)
 ├── components/
 │   └── kalender/            ICS-Parser (portables C, läuft auf PC und ESP32)
-├── test_host/               PC-Tests für den Parser (25 Prüfungen)
+├── test_host/               PC-Tests ohne Hardware (93 Prüfungen, siehe unten)
 ├── assets/fonts/            generierte LVGL-Fonts mit Umlauten (Montserrat-Bold, OFL-Lizenz)
 │                              schrift_uhr_128   – Uhrzeit (nur Ziffern + :)
 │                              schrift_gross_72  – Wochentag

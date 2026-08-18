@@ -114,9 +114,13 @@ Download und Parsen — Netzwerkprobleme können die Anzeige dadurch nie ins
 Stocken bringen.
 
 Der ICS-Parser ist als portable Komponente (`components/kalender`) geschrieben
-und läuft unverändert auch auf dem PC, wo ihn eine Testsuite mit 35 Prüfungen
-abdeckt (`test_host/`). Die Schriften sind selbst generierte LVGL-Fonts auf
-Basis von Montserrat, da die in LVGL eingebauten Fonts keine deutschen Umlaute
+und läuft unverändert auch auf dem PC. Er, der Versionsvergleich der
+Update-Prüfung und das Tabletten-Langzeitprotokoll werden dort von zusammen
+93 Prüfungen abgedeckt (`test_host/`). Alles, was sich ohne Hardware
+feststellen lässt, wandert bewusst dorthin: ein Protokoll, das nur beim
+Mitternachtswechsel schreibt, wäre auf dem Gerät sonst nur durch Abwarten zu
+prüfen. Die Schriften sind selbst generierte LVGL-Fonts auf Basis von
+Montserrat, da die in LVGL eingebauten Fonts keine deutschen Umlaute
 enthalten.
 
 Firmware-Updates kommen automatisch per OTA von GitHub Releases, werden aber
