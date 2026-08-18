@@ -1,6 +1,6 @@
 # Seniorenuhr
 
-:de: **Deutsch** (dieses Dokument) · :gb: [**English summary**](#english-summary)
+<img src="docs/flagge-de.png" width="20" alt=""> **Deutsch** (dieses Dokument) · <img src="docs/flagge-gb.png" width="20" alt=""> [**English summary**](#english-summary)
 
 *The interface is available in German and English (further languages on
 demand). Documentation and source comments are in German.*
@@ -232,12 +232,17 @@ Teil dieses Repositories, sondern werden beim Bauen über den
 ESP-IDF-Komponentenmanager bezogen; sie stehen unter ihren eigenen permissiven
 Lizenzen (Apache 2.0 bzw. MIT).
 
-<!-- Expliziter Anker: die Ueberschrift traegt eine Flagge, GitHub leitet daraus
-     einen anderen Namen ab ("#gb-english-summary"). So bleibt der Verweis aus
-     der Kopfzeile stabil, egal was mit der Ueberschrift noch passiert. -->
+<!-- Expliziter Anker: die Ueberschrift traegt ein Bild, aus dem GitHub keinen
+     verlaesslichen Namen ableitet. So bleibt der Verweis aus der Kopfzeile
+     stabil, egal was mit der Ueberschrift noch passiert.
+
+     Die Flaggen sind bewusst BILDER und keine Emoji: Windows enthaelt in
+     seiner Emoji-Schrift keine Laenderflaggen (Microsofts Entscheidung), und
+     GitHub loest auch die Kurzschreibweise :de:/:gb: nur nach Unicode auf -
+     beides erscheint dort dann als die zwei Buchstaben des Laendercodes. -->
 <a id="english-summary"></a>
 
-## :gb: English summary
+## <img src="docs/flagge-gb.png" width="24" alt=""> English summary
 
 A calendar clock for very old people, built on the Waveshare
 ESP32-S3-Touch-LCD-7 (7-inch touch display, 800 × 480). The device sits
