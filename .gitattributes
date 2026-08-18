@@ -1,0 +1,45 @@
+# Zeilenenden verbindlich festlegen.
+#
+# Ohne diese Datei entscheidet die lokale Einstellung core.autocrlf, was beim
+# Ein- und Auschecken passiert - auf diesem Rechner steht sie auf "true", was
+# bei jedem Commit die Warnung "LF will be replaced by CRLF" erzeugt. In einem
+# oeffentlichen Repo kaeme dazu, dass ein Klon unter Linux je nach Einstellung
+# andere Zeilenenden bekaeme und Diffs voller Scheinaenderungen entstuenden.
+#
+# Regel hier: im Repository liegt alles mit LF; ausgecheckt wird, was zur
+# jeweiligen Plattform passt.
+
+* text=auto
+
+# Quellcode und Doku - im Repo immer LF
+*.c    text eol=lf
+*.h    text eol=lf
+*.md   text eol=lf
+*.csv  text eol=lf
+*.txt  text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+
+# Muessen in der CI unter Linux laufen - hier waere CRLF ein echter Fehler
+# (die Shell wuerde das \r als Teil des Befehls lesen)
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.py   text eol=lf
+*.sh   text eol=lf
+
+# PowerShell laeuft nur unter Windows - dort ist CRLF die Hausordnung
+*.ps1  text eol=crlf
+
+# Konfigurationsdateien ohne Endung: plattformneutral, deshalb ueberall LF -
+# ohne diese Zeilen wuerden sie nur von "* text=auto" erfasst und lokal auf
+# CRLF umgestellt
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+.editorconfig  text eol=lf
+
+# Nie anfassen
+*.png  binary
+*.bmp  binary
+*.ttf  binary
+*.bin  binary
+*.exe  binary

@@ -1,0 +1,31 @@
+# Einheitliche Formatierung unabhaengig vom Editor.
+# Ergaenzt .gitattributes: dort geht es um die Zeilenenden IM Repository,
+# hier um das, was der Editor beim Tippen erzeugt.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Projektweite Konvention im C-Code: 4 Leerzeichen, Zeilen bis ~100 Zeichen
+[*.{c,h}]
+max_line_length = 100
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.md]
+# Zwei abschliessende Leerzeichen sind in Markdown ein Zeilenumbruch
+trim_trailing_whitespace = false
+
+[*.ps1]
+end_of_line = crlf
+
+# Generierte LVGL-Schriften - nicht von Hand bearbeiten, Formatierung egal
+[assets/fonts/schrift_*.c]
+trim_trailing_whitespace = false
+insert_final_newline = false
