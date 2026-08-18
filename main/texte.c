@@ -89,6 +89,18 @@ static const char *const TABELLE[TXT_ANZAHL][SPRACHE_ANZAHL] = {
     [TXT_SPRACHE]                   = { "Sprache", "Language" },
     [TXT_NEUSTART]                  = { "Neustart", "Restart" },
     [TXT_NEUSTART_LAEUFT]           = { "Neustart...", "Restarting..." },
+
+    [TXT_RUECKBLICK]                = { "Tabletten-Rueckblick", "Medication history" },
+    [TXT_RUECKBLICK_TITEL]          = { "Letzte %d Tage", "Last %d days" },
+    [TXT_RUECKBLICK_BILANZ]         = { "%d von %d genommen", "%d of %d taken" },
+    [TXT_RUECKBLICK_DAVON]          = { "%d zu spaet, %d vergessen", "%d late, %d missed" },
+    [TXT_RUECKBLICK_NICHT_GENOMMEN] = { "NICHT GENOMMEN", "MISSED" },
+    [TXT_RUECKBLICK_ZU_SPAET]       = { "DEUTLICH ZU SPAET", "CLEARLY LATE" },
+    [TXT_RUECKBLICK_ALLES_GUT]      = { "Nichts zu beanstanden.", "Nothing to report." },
+    [TXT_RUECKBLICK_LEER]           = { "Noch nichts aufgezeichnet.\nDer erste Tag erscheint hier nach Mitternacht.",
+                                        "Nothing recorded yet.\nThe first day appears here after midnight." },
+    [TXT_RUECKBLICK_WEITERE]        = { "... und %d weitere", "... and %d more" },
+    [TXT_MINUTEN_KURZ]              = { "Min", "min" },
     [TXT_LAUFENDE_FIRMWARE]         = { "Laufende Firmware: %s", "Running firmware: %s" },
 
     [TXT_SUCHE_NACH_UPDATES]        = { "Suche nach Updates...", "Checking for updates..." },

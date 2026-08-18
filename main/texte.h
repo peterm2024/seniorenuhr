@@ -104,6 +104,18 @@ typedef enum {
     TXT_SPRACHE,
     TXT_NEUSTART,                   /* Knopf im Menue: startet das Geraet neu */
     TXT_NEUSTART_LAEUFT,            /* Beschriftung desselben Knopfes nach dem Tipp */
+
+    /* Tabletten-Rueckblick (tabletten_protokoll.h) */
+    TXT_RUECKBLICK,                 /* Knopf im Menue */
+    TXT_RUECKBLICK_TITEL,           /* Ueberschrift des Fensters, mit %d Tagen */
+    TXT_RUECKBLICK_BILANZ,          /* "%d von %d genommen" */
+    TXT_RUECKBLICK_DAVON,           /* "%d zu spaet, %d vergessen" */
+    TXT_RUECKBLICK_NICHT_GENOMMEN,  /* Abschnitts-Ueberschrift */
+    TXT_RUECKBLICK_ZU_SPAET,        /* Abschnitts-Ueberschrift */
+    TXT_RUECKBLICK_ALLES_GUT,       /* wenn es nichts zu bemaengeln gibt */
+    TXT_RUECKBLICK_LEER,            /* wenn noch gar nichts aufgezeichnet wurde */
+    TXT_RUECKBLICK_WEITERE,         /* "... und %d weitere" */
+    TXT_MINUTEN_KURZ,               /* Einheit in "(+130 min)" */
     TXT_LAUFENDE_FIRMWARE,
 
     /* Update-Bereich */

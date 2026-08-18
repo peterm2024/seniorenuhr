@@ -3,6 +3,7 @@
 #include "netz.h"
 #include "ota.h"
 #include "screenshot_debug.h"
+#include "tabletten_protokoll.h"
 #include "texte.h"
 #include "webkonfig.h"
 #include "zeit.h"
@@ -886,6 +887,12 @@ static void einstellungen_sprache_cb(lv_event_t *e)
     s_einstellungen_aktion = EINSTELLUNGEN_AKTION_SPRACHE;
 }
 
+static void einstellungen_rueckblick_cb(lv_event_t *e)
+{
+    (void)e;
+    s_einstellungen_aktion = EINSTELLUNGEN_AKTION_RUECKBLICK;
+}
+
 static void einstellungen_neustart_cb(lv_event_t *e)
 {
     /* Sofort sichtbare Rueckmeldung noch im Klick-Callback: der eigentliche
@@ -1129,6 +1136,7 @@ void einrichtung_einstellungen_zeigen(void)
     snprintf(sprache_beschriftung, sizeof sprache_beschriftung, "%s: %s",
              text(TXT_SPRACHE), sprache_name(sprache_aktuell()));
     einstellungen_nav_button_erzeugen(reihe, sprache_beschriftung, einstellungen_sprache_cb);
+    einstellungen_nav_button_erzeugen(reihe, text(TXT_RUECKBLICK), einstellungen_rueckblick_cb);
     einstellungen_nav_button_erzeugen(reihe, text(TXT_NEUSTART), einstellungen_neustart_cb);
 
     /* Tatsaechliche Hoehe der Reihe erst nach dem Layout-Durchlauf bekannt
@@ -1357,6 +1365,210 @@ void einrichtung_kalenderurl_zeigen(void)
     lv_keyboard_set_textarea(keyboard, s_kalenderurl_ta);
 
     lv_screen_load(s_kalenderurl_screen);
+    lvgl_port_unlock();
+}
+
+/* ---- Tabletten-Rueckblick ------------------------------------------- */
+
+/* So weit reicht der Rueckblick zurueck. 30 Tage sind lang genug, um ein
+ * Muster zu erkennen ("sonntags klappt es nie"), und kurz genug, dass eine
+ * laengst behobene Schwaeche die Bilanz nicht ewig belastet. */
+#define RUECKBLICK_TAGE 30
+
+static lv_obj_t *s_rueckblick_screen;
+static volatile einrichtung_status_t s_rueckblick_status = EINRICHTUNG_OFFEN;
+
+static void rueckblick_schliessen_cb(lv_event_t *e)
+{
+    (void)e;
+    s_rueckblick_status = EINRICHTUNG_ABGEBROCHEN;
+}
+
+/* Tagesschluessel (JJJJMMTT) des Tages, der `tage_zurueck` vor heute liegt.
+ * Ueber mktime/localtime gerechnet statt per Hand, damit Monats-, Jahres- und
+ * Schaltjahresgrenzen automatisch stimmen. */
+static int rueckblick_grenztag(int tage_zurueck)
+{
+    time_t jetzt = time(NULL);
+    struct tm lokal;
+    localtime_r(&jetzt, &lokal);
+    lokal.tm_mday -= tage_zurueck;
+    lokal.tm_hour = 12; /* Mittag: immun gegen Sommerzeit-Spruenge */
+    time_t damals = mktime(&lokal);
+    struct tm ziel;
+    localtime_r(&damals, &ziel);
+    return (ziel.tm_year + 1900) * 10000 + (ziel.tm_mon + 1) * 100 + ziel.tm_mday;
+}
+
+/* "Do 13.08." aus einem Tagesschluessel. Der Wochentag ist beim Nachvollziehen
+ * hilfreicher als das blosse Datum ("ach ja, sonntags sind sie immer weg"). */
+static void rueckblick_datum_text(int tag_schluessel, char *puffer, size_t groesse)
+{
+    struct tm t = {0};
+    t.tm_year = tag_schluessel / 10000 - 1900;
+    t.tm_mon = (tag_schluessel / 100) % 100 - 1;
+    t.tm_mday = tag_schluessel % 100;
+    t.tm_hour = 12;
+    t.tm_isdst = -1;
+    mktime(&t); /* fuellt tm_wday */
+    snprintf(puffer, groesse, "%s %02d.%02d.", zeit_wochentag_kurz(&t), t.tm_mday, t.tm_mon + 1);
+}
+
+static void rueckblick_zeile_erzeugen(lv_obj_t *parent, const tabletten_protokoll_eintrag_t *e)
+{
+    char datum[24];
+    rueckblick_datum_text(e->tag_schluessel, datum, sizeof datum);
+
+    char zeile[160];
+    if (e->ist_minute < 0) {
+        snprintf(zeile, sizeof zeile, "%s   %02d:%02d   %s",
+                 datum, e->soll_minute / 60, e->soll_minute % 60, e->titel);
+    } else {
+        /* Verspaetung gegen das FENSTER-ENDE, nicht gegen die Soll-Zeit: bis
+         * zum Fensterende gilt die Einnahme als rechtzeitig, alles andere
+         * waere gegenueber den Eltern unfair dargestellt. */
+        int verspaetung = e->ist_minute - e->ende_minute;
+        snprintf(zeile, sizeof zeile, "%s   %02d:%02d   %s  (+%d %s)",
+                 datum, e->soll_minute / 60, e->soll_minute % 60, e->titel,
+                 verspaetung, text(TXT_MINUTEN_KURZ));
+    }
+
+    lv_obj_t *label = lv_label_create(parent);
+    lv_label_set_text(label, zeile);
+    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    /* Abschneiden statt umbrechen - bewaehrtes Projekt-Prinzip, damit eine
+     * lange Bezeichnung die Liste nicht auseinanderreisst. */
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(label, 700);
+}
+
+static void rueckblick_ueberschrift_erzeugen(lv_obj_t *parent, const char *titel, lv_color_t farbe)
+{
+    lv_obj_t *label = lv_label_create(parent);
+    lv_label_set_text(label, titel);
+    lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
+    lv_obj_set_style_text_color(label, farbe, 0);
+    lv_obj_set_style_pad_top(label, 10, 0);
+}
+
+void einrichtung_rueckblick_zeigen(void)
+{
+    tabletten_protokoll_bilanz_t bilanz;
+    tabletten_protokoll_bilanz_ermitteln(rueckblick_grenztag(RUECKBLICK_TAGE), &bilanz);
+
+    lvgl_port_lock(0);
+    s_rueckblick_status = EINRICHTUNG_OFFEN;
+
+    s_rueckblick_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_rueckblick_screen, lv_color_black(), 0);
+    lv_obj_remove_flag(s_rueckblick_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    char titel_text[64];
+    snprintf(titel_text, sizeof titel_text, text(TXT_RUECKBLICK_TITEL), RUECKBLICK_TAGE);
+    lv_obj_t *titel = lv_label_create(s_rueckblick_screen);
+    lv_label_set_text(titel, titel_text);
+    lv_obj_set_style_text_font(titel, &schrift_mittel_40, 0);
+    lv_obj_set_style_text_color(titel, lv_color_white(), 0);
+    lv_obj_align(titel, LV_ALIGN_TOP_LEFT, 30, 15);
+
+    lv_obj_t *btn_zu = lv_button_create(s_rueckblick_screen);
+    lv_obj_set_size(btn_zu, 220, 50);
+    lv_obj_align(btn_zu, LV_ALIGN_TOP_RIGHT, -30, 12);
+    lv_obj_add_event_cb(btn_zu, rueckblick_schliessen_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l_zu = lv_label_create(btn_zu);
+    lv_label_set_text(l_zu, text(TXT_SCHLIESSEN));
+    lv_obj_set_style_text_font(l_zu, &schrift_klein_28, 0);
+    lv_obj_center(l_zu);
+
+    /* Scrollbarer Listenbereich: die Zahl der Auffaelligkeiten steht erst zur
+     * Laufzeit fest und passt nicht zwingend auf einen Bildschirm. */
+    lv_obj_t *liste = lv_obj_create(s_rueckblick_screen);
+    lv_obj_remove_style_all(liste);
+    lv_obj_set_size(liste, 740, 380);
+    lv_obj_align(liste, LV_ALIGN_TOP_LEFT, 30, 75);
+    lv_obj_set_flex_flow(liste, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(liste, 4, 0);
+
+    if (bilanz.gesamt == 0) {
+        lv_obj_t *leer = lv_label_create(liste);
+        lv_label_set_text(leer, text(TXT_RUECKBLICK_LEER));
+        lv_obj_set_style_text_font(leer, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(leer, lv_color_hex(0xa0a0a0), 0);
+    } else {
+        char bilanz_text[96];
+        snprintf(bilanz_text, sizeof bilanz_text, text(TXT_RUECKBLICK_BILANZ),
+                 bilanz.genommen, bilanz.gesamt);
+        lv_obj_t *l_bilanz = lv_label_create(liste);
+        lv_label_set_text(l_bilanz, bilanz_text);
+        lv_obj_set_style_text_font(l_bilanz, &schrift_mittel_40, 0);
+        lv_obj_set_style_text_color(l_bilanz, lv_color_white(), 0);
+
+        snprintf(bilanz_text, sizeof bilanz_text, text(TXT_RUECKBLICK_DAVON),
+                 bilanz.zu_spaet, bilanz.vergessen);
+        lv_obj_t *l_davon = lv_label_create(liste);
+        lv_label_set_text(l_davon, bilanz_text);
+        lv_obj_set_style_text_font(l_davon, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(l_davon, lv_color_hex(0xa0a0a0), 0);
+
+        if (bilanz.auffaellig_anzahl == 0) {
+            rueckblick_ueberschrift_erzeugen(liste, text(TXT_RUECKBLICK_ALLES_GUT),
+                                             lv_palette_main(LV_PALETTE_GREEN));
+        } else {
+            /* Erst die vergessenen (das Schwerwiegende), dann die
+             * Verspaetungen - in genau der Reihenfolge, in der man sie
+             * wissen will. */
+            bool ueberschrift_gesetzt = false;
+            for (int i = 0; i < bilanz.auffaellig_anzahl; i++) {
+                if (bilanz.auffaellig[i].ist_minute >= 0)
+                    continue;
+                if (!ueberschrift_gesetzt) {
+                    rueckblick_ueberschrift_erzeugen(liste, text(TXT_RUECKBLICK_NICHT_GENOMMEN),
+                                                     lv_palette_main(LV_PALETTE_RED));
+                    ueberschrift_gesetzt = true;
+                }
+                rueckblick_zeile_erzeugen(liste, &bilanz.auffaellig[i]);
+            }
+
+            ueberschrift_gesetzt = false;
+            for (int i = 0; i < bilanz.auffaellig_anzahl; i++) {
+                if (bilanz.auffaellig[i].ist_minute < 0)
+                    continue;
+                if (!ueberschrift_gesetzt) {
+                    rueckblick_ueberschrift_erzeugen(liste, text(TXT_RUECKBLICK_ZU_SPAET),
+                                                     lv_palette_main(LV_PALETTE_ORANGE));
+                    ueberschrift_gesetzt = true;
+                }
+                rueckblick_zeile_erzeugen(liste, &bilanz.auffaellig[i]);
+            }
+
+            /* Ehrlich bleiben, wenn die Liste gekappt wurde - sonst wirkt ein
+             * schlechter Monat harmloser als er war. */
+            if (bilanz.auffaellig_gesamt > bilanz.auffaellig_anzahl) {
+                char rest[64];
+                snprintf(rest, sizeof rest, text(TXT_RUECKBLICK_WEITERE),
+                         bilanz.auffaellig_gesamt - bilanz.auffaellig_anzahl);
+                rueckblick_ueberschrift_erzeugen(liste, rest, lv_color_hex(0xa0a0a0));
+            }
+        }
+    }
+
+    lv_screen_load(s_rueckblick_screen);
+    lvgl_port_unlock();
+}
+
+einrichtung_status_t einrichtung_rueckblick_status(void)
+{
+    return s_rueckblick_status;
+}
+
+void einrichtung_rueckblick_aufraeumen(void)
+{
+    lvgl_port_lock(0);
+    if (s_rueckblick_screen) {
+        lv_obj_delete(s_rueckblick_screen);
+        s_rueckblick_screen = NULL;
+    }
     lvgl_port_unlock();
 }
 

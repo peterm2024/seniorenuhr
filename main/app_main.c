@@ -2068,6 +2068,16 @@ static bool einstellungen_bildschirm_verarbeiten(void)
             ota_version_installieren(gewaehlt);
             break;
         }
+        case EINSTELLUNGEN_AKTION_RUECKBLICK: {
+            einrichtung_rueckblick_zeigen();
+            einrichtung_status_t rueckblick_status;
+            while ((rueckblick_status = einrichtung_rueckblick_status()) == EINRICHTUNG_OFFEN)
+                vTaskDelay(pdMS_TO_TICKS(100));
+            (void)rueckblick_status; /* reine Anzeige - nur "Schliessen" fuehrt heraus */
+            einrichtung_einstellungen_zeigen();
+            einrichtung_rueckblick_aufraeumen();
+            break;
+        }
         case EINSTELLUNGEN_AKTION_NEUSTART:
             ESP_LOGI(TAG, "Neustart ueber das Einstellungen-Menue ausgeloest");
             vTaskDelay(pdMS_TO_TICKS(500)); /* Log rausschreiben + "Neustart..." kurz zeigen */

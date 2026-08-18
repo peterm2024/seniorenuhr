@@ -78,6 +78,9 @@ typedef enum {
      * fuer die Eltern ohnehin unerreichbar (siehe Zugangskonzept unten).
      * Bestaetigte Tabletten ueberleben ihn (kalender_speicher.c). */
     EINSTELLUNGEN_AKTION_NEUSTART,
+    /* Rueckblick auf die aufgezeichneten Einnahmen oeffnen (siehe
+     * einrichtung_rueckblick_zeigen weiter unten). */
+    EINSTELLUNGEN_AKTION_RUECKBLICK,
 } einstellungen_aktion_t;
 
 /* Nur nach EINSTELLUNGEN_AKTION_VERSION_WAEHLEN aussagekraeftig. */
@@ -98,5 +101,14 @@ void einrichtung_einstellungen_aufraeumen(void);
 void einrichtung_kalenderurl_zeigen(void);
 einrichtung_status_t einrichtung_kalenderurl_status(void);
 void einrichtung_kalenderurl_aufraeumen(void);
+
+/* Rueckblick auf die zurueckliegenden Tabletten-Einnahmen
+ * (tabletten_protokoll.h). Bewusst hier im Einstellungen-Menue und nicht auf
+ * der Hauptanzeige: es ist ein Kontrollwerkzeug fuer Peter, keine Information
+ * fuer seine Eltern - die sollen sehen, was JETZT ansteht, und nicht mit einer
+ * Maengelliste ueber sich selbst konfrontiert werden. */
+void einrichtung_rueckblick_zeigen(void);
+einrichtung_status_t einrichtung_rueckblick_status(void);
+void einrichtung_rueckblick_aufraeumen(void);
 
 #endif
