@@ -87,7 +87,7 @@ tools\fonts\erzeuge_fonts.ps1
 
 ```
 ├── CMakeLists.txt           ESP-IDF-Projekt (Wurzel)
-├── sdkconfig.defaults       Board-Konfiguration (8 MB Flash!, Octal-PSRAM)
+├── sdkconfig.defaults       Board-Konfiguration (Flash auf 8 MB, Octal-PSRAM)
 ├── partitions.csv           Partitionslayout
 ├── FAHRPLAN.md              Architektur & Phasenplan
 ├── ENTWICKLUNG.md           diese Datei
@@ -103,10 +103,13 @@ tools\fonts\erzeuge_fonts.ps1
 └── tools/fonts/             Generator-Skript (lädt die TTF bei Bedarf selbst)
 ```
 
-**Achtung Hardware-Falle:** Das Board meldet sich als N8R8-Variante —
-**8 MB Flash** (nicht 16, wie die Produktseite verspricht) und 8 MB PSRAM.
-Bei falscher Flash-Größe bootet es in einer Assert-Schleife
-(`init_flash ... flash_ret == ESP_OK`).
+**Achtung Hardware-Falle:** Das Board gibt es in zwei Flash-Varianten. Das
+Entwicklungsboard ist ein **N8R8 mit 8 MB**, das zweite Board ein **N16R8 mit
+16 MB**; 8 MB PSRAM haben beide. Konfiguriert ist 8 MB, damit dieselbe Binary
+auf beiden läuft. Ist die konfigurierte Flash-Größe größer als der verbaute
+Chip, bootet das Board in einer Assert-Schleife
+(`init_flash ... flash_ret == ESP_OK`) — die Variante deshalb immer per
+`esptool flash_id` prüfen.
 
 ## Bekannte Fallstricke
 

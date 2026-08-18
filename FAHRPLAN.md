@@ -11,7 +11,7 @@ die Eltern müssen nichts bedienen.
 
 | Komponente | Detail | Bedeutung für uns |
 |---|---|---|
-| ESP32-S3 Dual-Core, 240 MHz | 512 KB SRAM, **8 MB Flash, 8 MB PSRAM** (Produktseite nennt 16 MB — verbaut sind 8, per flash_id geprüft) | Genug Leistung für flüssige Grafik (LVGL) |
+| ESP32-S3 Dual-Core, 240 MHz | 512 KB SRAM, 8 MB PSRAM, Flash je nach Variante 8 MB (N8R8) oder 16 MB (N16R8) — konfiguriert ist **8 MB**, damit dieselbe Binary auf beiden Boards läuft | Genug Leistung für flüssige Grafik (LVGL) |
 | 7"-LCD, 800×480, 65K Farben | RGB-Parallel-Interface | Groß genug für sehr große Schrift |
 | Kapazitiver Touch (GT911) | 5-Punkt, per I2C | Optional: „Tablette genommen"-Bestätigung |
 | WLAN 2,4 GHz + Bluetooth 5 LE | Onboard-Antenne | Uhrzeit (NTP) + Kalender-Abruf + Fernwartung |
@@ -178,7 +178,8 @@ Umweg über Testdaten war nicht mehr nötig.
 
 ### Phase 0 — Werkzeugkasten & Hardware-Test *(½ Tag)* ✅ ERLEDIGT (13.07.2026)
 - ESP-IDF 5.5 + VS Code-Extension installiert, hello_world erfolgreich geflasht
-- Board als N8R8-Variante identifiziert (8 MB Flash statt beworbener 16 MB, siehe
+- Board als N8R8-Variante identifiziert (8 MB Flash; die damalige Annahme, das
+  widerspreche der Produktseite, war falsch — siehe den Nachtrag in
   FALLSTRICKE_UND_WORKAROUNDS.md #2)
 
 ### Phase 1 — Die nackte Uhr *(1–2 Tage)* ✅ ERLEDIGT (13.07.2026)

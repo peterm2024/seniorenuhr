@@ -12,12 +12,16 @@ Dieses Dokument dokumentiert die technischen Hürden, die während der Entwicklu
 
 ---
 
-## 2. Board bootete in einer Assert-Schleife — Flash-Chip ist 8 MB, nicht 16 MB wie beworben
+## 2. Board bootete in einer Assert-Schleife — dieses Exemplar hat 8 MB Flash, nicht 16 MB
 
 **Problem:** Nach dem ersten Flash-Vorgang mit `sdkconfig.defaults` auf 16 MB Flash bootete das Board endlos mit `assert failed: __esp_system_init_fn_init_flash startup_funcs.c:118 (flash_ret == ESP_OK)`.
-**Ursache:** Die Waveshare-Produktseite nennt 16 MB Flash für das ESP32-S3-Touch-LCD-7 — das konkret gelieferte Board ist aber die **N8R8-Variante mit 8 MB Flash** (verifiziert per `python -m esptool --chip esp32s3 -p COM3 flash_id`: GigaDevice-Chip, 8 MB, Quad-Modus). Die Firmware versuchte, eine Flash-Größe zu adressieren, die physisch nicht vorhanden ist.
+**Ursache:** Das Entwicklungsboard ist die **N8R8-Variante mit 8 MB Flash** (verifiziert per `python -m esptool --chip esp32s3 -p COM3 flash_id`: GigaDevice-Chip, 8 MB, Quad-Modus), die Firmware war aber auf 16 MB konfiguriert und versuchte damit, eine Flash-Größe zu adressieren, die physisch nicht vorhanden ist.
 **Lösung:** `CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y` statt `_16MB` in `sdkconfig.defaults`, Partitionstabelle (`partitions.csv`) entsprechend auf 8 MB angepasst, `sdkconfig` gelöscht und neu erzeugt.
-**Lehre:** Bei Waveshare-Boards (und generell bei Klonen/Werksvarianten) die tatsächliche Chip-Bestückung immer per `esptool flash_id` gegenprüfen, statt der Produktseite blind zu vertrauen — insbesondere bevor die Flash-Größen-Konfiguration gesetzt wird.
+**Lehre:** Die tatsächliche Chip-Bestückung **jedes einzelnen Boards** per `esptool flash_id` gegenprüfen, bevor die Flash-Größen-Konfiguration gesetzt wird — und von einem Exemplar niemals auf das Produkt schließen (siehe Nachtrag).
+
+**Nachtrag (19.08.2026) — die ursprüngliche Erklärung war falsch:** Hier stand seit Juli 2026, die Waveshare-Produktseite nenne fälschlich 16 MB. Das stimmt nicht. Board 2, neu gekauft, meldet beim Booten selbst:
+`W (915) spi_flash: Detected size(16384k) larger than the size in the binary image header(8192k).`
+Es hat also **physisch 16 MB** und entspricht damit exakt der Spezifikation (Produktseite und Händler nennen beide `ESP32-S3N16R8` mit 16 MB Flash). Das 8-MB-Board ist Board 1, ein Gerät aus der Firma und offenbar schlicht die andere Variante — aus einem Exemplar wurde damals eine Produkteigenschaft gefolgert. Die Konfiguration bleibt auf 8 MB, dem kleinsten gemeinsamen Nenner: so läuft dieselbe Binary auf beiden Boards, auf Board 2 bleibt die obere Hälfte des Flash ungenutzt.
 
 ---
 

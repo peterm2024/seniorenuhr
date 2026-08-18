@@ -129,8 +129,12 @@ der Status-Tippfläche).
 - **Der Host-Compiler ist strenger als der ESP-Build** (dort sind einige
   Warnungen entschärft). Code, der für das Gerät baut, kann im Host-Test an
   `-Wunused-but-set-variable` scheitern.
-- **8 MB Flash, nicht 16** (N8R8-Variante, entgegen der Produktseite). Bei
-  falscher Flash-Größe bootet das Board in einer Assert-Schleife.
+- **Zwei Flash-Varianten im Umlauf**: Board 1 (Entwicklung) ist ein N8R8 mit
+  8 MB, Board 2 (Eltern) ein N16R8 mit 16 MB — letzteres entspricht der
+  Produktseite. Konfiguriert ist **8 MB**, der kleinste gemeinsame Nenner,
+  damit dieselbe Binary auf beiden läuft. Ist die Flash-Größe größer
+  konfiguriert als der verbaute Chip, bootet das Board in einer
+  Assert-Schleife.
 
 ## Geheimnisse
 

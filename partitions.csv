@@ -1,4 +1,5 @@
-# Partitionslayout fuer 8 MB Flash (Board ist die N8R8-Variante).
+# Partitionslayout fuer 8 MB Flash - passt auf N8R8 (8 MB) wie auf N16R8
+# (16 MB, dort bleibt die obere Haelfte ungenutzt).
 # Zwei App-Partitionen (OTA, siehe FAHRPLAN.md Phase 5) statt vorher einer
 # einzigen 6-MB-"factory"-Partition - eine neue Partitionstabelle laesst
 # sich prinzipbedingt nicht per OTA einspielen, deshalb einmalig per USB

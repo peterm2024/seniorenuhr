@@ -121,7 +121,7 @@ oder der IP-Adresse des Geräts.
 | Komponente | Anmerkung |
 |---|---|
 | [Waveshare ESP32-S3-Touch-LCD-7](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-7) | 7-Zoll-RGB-Display 800 × 480, kapazitiver Touch (GT911) |
-| Flash/PSRAM | 8 MB / 8 MB (N8R8) |
+| Flash/PSRAM | 8 MB (N8R8) oder 16 MB (N16R8) / 8 MB — die Firmware ist auf 8 MB konfiguriert und läuft auf beiden |
 | Netzteil | USB-C, mindestens 2 A, Dauerbetrieb |
 
 Der microSD-Slot bleibt ungenutzt; alles Persistente liegt im internen Flash.
@@ -286,9 +286,10 @@ Latin-1 also requires regenerating the fonts
 output remain in German — the log output deliberately so, as it is the
 project's debugging tool.
 
-**Hardware.** Waveshare ESP32-S3-Touch-LCD-7, the N8R8 variant: 8 MB flash (not
-16 MB as the product page suggests) and 8 MB octal PSRAM, with a GT911 touch
-controller. There is no battery-backed real-time clock; the time is fetched via
+**Hardware.** Waveshare ESP32-S3-Touch-LCD-7, which ships with either 8 MB
+(N8R8) or 16 MB (N16R8) of flash — both are in use here, and the firmware is
+configured for 8 MB so that one binary runs on either. 8 MB octal PSRAM and a
+GT911 touch controller. There is no battery-backed real-time clock; the time is fetched via
 NTP.
 
 **Building.** ESP-IDF 5.5. Copy `main/secrets.example.h` to `main/secrets.h`,

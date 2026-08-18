@@ -52,9 +52,12 @@ Entwicklungsumgebung in `ENTWICKLUNG.md`, die Arbeitsweise im Repository in
 
 ## Hardware
 
-Zielgerät ist das Waveshare ESP32-S3-Touch-LCD-7 in der **N8R8-Variante**
-(8 MB Flash, 8 MB PSRAM — nicht 16 MB, wie die Produktseite nahelegt).
-Gebaut wird mit ESP-IDF 5.5.
+Zielgerät ist das Waveshare ESP32-S3-Touch-LCD-7. Es ist in zwei
+Flash-Varianten unterwegs — N8R8 mit 8 MB und N16R8 mit 16 MB; hier sind
+beide im Einsatz. Die Firmware ist auf **8 MB** konfiguriert, den kleinsten
+gemeinsamen Nenner; auf einem 16-MB-Board bleibt die obere Hälfte ungenutzt.
+Welche Variante vorliegt, sagt `esptool flash_id`. Gebaut wird mit
+ESP-IDF 5.5.
 
 Der knappe Rohstoff ist der **interne SRAM**, nicht der PSRAM. Alles, was
 dauerhaft läuft und Speicher bindet, wird kritisch gesehen — ein dauerhaft

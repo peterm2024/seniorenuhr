@@ -1,6 +1,8 @@
-# Waveshare ESP32-S3-Touch-LCD-7: 8 MB Flash (N8R8!), 8 MB Octal-PSRAM
-# Achtung: die Produktseite nennt 16 MB, verbaut ist aber ein 8-MB-Chip
-# (per "esptool flash_id" verifiziert: GigaDevice, 8MB, Quad)
+# Waveshare ESP32-S3-Touch-LCD-7, 8 MB Octal-PSRAM. Flash je nach Variante
+# 8 MB (N8R8) oder 16 MB (N16R8) - hier bewusst auf 8 MB konfiguriert, den
+# kleinsten gemeinsamen Nenner, damit dieselbe Binary auf beiden Boards
+# laeuft (Board 1 hat 8 MB, Board 2 hat 16 MB). Variante eines Boards per
+# "esptool flash_id" pruefen.
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
