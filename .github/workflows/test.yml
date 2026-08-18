@@ -9,11 +9,13 @@ on:
     paths:
       - "components/kalender/**"
       - "main/tabletten_protokoll.*"
+      - "main/version_vergleich.*"
       - "test_host/**"
   pull_request:
     paths:
       - "components/kalender/**"
       - "main/tabletten_protokoll.*"
+      - "main/version_vergleich.*"
       - "test_host/**"
 
 jobs:
@@ -47,3 +49,10 @@ jobs:
 
       - name: Protokoll-Tests ausfuehren
         run: cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/test_host/test_protokoll"
+
+      - name: Versionsvergleich-Tests bauen und ausfuehren
+        run: |
+          gcc -std=c99 -Wall -Wextra -Werror -Imain \
+            main/version_vergleich.c test_host/test_version.c \
+            -o test_host/test_version
+          ./test_host/test_version

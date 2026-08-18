@@ -1,6 +1,7 @@
 #include "ota.h"
 #include "kalender_anzeige.h"
 #include "netz.h"
+#include "version_vergleich.h"
 #include "texte.h"
 
 #include <stdio.h>
@@ -538,13 +539,19 @@ static bool ota_durchlauf(bool installieren, const char *version)
     /* Den "Update verfuegbar"-Zustand nur bei einer PRUEFUNG fortschreiben.
      * Bei einer gezielten Installation (z. B. bewusst eine aeltere Version)
      * sagt der Vergleich nichts darueber aus, ob im Netz etwas Neueres
-     * liegt - das Symbol duerfte davon nicht durcheinandergeraten. */
+     * liegt - das Symbol duerfte davon nicht durcheinandergeraten.
+     *
+     * Entscheidend ist "NEUER", nicht "ungleich": ein selbst geflashter
+     * Entwicklungsstand (v0.9.3-9-g393edfb) unterscheidet sich vom letzten
+     * Release (v0.9.3), ist aber spaeter - die frueher hier stehende Pruefung
+     * auf Ungleichheit bot deshalb ein Downgrade als Update an (Peters
+     * Beobachtung 18.08.2026, Vergleichslogik in version_vergleich.c). */
     if (!installieren) {
-        s_update_verfuegbar = !gleich;
-        if (gleich)
-            s_verfuegbare_version[0] = '\0';
-        else
+        s_update_verfuegbar = version_ist_neuer(neues_image.version, laufende_version);
+        if (s_update_verfuegbar)
             snprintf(s_verfuegbare_version, sizeof s_verfuegbare_version, "%s", neues_image.version);
+        else
+            s_verfuegbare_version[0] = '\0';
     }
 
     if (gleich) {
@@ -554,8 +561,16 @@ static bool ota_durchlauf(bool installieren, const char *version)
     }
 
     if (!installieren) {
-        ESP_LOGI(TAG, "Neue Version verfuegbar: %s (laufend: %s) - wartet auf Bestaetigung im Einstellungen-Menue",
-                 neues_image.version, laufende_version);
+        if (s_update_verfuegbar)
+            ESP_LOGI(TAG, "Neue Version verfuegbar: %s (laufend: %s) - wartet auf Bestaetigung im Einstellungen-Menue",
+                     neues_image.version, laufende_version);
+        else
+            /* Kein Fehler, sondern der Normalfall auf einem Entwicklungsboard:
+             * im Netz liegt das letzte Release, hier laeuft schon der Stand
+             * danach. Trotzdem protokollieren - sonst sucht man beim naechsten
+             * "warum kommt kein Update?" im Dunkeln. */
+            ESP_LOGI(TAG, "Im Netz liegt %s, laufend ist %s - nicht neuer, kein Update angeboten",
+                     neues_image.version, laufende_version);
         esp_https_ota_abort(handle);
         return true;
     }

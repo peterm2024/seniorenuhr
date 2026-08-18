@@ -42,8 +42,19 @@ $hauptquelle = Join-Path $hier "..\main"
     -o "$hier\test_protokoll.exe"
 if ($LASTEXITCODE -ne 0) { throw "Kompilierung der Protokoll-Tests fehlgeschlagen" }
 
+# Versionsvergleich: haengt an nichts weiter als der C-Standardbibliothek.
+& $gcc -std=c99 -Wall -Wextra -Werror `
+    "-I$hauptquelle" `
+    "$hauptquelle\version_vergleich.c" `
+    "$hier\test_version.c" `
+    -o "$hier\test_version.exe"
+if ($LASTEXITCODE -ne 0) { throw "Kompilierung der Versionstests fehlgeschlagen" }
+
 & "$hier\test_ics.exe"
 $ergebnis_ics = $LASTEXITCODE
+
+& "$hier\test_version.exe"
+$ergebnis_version = $LASTEXITCODE
 
 # Im temporaeren Verzeichnis laufen lassen - der Test legt Dateien an.
 Push-Location $env:TEMP
@@ -52,4 +63,5 @@ $ergebnis_protokoll = $LASTEXITCODE
 Pop-Location
 
 if ($ergebnis_ics -ne 0) { exit $ergebnis_ics }
+if ($ergebnis_version -ne 0) { exit $ergebnis_version }
 exit $ergebnis_protokoll

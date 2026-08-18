@@ -790,6 +790,13 @@ static void einstellungen_task_starten(void)
 
 static uint32_t s_update_druck_beginn;
 static bool s_update_druck_ausgeloest;
+/* Bleibt nach einem ausgeloesten Halten bis zum NAECHSTEN Druck stehen und
+ * unterdrueckt so das Klick-Ereignis, das LVGL beim Loslassen ohnehin noch
+ * schickt. Ohne das oeffnete ein Halten auf der Status-Tippflaeche zusaetzlich
+ * das Status-Detail-Fenster hinter dem Bestaetigungsdialog. Eigene Variable
+ * statt s_update_druck_ausgeloest, weil jene schon bei RELEASED zurueckgesetzt
+ * wird - also bevor das Klick-Ereignis ueberhaupt eintrifft. */
+static bool s_halten_unterdrueckt_klick;
 static lv_obj_t *s_update_dialog;
 static lv_timer_t *s_update_dialog_timer;
 
@@ -893,17 +900,29 @@ static void update_dialog_zeigen(void)
     lv_timer_set_repeat_count(s_update_dialog_timer, 1);
 }
 
-static void update_symbol_geklickt_cb(lv_event_t *e)
+/* Haengt an ZWEI Stellen (siehe ui_aufbauen):
+ *
+ *  - am Update-Symbol, solange es sichtbar ist,
+ *  - an der Tippflaeche ueber den Status-Symbolen, die IMMER da ist.
+ *
+ * Das zweite ist der eigentliche Zugang (Peters Wunsch, 18.08.2026): das
+ * Update-Symbol erscheint nur, wenn es tatsaechlich etwas Neues gibt - seit
+ * der Versionsvergleich das korrekt beantwortet (version_vergleich.c) also
+ * meistens gar nicht. Ohne einen davon unabhaengigen Weg kaeme man vom
+ * Hauptbildschirm nur noch ueber einen Neustart ins Menue. */
+static void menue_halten_cb(lv_event_t *e)
 {
     switch (lv_event_get_code(e)) {
     case LV_EVENT_PRESSED:
         s_update_druck_beginn = lv_tick_get();
         s_update_druck_ausgeloest = false;
+        s_halten_unterdrueckt_klick = false;
         break;
     case LV_EVENT_PRESSING:
         if (!s_update_druck_ausgeloest &&
             lv_tick_elaps(s_update_druck_beginn) >= UPDATE_HALTEDAUER_MS) {
             s_update_druck_ausgeloest = true; /* nur einmal pro Druck */
+            s_halten_unterdrueckt_klick = true;
             update_dialog_zeigen();
         }
         break;
@@ -1312,6 +1331,14 @@ static void status_detail_oeffnen_cb(lv_event_t *e)
 {
     (void)e;
 
+    /* Wurde gerade der Menue-Zugang durch langes Halten ausgeloest, ist dieser
+     * Klick nur dessen Nachklang - dann nicht zusaetzlich das Status-Fenster
+     * hinter dem Bestaetigungsdialog aufziehen (siehe menue_halten_cb). */
+    if (s_halten_unterdrueckt_klick) {
+        s_halten_unterdrueckt_klick = false;
+        return;
+    }
+
     bool wlan_ok = netz_ist_verbunden();
     bool zeit_ok = zeit_ist_synchron() && !zeit_ist_manuell_gesetzt();
     bool kalender_ok = kalender_anzeige_version() != 0 && kalender_anzeige_frisch();
@@ -1473,9 +1500,9 @@ static void ui_aufbauen(void)
     lv_obj_remove_flag(s_update_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_update_tippflaeche, LV_OBJ_FLAG_HIDDEN);
     /* ALLE Ereignisse, nicht nur LV_EVENT_CLICKED: die Haltedauer wird selbst
-     * gemessen (siehe update_symbol_geklickt_cb). Ein kurzer Tipp bewirkt
-     * bewusst nichts. */
-    lv_obj_add_event_cb(s_update_tippflaeche, update_symbol_geklickt_cb, LV_EVENT_ALL, NULL);
+     * gemessen (siehe menue_halten_cb). Ein kurzer Tipp bewirkt bewusst
+     * nichts. */
+    lv_obj_add_event_cb(s_update_tippflaeche, menue_halten_cb, LV_EVENT_ALL, NULL);
 
     /* Live-Status rechts oben: spiegelt WLAN/Zeit/Kalender aus dem
      * Startbildschirm, durchgestrichen bei fehlender Konnektivitaet. Seit
@@ -1507,6 +1534,14 @@ static void ui_aufbauen(void)
     lv_obj_add_flag(status_tippflaeche, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(status_tippflaeche, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(status_tippflaeche, status_detail_oeffnen_cb, LV_EVENT_CLICKED, NULL);
+    /* Zusaetzlich der versteckte Weg ins Einstellungen-Menue: 5 Sekunden
+     * halten, dann bestaetigen (siehe menue_halten_cb). Bewusst HIER und nicht
+     * an einem Wochentag-Knopf: diese Flaeche ist immer vorhanden, waehrend
+     * das Update-Symbol - der bisher einzige Zugang - seit dem korrigierten
+     * Versionsvergleich meistens gar nicht mehr erscheint. Fuer die Eltern
+     * bleibt es unauffaellig: ein kurzer Tipp zeigt weiterhin nur den
+     * Verbindungsstatus, und fuenf Sekunden haelt niemand versehentlich. */
+    lv_obj_add_event_cb(status_tippflaeche, menue_halten_cb, LV_EVENT_ALL, NULL);
 
     /* Abend-Dimmung: ein schwarzes Rechteck ueber allem anderen. Fuer
      * Nacht wird stattdessen direkt mit Hintergrund-/Textfarben
