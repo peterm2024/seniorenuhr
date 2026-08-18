@@ -198,6 +198,13 @@ Der Monitor zeigt das Boot-Log und wird mit `Strg+]` beendet. Bei Problemen
 lohnt der Blick in [FALLSTRICKE_UND_WORKAROUNDS.md](FALLSTRICKE_UND_WORKAROUNDS.md),
 bevor etwas erneut untersucht wird, das schon einmal gelöst wurde.
 
+## Entstehung
+
+Die Firmware ist zusammen mit Claude Code entstanden, dem
+Kommandozeilen-Werkzeug von Anthropic. Der überwiegende Teil von Quelltext und
+Dokumentation ist dort geschrieben worden; Anforderungen, Entwurfsentscheidungen
+und jede Prüfung am Gerät kamen vom Autor.
+
 ## Kein Medizinprodukt, keine Garantie
 
 Dieses Projekt ist ein privates Hobbyprojekt — eine Kalender-Uhr mit
@@ -296,6 +303,11 @@ NTP.
 fill in the Wi-Fi credentials and the calendar URL, then `idf.py build` and
 `idf.py -p <PORT> flash`. See the German section
 [Bauen und Flashen](#bauen-und-flashen) for details.
+
+**How it came about.** The firmware was written together with Claude Code,
+Anthropic's command-line tool: most of the source and the documentation were
+written there, while requirements, design decisions and every check on real
+hardware came from the author.
 
 **Not a medical device, no warranty.** This is a private hobby project — a
 calendar clock with a reminder display. It is not a medical device under the EU
