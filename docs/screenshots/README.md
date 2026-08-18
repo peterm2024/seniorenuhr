@@ -25,6 +25,18 @@ Die Rohdaten-Version wirkt deshalb auf einem normalen Monitor leicht
 entsprechend gestreckt, keine zweite echte Aufnahme - beide Varianten bleiben
 erhalten.
 
+## Fotos vom Geraet
+
+Ausnahme von allem Folgenden: `geraet_<datum>.jpg` ist kein Bildschirmfoto,
+sondern eine gewoehnliche Kameraaufnahme des laufenden Geraets. Sie zeigt, was
+ein Screenshot prinzipbedingt nicht kann - Gehaeuse, Aufstellung, Groesse im
+Raum. Fuer den README-Aufmacher zugeschnitten und auf 1400px verkleinert; das
+Original (rund 2,6 MB) bleibt in `screenshots_lokal/fotos/` und damit
+ausserhalb des Repositories.
+
+Das Gehaeuse ist ein 3D-Druck aus dem Netz und bewusst nicht Teil dieses
+Projekts - es gibt passende Entwuerfe fuer das Board frei verfuegbar.
+
 ## Aktueller Stand
 
 - `hauptanzeige_2026-07-21.png` / `..._proportional.png` — Hauptanzeige
@@ -45,3 +57,6 @@ erhalten.
 - `einstellungen_2026-08-18.png` / `..._proportional.png` — Einstellungen-Menue
   mit dem neuen Sprachknopf ("Sprache: Deutsch/English", umschaltbar ohne
   Neuflashen). Aufgenommen auf Board 1 (Entwicklungsboard)
+- `geraet_2026-08-18.jpg` — Kamerafoto des laufenden Geraets im Gehaeuse
+  (Abendmodus, gedimmt). Erste Aufnahme, die das Geraet als Gegenstand zeigt
+  statt nur seinen Bildschirminhalt

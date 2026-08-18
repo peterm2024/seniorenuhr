@@ -11,10 +11,16 @@ und den Tablettenplan. Gepflegt wird alles aus der Ferne über einen gewöhnlich
 Kalender (Google Kalender oder Nextcloud) — am Gerät selbst muss niemand etwas
 bedienen. Entstanden ist das Projekt für die eigenen Eltern.
 
-<img src="docs/screenshots/hauptanzeige_2026-07-21_proportional.png" alt="Hauptanzeige der Seniorenuhr" width="640">
+<img src="docs/screenshots/geraet_2026-08-18.jpg" alt="Die Seniorenuhr im Betrieb, in einem 3D-gedruckten Gehäuse auf einem Tisch" width="620">
 
-*Die Hauptanzeige: links die antippbaren Wochentage, rechts oben die
-Statussymbole für WLAN, Zeitsynchronisation und Kalenderabruf.*
+*Das fertige Gerät im Alltag. Links die antippbaren Wochentage, rechts oben die
+Statussymbole für WLAN, Zeitsynchronisation und Kalenderabruf — darunter die
+Tabletten des Tages, abgehakte in Grau.*
+
+Die folgenden Abbildungen sind direkt vom Gerät aufgenommene Bildschirmfotos
+(siehe [docs/screenshots/](docs/screenshots/)):
+
+<img src="docs/screenshots/hauptanzeige_2026-07-21_proportional.png" alt="Hauptanzeige der Seniorenuhr" width="640">
 
 ## Funktionsweise
 
