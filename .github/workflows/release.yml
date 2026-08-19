@@ -31,6 +31,34 @@ jobs:
           # den Tag, ein flacher Checkout liefert sonst nur einen Hash.
           fetch-depth: 0
 
+      # Bewusst VOR dem Build: fehlt der Abschnitt, faellt das sofort auf und
+      # nicht erst nach sieben Minuten Bauzeit. Der Abbruch ist die eigentliche
+      # Bremse - ohne ihn verrottet CHANGELOG.md nach ein paar Releases
+      # unbemerkt, und der Release-Text waere wieder fuer jede Version gleich.
+      - name: Release-Text aus CHANGELOG.md holen
+        shell: bash
+        run: |
+          python3 - "$GITHUB_REF_NAME" <<'PY'
+          import os, re, sys
+          tag = sys.argv[1]
+          with open('CHANGELOG.md', encoding='utf-8') as f:
+              text = f.read()
+          # Abschnitt "## v0.10.0 - 18.08.2026" bis zur naechsten "## "-Zeile
+          treffer = re.search(r'^## ' + re.escape(tag) + r'(?![0-9.]).*?$(.*?)(?=^## |\Z)',
+                              text, re.M | re.S)
+          if not treffer:
+              sys.exit(f'FEHLER: CHANGELOG.md hat keinen Abschnitt "## {tag}". '
+                       'Vor dem Taggen eintragen, was sich am Geraet aendert.')
+          abschnitt = treffer.group(1).strip()
+          if not abschnitt:
+              sys.exit(f'FEHLER: Der Abschnitt "## {tag}" in CHANGELOG.md ist leer.')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+              f.write('RELEASE_TEXT<<CHANGELOG_ABSCHNITT_ENDE\n')
+              f.write(abschnitt + '\n')
+              f.write('CHANGELOG_ABSCHNITT_ENDE\n')
+          print(abschnitt)
+          PY
+
       # secrets.h liegt NICHT im Repo (siehe .gitignore) - der Platzhalter
       # aus secrets.example.h landet in der Release-Binary. Damit ist ein
       # versehentliches Veroeffentlichen von Peters WLAN-Passwort oder der
@@ -106,8 +134,36 @@ jobs:
           name: Seniorenuhr ${{ steps.version.outputs.version }}
           files: build/seniorenuhr.bin
           body: |
-            Firmware-Datei fuer die Seniorenuhr (ESP32-S3).
+            ${{ env.RELEASE_TEXT }}
+
+            ---
 
             Das Geraet laedt diese Datei selbst herunter, sobald das Update
             im Einstellungen-Menue bestaetigt wird. Der Quellcode liegt im
-            separaten Repository peterm2024/seniorenuhr.
+            separaten Repository peterm2024/seniorenuhr; alle Aenderungen auf
+            einen Blick in [CHANGELOG.md](https://github.com/peterm2024/seniorenuhr-firmware/blob/main/CHANGELOG.md).
+
+      # Damit im Download-Repo die GANZE Historie auf einer Seite steht: wer
+      # von v0.9.3 auf v0.10.0 springt, will nicht jede Zwischenversion
+      # einzeln aufklappen muessen.
+      - name: CHANGELOG ins Download-Repo uebernehmen
+        shell: bash
+        env:
+          FW_TOKEN: ${{ secrets.FIRMWARE_REPO_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory /tmp/firmware-repo
+          rm -rf /tmp/firmware-repo
+          git clone --depth 1 \
+            "https://x-access-token:${FW_TOKEN}@github.com/peterm2024/seniorenuhr-firmware.git" \
+            /tmp/firmware-repo
+          cp CHANGELOG.md /tmp/firmware-repo/CHANGELOG.md
+          cd /tmp/firmware-repo
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG unveraendert - nichts zu uebertragen"
+          else
+            git add CHANGELOG.md
+            git commit -m "CHANGELOG zu ${GITHUB_REF_NAME}"
+            git push
+          fi
