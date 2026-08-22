@@ -5,6 +5,9 @@ name: Host-Tests
 # Windows-Variante). Dieser Workflow baut denselben Test mit gcc unter Linux
 # und laeuft bei jedem Push/PR, ohne den ESP-IDF-Container zu brauchen.
 on:
+  # Von Hand ausloesbar (gh workflow run "Host-Tests") - gebraucht, wenn ein
+  # Lauf nachgeholt werden soll, ohne eine der gefilterten Dateien anzufassen.
+  workflow_dispatch:
   push:
     paths:
       - "components/kalender/**"
@@ -12,6 +15,8 @@ on:
       - "main/protokoll_ansicht.*"
       - "main/version_vergleich.*"
       - "test_host/**"
+      # Der Workflow selbst: sonst prueft sich eine Aenderung an ihm nie
+      - ".github/workflows/test.yml"
   pull_request:
     paths:
       - "components/kalender/**"
@@ -19,6 +24,8 @@ on:
       - "main/protokoll_ansicht.*"
       - "main/version_vergleich.*"
       - "test_host/**"
+      # Der Workflow selbst: sonst prueft sich eine Aenderung an ihm nie
+      - ".github/workflows/test.yml"
 
 jobs:
   test:
