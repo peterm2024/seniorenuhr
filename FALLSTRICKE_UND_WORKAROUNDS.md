@@ -1033,3 +1033,58 @@ nein").
 **Lehre:** "Der Tag wechselt um Mitternacht" ist eine Kalender-Wahrheit, keine menschliche. Wo
 eine Anzeige dem Tagesrhythmus von Menschen folgen soll, braucht die Tagesgrenze einen Uebergang -
 und solange der laeuft, darf noch kein Urteil ueber den vergangenen Tag gefaellt werden.
+
+---
+
+## 44. LV_LABEL_LONG_DOT ohne feste Hoehe bricht um, statt abzuschneiden
+
+**Problem:** Im Tagesfenster liefen die Tabletten-Zeilen waagerecht in die Termine-Spalte hinein
+("Paracetamol" lag auf "Keine Termine.", im Screenshot gesehen). Naheliegender Fix: Breite
+begrenzen und `LV_LABEL_LONG_DOT` setzen, wie es das Heute-Fenster laengst tut. Danach war es
+schlimmer - die Zeile brach in zwei Zeilen um und die zweite lag ueber der naechsten Tablette.
+
+**Ursache:** `LV_LABEL_LONG_DOT` heisst nicht "in einer Zeile abschneiden", sondern "die Groesse
+des Objekts beibehalten und in der LETZTEN sichtbaren Zeile Punkte setzen". Ist nur die Breite
+gesetzt und die Hoehe bleibt automatisch, waechst das Label eben nach unten: es bricht um, und
+Punkte erscheinen nie, weil alles hineinpasst. Die Zeilen des Tagesfensters werden mit festem
+Y-Abstand positioniert (`y += 36`), das umgebrochene Label deckt also seinen Nachbarn zu.
+
+**Loesung:** `lv_obj_set_size(label, BREITE, HOEHE)` - beides. Erst die Hoehenbegrenzung auf eine
+Zeile erzwingt das gewuenschte "eine Zeile mit ...". Reihenfolge wie im Heute-Fenster:
+`lv_label_set_long_mode()` und `lv_obj_set_size()` VOR `lv_label_set_text()`.
+
+**Lehre:** Der Name des Modus beschreibt das Ergebnis nur zusammen mit der Objektgroesse. Bei
+allem, was in einer Spalte oder Tabelle steht, immer Breite UND Hoehe setzen - sonst verschiebt
+sich der Fehler nur von "laeuft nach rechts raus" zu "deckt die naechste Zeile zu". Beide
+Zustaende sahen im seriellen Log identisch aus; sichtbar wurden sie erst im Screenshot.
+
+---
+
+## 45. "Montserrat hat keine Symbolglyphen" stimmte - der Schluss daraus nicht
+
+**Problem:** Abgehakte Tabletten waren jahrelang mit dem ASCII-Ersatz `[x] ` markiert. Begruendet
+war das mit einem gepruefen Befund: `lv_font_conv --range 0x2713` bricht bei Montserrat-Bold mit
+"doesn't have any characters included in range" ab, die Schrift enthaelt schlicht keinen Haken.
+Daraus war geschlossen worden, ein echtes Hakenzeichen sei nicht moeglich.
+
+**Ursache des Irrtums:** Der Befund galt fuer EINE Schrift, die Schlussfolgerung fuer das
+Werkzeug. `lv_font_conv` nimmt aber mehrere `--font`-Argumente, jedes mit eigenem `--range`, und
+mischt sie in eine einzige Ausgabedatei. Die fehlende Glyphe muss also nicht in Montserrat
+stecken - sie muss nur irgendwo herkommen.
+
+**Loesung:** Zweite Quelle nur fuer diese eine Glyphe: Noto Sans Symbols 2 (wie Montserrat unter
+der SIL Open Font License 1.1, die Lizenzlage bleibt damit unveraendert). Genommen wurde U+2714
+(kraeftig) statt U+2713 (duenn) - beide Varianten wurden als Bild nebeneinandergelegt, neben
+Montserrat Bold wirkt der duenne wie ein Fremdkoerper. Im Quelltext steht der Haken als
+`"\xE2\x9C\x94 "`, damit die Dateien ASCII bleiben; das Leerzeichen dahinter beendet zugleich
+die Hex-Escape-Folge, die sonst jede weitere Hex-Ziffer mitfraesse.
+
+**Nebeneffekt:** Der Haken ist bei 28 px 26,0 px breit, `[x]` war 37,3 px - lange Tablettennamen
+werden dadurch etwas spaeter abgeschnitten. Gemessen ueber `lv_font_conv --format dump`, das die
+Glyphen als PNG samt Vorschubbreiten ausgibt; damit laesst sich eine Schriftaenderung ansehen und
+nachmessen, bevor sie auf dem Geraet landet.
+
+**Lehre:** Ein negativer Befund zu einer Zutat ist kein negativer Befund zum Rezept. Wenn eine
+Begruendung in der Doku steht ("geht nicht, weil X keine Y enthaelt"), lohnt die Frage, ob sie
+das Werkzeug wirklich ausschoepft - hier lag zwischen "unmoeglich" und "geht" ein einziges
+zusaetzliches Kommandozeilen-Argument.

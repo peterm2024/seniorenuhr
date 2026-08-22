@@ -8,7 +8,7 @@ Deutsch** (auch Log-Ausgaben; nur die Oberfläche ist zweisprachig).
 
 ## Zuerst lesen
 
-`FALLSTRICKE_UND_WORKAROUNDS.md` enthält 43 gelöste Probleme mit Ursache und
+`FALLSTRICKE_UND_WORKAROUNDS.md` enthält 45 gelöste Probleme mit Ursache und
 Lösung. **Vor jeder Untersuchung eines Fehlers dort nachschauen** — vieles war
 schon einmal da, und mehrere Einträge beschreiben Fallen, in die man sonst
 zuverlässig erneut tappt. `FAHRPLAN.md` hat Architektur und
@@ -28,7 +28,7 @@ Remove-Item Env:VIRTUAL_ENV -ErrorAction SilentlyContinue
 idf.py build
 idf.py -p COM3 flash
 idf.py -p COM3 monitor          # Beenden mit Strg+]
-test_host\teste.ps1             # alle Host-Tests (93 Prüfungen)
+test_host\teste.ps1             # alle Host-Tests (120 Prüfungen)
 tools\fonts\erzeuge_fonts.ps1   # nur bei geänderten Schriftgrößen/Zeichen
 ```
 

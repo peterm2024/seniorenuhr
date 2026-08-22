@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 128 px
  * Bpp: 4
- * Opts: --font C:\Users\peter\Projekte\WaveShare\tools\fonts\Montserrat-Bold.ttf --size 128 --bpp 4 --format lvgl --no-compress --range 0x20,0x2E,0x30-0x3A -o C:\Users\peter\Projekte\WaveShare\tools\fonts\..\..\assets\fonts\schrift_uhr_128.c
+ * Opts: --font C:\Users\peter\Projekte\WaveShare\tools\fonts\Montserrat-Bold.ttf --range 0x20,0x2E,0x30-0x3A --size 128 --bpp 4 --format lvgl --no-compress -o C:\Users\peter\Projekte\WaveShare\tools\fonts\..\..\assets\fonts\schrift_uhr_128.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

@@ -202,11 +202,15 @@ static lv_obj_t *s_termine_ueberschrift;
 #define UEBERSICHT_ZEILEN_MAX KALENDER_EINTRAEGE_MAX
 #define UEBERSICHT_ZEILE_ABSTAND 34
 #define UEBERSICHT_SPALTE_BREITE 300
-/* Abgehakte Tabletten bekommen dieses ASCII-Praefix statt eines Unicode-
- * Hakens - Montserrat-Bold (unsere generierte Schriftart) enthaelt keine
- * Symbolglyphen wie U+2713, lv_font_conv bricht dafuer mit "doesn't have
- * any characters included in range" ab (siehe tools/fonts/erzeuge_fonts.ps1). */
-#define UEBERSICHT_HAKEN_PRAEFIX "[x] "
+/* Abgehakte Tabletten bekommen einen echten Haken (U+2714). Montserrat-Bold
+ * allein enthaelt keine Symbolglyphen; der Generator mischt die Glyphe
+ * deshalb aus Noto Sans Symbols 2 dazu (siehe tools/fonts/erzeuge_fonts.ps1).
+ * Vorher stand hier das ASCII-Ersatzpraefix "[x] ".
+ *
+ * Als Hex-Escape geschrieben, damit die Quelldateien wie im ganzen Projekt
+ * ASCII bleiben. Das abschliessende Leerzeichen beendet zugleich die
+ * Hex-Escape-Folge - C frisst sonst jede weitere Hex-Ziffer mit auf. */
+#define UEBERSICHT_HAKEN_PRAEFIX "\xE2\x9C\x94 "
 
 typedef struct {
     lv_obj_t *container;

@@ -90,6 +90,11 @@ typedef enum {
     TXT_KEINE_TERMINE_HEUTE,
     TXT_KEINE_TABLETTEN_KURZ,       /* Tages-Fenster (andere Tage): "Keine Tabletten." */
     TXT_KEINE_TERMINE_KURZ,
+    /* Vergangener Tag, zu dem das Protokoll nichts weiss - etwa weil das
+     * Geraet aus war. Bewusst NICHT "keine Tabletten": das waere eine
+     * Aussage ueber Menschen statt ueber das Geraet (siehe
+     * tabletten_protokoll.h). */
+    TXT_KEINE_AUFZEICHNUNG,
     TXT_TABLETTEN_SPALTE,           /* Spaltenkopf im Tages-/Heute-Fenster: "TABLETTEN" */
     TXT_TERMINE_SPALTE,
     TXT_HEUTE_GROSS,                /* Kopfzeile des Heute-Fensters: "HEUTE" */

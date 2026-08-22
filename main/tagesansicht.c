@@ -7,6 +7,7 @@
 
 #include "esp_lvgl_port.h"
 #include "kalender_anzeige.h"
+#include "protokoll_ansicht.h"
 #include "texte.h"
 #include "zeit.h"
 
@@ -393,11 +394,10 @@ static lv_obj_t *fenster_grundgeruest_erzeugen(const char *titel_oben, const cha
     return panel;
 }
 
-/* Abgehakte Tabletten bekommen dieses ASCII-Praefix statt eines Unicode-
- * Hakens - Montserrat-Bold enthaelt keine Symbolglyphen wie U+2713,
- * lv_font_conv bricht dafuer ab (siehe tools/fonts/erzeuge_fonts.ps1 und
- * app_main.c/UEBERSICHT_HAKEN_PRAEFIX). */
-#define TAGESANSICHT_HAKEN_PRAEFIX "[x] "
+/* Echter Haken (U+2714), aus Noto Sans Symbols 2 in unsere Montserrat-Fonts
+ * gemischt - Begruendung und Schreibweise siehe
+ * app_main.c/UEBERSICHT_HAKEN_PRAEFIX. */
+#define TAGESANSICHT_HAKEN_PRAEFIX "\xE2\x9C\x94 "
 
 static void eintrag_zeile_formatieren(const kalender_tag_eintrag_t *e, bool haken, char *ziel, size_t ziel_groesse)
 {
@@ -435,10 +435,27 @@ static void eintrag_zeile_formatieren(const kalender_tag_eintrag_t *e, bool hake
 #define TAGESFENSTER_SPALTE_X_LINKS  20
 #define TAGESFENSTER_SPALTE_X_RECHTS (FENSTER_BREITE - TAGESFENSTER_SPALTE_BREITE - 20)
 #define TAGESFENSTER_ZEILEN_MAX 5
+/* Hoehe einer Eintragszeile. Zusammen mit der Spaltenbreite zwingt sie
+ * LV_LABEL_LONG_DOT zu genau EINER Zeile mit "..." statt zu einem Umbruch,
+ * der die naechste Zeile ueberdecken wuerde. Entspricht ZEILE_NAME_HOEHE im
+ * Heute-Fenster weiter unten. */
+#define TAGESFENSTER_ZEILE_HOEHE 32
 
+/* `zustaende` (optional, NULL = aus): Bewertung je Eintrag aus dem
+ * Langzeitprotokoll, parallel zu `eintraege` indiziert. Ist sie gesetzt,
+ * faerbt die Tabletten-Spalte nach dem, was TATSAECHLICH passiert ist -
+ * gruen genommen, bernstein zu spaet, rot vergessen - statt nur abgehakt
+ * gegen offen zu unterscheiden.
+ *
+ * `hinweis` (optional, NULL = aus): eine gedaempfte Zeile unter der
+ * Ueberschrift. Gebraucht fuer vergangene Tage, zu denen das Protokoll
+ * nichts weiss: die Kalenderschicht liefert dort fuer JEDEN Eintrag
+ * bestaetigt = false, die Spalte saehe sonst so aus, als waere nichts
+ * genommen worden - eine Falschaussage ueber Menschen. */
 static void tagesfenster_spalte_zeichnen(lv_obj_t *parent, int32_t x, const char *ueberschrift,
                                          const kalender_tag_eintrag_t *eintraege, int anzahl_gesamt,
-                                         bool tabletten_spalte, bool tag_vergangen)
+                                         bool tabletten_spalte, bool tag_vergangen,
+                                         const tabletten_zustand_t *zustaende, const char *hinweis)
 {
     int32_t y = 100;
 
@@ -448,6 +465,23 @@ static void tagesfenster_spalte_zeichnen(lv_obj_t *parent, int32_t x, const char
     lv_obj_set_style_text_color(kopf, lv_color_hex(FARBE_FENSTER_AKZENT), 0);
     lv_obj_set_pos(kopf, x, y);
     y += 34;
+
+    /* Die Hinweiszeile belegt einen der Zeilenplaetze, statt alles nach unten
+     * zu schieben: bei voller Liste endet die fuenfte Zeile bereits am
+     * unteren Fensterrand (FENSTER_HOEHE_TAG), eine sechste liefe hinaus
+     * (vgl. Fallstrick 22 - feste Y-Abstaende verzeihen nichts). */
+    const int zeilen_max = TAGESFENSTER_ZEILEN_MAX - (hinweis ? 1 : 0);
+
+    if (hinweis) {
+        lv_obj_t *marke = lv_label_create(parent);
+        lv_label_set_long_mode(marke, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(marke, TAGESFENSTER_SPALTE_BREITE, TAGESFENSTER_ZEILE_HOEHE);
+        lv_label_set_text(marke, hinweis);
+        lv_obj_set_style_text_font(marke, &schrift_klein_28, 0);
+        lv_obj_set_style_text_color(marke, lv_color_hex(FARBE_VERGANGEN), 0);
+        lv_obj_set_pos(marke, x, y);
+        y += 36;
+    }
 
     int gefiltert = 0;
     for (int i = 0; i < anzahl_gesamt; i++)
@@ -467,7 +501,7 @@ static void tagesfenster_spalte_zeichnen(lv_obj_t *parent, int32_t x, const char
     for (int i = 0; i < anzahl_gesamt; i++) {
         if (eintraege[i].ist_tablette != tabletten_spalte)
             continue;
-        if (gezeigt >= TAGESFENSTER_ZEILEN_MAX - (gefiltert > TAGESFENSTER_ZEILEN_MAX ? 1 : 0))
+        if (gezeigt >= zeilen_max - (gefiltert > zeilen_max ? 1 : 0))
             break;
 
         bool abgehakt = tabletten_spalte && eintraege[i].bestaetigt;
@@ -475,13 +509,33 @@ static void tagesfenster_spalte_zeichnen(lv_obj_t *parent, int32_t x, const char
         eintrag_zeile_formatieren(&eintraege[i], abgehakt, inhalt, sizeof inhalt);
 
         lv_obj_t *label = lv_label_create(parent);
+        /* Auf Spaltenbreite UND eine Zeilenhoehe begrenzen, sonst laeuft die
+         * Zeile in die Nachbarspalte (beides live im Screenshot gesehen):
+         *   - ohne Breite waechst sie einfach weiter ("Paracetamol" lag auf
+         *     "Keine Termine."),
+         *   - nur mit Breite bricht LV_LABEL_LONG_DOT den Text um und setzt
+         *     die Punkte erst in der LETZTEN Zeile - die zweite Zeile
+         *     ueberlappte dann die naechste Tablette.
+         * Erst die feste Hoehe erzwingt eine einzige Zeile mit "...".
+         * Reihenfolge wie im Heute-Fenster: Modus und Groesse VOR dem Text. */
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(label, TAGESFENSTER_SPALTE_BREITE, TAGESFENSTER_ZEILE_HOEHE);
         lv_label_set_text(label, inhalt);
         lv_obj_set_style_text_font(label, &schrift_klein_28, 0);
         bool vergangen = tag_vergangen && !tabletten_spalte;
-        bool gedaempft = vergangen || abgehakt;
-        lv_obj_set_style_text_color(label, lv_color_hex(gedaempft ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
-        if (vergangen)
-            lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
+        if (zustaende && tabletten_spalte) {
+            /* Aufgezeichneter Tag: die Farbe traegt hier die eigentliche
+             * Aussage, deshalb kein Daempfen und kein Durchstreichen. */
+            uint32_t farbe = zustaende[i] == TABLETTEN_ZUSTAND_GENOMMEN   ? FARBE_SCHIEBER_EIN
+                             : zustaende[i] == TABLETTEN_ZUSTAND_ZU_SPAET ? FARBE_BESTAETIGT_SPAET
+                                                                          : FARBE_TABLETTE_UEBERFAELLIG;
+            lv_obj_set_style_text_color(label, lv_color_hex(farbe), 0);
+        } else {
+            bool gedaempft = vergangen || abgehakt;
+            lv_obj_set_style_text_color(label, lv_color_hex(gedaempft ? FARBE_VERGANGEN : FARBE_FENSTER_TEXT), 0);
+            if (vergangen)
+                lv_obj_set_style_text_decor(label, LV_TEXT_DECOR_STRIKETHROUGH, 0);
+        }
         lv_obj_set_pos(label, x, y);
         y += 36;
         gezeigt++;
@@ -516,6 +570,35 @@ static void tages_fenster_oeffnen(int tage_versatz, lv_obj_t *button)
      * Uhrzeit-genaue Pruefung pro Eintrag ist hier also nicht noetig. */
     bool tag_vergangen = tage_versatz < 0;
 
+    /* Fuer einen vergangenen Tag sagt der Kalender nur, was ANSTAND: die
+     * Bestaetigungen der Kalenderschicht gelten immer nur fuer heute, gestern
+     * stuende dort also bei jeder Tablette "offen". Was wirklich passiert
+     * ist, steht seit dem Tageswechsel im Langzeitprotokoll. */
+    kalender_tag_eintrag_t aufgezeichnet[KALENDER_EINTRAEGE_MAX];
+    tabletten_zustand_t zustaende[KALENDER_EINTRAEGE_MAX];
+    int aufgezeichnet_anzahl = 0;
+    const char *tabletten_hinweis = NULL;
+
+    if (tag_vergangen) {
+        int schluessel = (lokal.tm_year + 1900) * 10000 + (lokal.tm_mon + 1) * 100 + lokal.tm_mday;
+        if (tabletten_protokoll_kennt_tag(schluessel)) {
+            tabletten_protokoll_eintrag_t roh[KALENDER_EINTRAEGE_MAX];
+            int roh_anzahl = tabletten_protokoll_tag_lesen(schluessel, roh, KALENDER_EINTRAEGE_MAX);
+            aufgezeichnet_anzahl = protokoll_ansicht_aufbereiten(roh, roh_anzahl, aufgezeichnet,
+                                                                 zustaende, KALENDER_EINTRAEGE_MAX);
+        }
+        if (aufgezeichnet_anzahl == 0) {
+            /* Kein Protokoll zu diesem Tag - etwa weil das Geraet aus war.
+             * Dann bleibt die Kalender-Darstellung, aber MIT Hinweis: ohne
+             * ihn liest sich die durchweg unbestaetigte Spalte wie "nichts
+             * genommen", und das waere eine Aussage ueber Menschen statt
+             * ueber das Geraet (siehe tabletten_protokoll.h). */
+            tabletten_hinweis = text(TXT_KEINE_AUFZEICHNUNG);
+        }
+    }
+
+    bool aus_protokoll = aufgezeichnet_anzahl > 0;
+
     lvgl_port_lock(0);
     tagesfenster_intern_schliessen();
     heutefenster_intern_schliessen(); /* nur ein Fenster gleichzeitig */
@@ -526,9 +609,14 @@ static void tages_fenster_oeffnen(int tage_versatz, lv_obj_t *button)
     aktiven_button_setzen(button);
 
     tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_LINKS, text(TXT_TABLETTEN_SPALTE),
-                                 eintraege, anzahl, true, tag_vergangen);
+                                 aus_protokoll ? aufgezeichnet : eintraege,
+                                 aus_protokoll ? aufgezeichnet_anzahl : anzahl,
+                                 true, tag_vergangen,
+                                 aus_protokoll ? zustaende : NULL, tabletten_hinweis);
+    /* Die Termine-Spalte kommt immer aus dem Kalender - aufgezeichnet wird
+     * nur, was bestaetigt werden kann, also Tabletten. */
     tagesfenster_spalte_zeichnen(s_tages_fenster, TAGESFENSTER_SPALTE_X_RECHTS, text(TXT_TERMINE_SPALTE),
-                                 eintraege, anzahl, false, tag_vergangen);
+                                 eintraege, anzahl, false, tag_vergangen, NULL, NULL);
 
     s_tages_fenster_timer = lv_timer_create(tagesfenster_timer_cb, TAGESFENSTER_ANZEIGEDAUER_MS, NULL);
     lv_timer_set_repeat_count(s_tages_fenster_timer, 1);

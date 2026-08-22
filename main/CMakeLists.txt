@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "tabletten_protokoll.c" "version_vergleich.c" "texte.c" "screenshot_speicher.c" "ota.c" "screenshot_debug.c" "einstellungen.c" "tagesansicht.c" "app_main.c" "anzeige.c" "netz.c" "zeit.c" "startbildschirm.c" "einrichtung.c"
+    SRCS "tabletten_protokoll.c" "protokoll_ansicht.c" "version_vergleich.c" "texte.c" "screenshot_speicher.c" "ota.c" "screenshot_debug.c" "einstellungen.c" "tagesansicht.c" "app_main.c" "anzeige.c" "netz.c" "zeit.c" "startbildschirm.c" "einrichtung.c"
          "kalender_holen.c" "kalender_speicher.c" "kalender_anzeige.c" "webkonfig.c"
     INCLUDE_DIRS "."
     REQUIRES fonts kalender

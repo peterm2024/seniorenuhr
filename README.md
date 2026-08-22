@@ -139,12 +139,14 @@ Stocken bringen.
 Der ICS-Parser ist als portable Komponente (`components/kalender`) geschrieben
 und läuft unverändert auch auf dem PC. Er, der Versionsvergleich der
 Update-Prüfung und das Tabletten-Langzeitprotokoll werden dort von zusammen
-93 Prüfungen abgedeckt (`test_host/`). Alles, was sich ohne Hardware
+120 Prüfungen abgedeckt (`test_host/`). Alles, was sich ohne Hardware
 feststellen lässt, wandert bewusst dorthin: ein Protokoll, das nur beim
 Mitternachtswechsel schreibt, wäre auf dem Gerät sonst nur durch Abwarten zu
 prüfen. Die Schriften sind selbst generierte LVGL-Fonts auf Basis von
 Montserrat, da die in LVGL eingebauten Fonts keine deutschen Umlaute
-enthalten.
+enthalten. Das Hakenzeichen abgehakter Tabletten stammt aus Noto Sans
+Symbols 2 — Montserrat enthält keine Symbolglyphen; `lv_font_conv` mischt
+beide Quellen in eine Schriftdatei.
 
 Firmware-Updates kommen automatisch per OTA von GitHub Releases, werden aber
 nie ohne Bestätigung im Einstellungen-Menü installiert — und rollen sich
@@ -229,9 +231,10 @@ Der Quellcode dieses Projekts steht unter der GNU General Public License v3
 weitergeben — wer ihn aber, auch verändert oder in Geräten, weitergibt, muss den
 Quellcode unter denselben Bedingungen offenlegen. Copyright © 2026 peterm2024.
 
-Ausnahme: die Schriftdateien in `assets/fonts/` sind aus der Schrift
-[Montserrat](https://github.com/JulietaUla/Montserrat) generiert und stehen
-unter der SIL Open Font License 1.1
+Ausnahme: die Schriftdateien in `assets/fonts/` sind aus den Schriften
+[Montserrat](https://github.com/JulietaUla/Montserrat) und
+[Noto Sans Symbols 2](https://github.com/google/fonts/tree/main/ofl/notosanssymbols2)
+generiert und stehen unter der SIL Open Font License 1.1
 (siehe [assets/fonts/LICENSE-OFL.txt](assets/fonts/LICENSE-OFL.txt)).
 
 Fremdkomponenten (ESP-IDF, LVGL, esp_lvgl_port, GT911-Touchtreiber) sind nicht
@@ -322,5 +325,6 @@ sections 15–17 of the GPLv3).
 **Licence.** Source code under the GNU General Public License v3 (see
 [LICENSE](LICENSE)), Copyright © 2026 peterm2024. Exception: the font files in
 `assets/fonts/` are generated from
-[Montserrat](https://github.com/JulietaUla/Montserrat) and are covered by the
-SIL Open Font License 1.1.
+[Montserrat](https://github.com/JulietaUla/Montserrat) and
+[Noto Sans Symbols 2](https://github.com/google/fonts/tree/main/ofl/notosanssymbols2),
+both covered by the SIL Open Font License 1.1.

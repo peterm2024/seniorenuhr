@@ -55,6 +55,20 @@ typedef struct {
     int  auffaellig_gesamt;       /* wie viele es insgesamt gab (>= auffaellig_anzahl) */
 } tabletten_protokoll_bilanz_t;
 
+/* Bewertung eines aufgezeichneten Eintrags.
+ *
+ * Eigene Funktion, weil dieselbe Regel an zwei Stellen gebraucht wird: in der
+ * Bilanz des Rueckblicks und in der Tagesansicht fuer einen vergangenen Tag.
+ * Zwei Kopien duerften nie auseinanderlaufen - sonst zaehlte der Rueckblick
+ * eine Tablette als "zu spaet", die das Tagesfenster gruen zeigt. */
+typedef enum {
+    TABLETTEN_ZUSTAND_GENOMMEN = 0, /* im erlaubten Fenster bestaetigt */
+    TABLETTEN_ZUSTAND_ZU_SPAET,     /* erst nach dem Fenster bestaetigt */
+    TABLETTEN_ZUSTAND_VERGESSEN,    /* gar nicht bestaetigt */
+} tabletten_zustand_t;
+
+tabletten_zustand_t tabletten_protokoll_zustand(const tabletten_protokoll_eintrag_t *eintrag);
+
 /* Haengt einen abgeschlossenen Tag an. Mehrfaches Ablegen desselben Tages
  * wird verworfen (idempotent) - sonst zaehlte ein Neustart kurz nach
  * Mitternacht denselben Tag doppelt in die Bilanz. */

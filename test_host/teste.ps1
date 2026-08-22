@@ -38,6 +38,7 @@ $hauptquelle = Join-Path $hier "..\main"
     "-I$quelle\include" "-I$hauptquelle" "-I$hier\stubs" `
     -include "$hier\stubs\testpfade.h" `
     "$hauptquelle\tabletten_protokoll.c" `
+    "$hauptquelle\protokoll_ansicht.c" `
     "$hier\test_protokoll.c" `
     -o "$hier\test_protokoll.exe"
 if ($LASTEXITCODE -ne 0) { throw "Kompilierung der Protokoll-Tests fehlgeschlagen" }

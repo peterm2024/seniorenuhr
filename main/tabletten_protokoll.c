@@ -218,6 +218,19 @@ int tabletten_protokoll_tag_lesen(int tag_schluessel, tabletten_protokoll_eintra
     return anzahl;
 }
 
+tabletten_zustand_t tabletten_protokoll_zustand(const tabletten_protokoll_eintrag_t *eintrag)
+{
+    if (!eintrag || eintrag->ist_minute < 0)
+        return TABLETTEN_ZUSTAND_VERGESSEN;
+    /* ">=" und nicht ">": genau auf der Fenstergrenze bestaetigt heisst, das
+     * erlaubte Fenster war bereits vorbei. Diese Grenze stammt aus der
+     * urspruenglichen Bilanz und bleibt bewusst unveraendert - eine
+     * Verschiebung um eine Minute wuerde alte Aufzeichnungen neu bewerten. */
+    if (eintrag->ende_minute >= 0 && eintrag->ist_minute >= eintrag->ende_minute)
+        return TABLETTEN_ZUSTAND_ZU_SPAET;
+    return TABLETTEN_ZUSTAND_GENOMMEN;
+}
+
 esp_err_t tabletten_protokoll_bilanz_ermitteln(int ab_tag_schluessel, tabletten_protokoll_bilanz_t *ziel)
 {
     if (!ziel)
@@ -244,14 +257,20 @@ esp_err_t tabletten_protokoll_bilanz_ermitteln(int ab_tag_schluessel, tabletten_
         ziel->gesamt++;
 
         bool auffaellig = false;
-        if (e.ist_minute < 0) {
+        switch (tabletten_protokoll_zustand(&e)) {
+        case TABLETTEN_ZUSTAND_VERGESSEN:
             ziel->vergessen++;
             auffaellig = true;
-        } else if (e.ende_minute >= 0 && e.ist_minute >= e.ende_minute) {
+            break;
+        case TABLETTEN_ZUSTAND_ZU_SPAET:
             ziel->zu_spaet++;
+            /* Nur deutliche Verspaetungen sind eine Auffaelligkeit - fuenf
+             * Minuten spaeter ist kein Befund, sondern Alltag. */
             auffaellig = (e.ist_minute - e.ende_minute) >= AUFFAELLIG_AB_MIN;
-        } else {
+            break;
+        case TABLETTEN_ZUSTAND_GENOMMEN:
             ziel->genommen++;
+            break;
         }
 
         if (auffaellig) {

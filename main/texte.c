@@ -76,6 +76,7 @@ static const char *const TABELLE[TXT_ANZAHL][SPRACHE_ANZAHL] = {
     [TXT_KEINE_TERMINE_HEUTE]       = { "Keine Termine heute.", "No events today." },
     [TXT_KEINE_TABLETTEN_KURZ]      = { "Keine Tabletten.", "No pills." },
     [TXT_KEINE_TERMINE_KURZ]        = { "Keine Termine.", "No events." },
+    [TXT_KEINE_AUFZEICHNUNG]        = { "Nicht erfasst.", "Not recorded." },
     [TXT_TABLETTEN_SPALTE]          = { "TABLETTEN", "PILLS" },
     [TXT_TERMINE_SPALTE]            = { "TERMINE", "EVENTS" },
     [TXT_HEUTE_GROSS]               = { "HEUTE", "TODAY" },

@@ -13,6 +13,20 @@ Release-Text heraus und legt diese Datei im Download-Repo
 [seniorenuhr-firmware](https://github.com/peterm2024/seniorenuhr-firmware) ab.
 Fehlt der Abschnitt zu einem Tag, bricht der Release-Build ab.
 
+## Unveröffentlicht
+
+Wird beim nächsten Release zur Überschrift der neuen Version — der
+Release-Workflow sucht nach `## vX.Y.Z` und bricht ab, wenn er nichts findet.
+
+- **Tipp auf einen vergangenen Wochentag zeigt die tatsächliche Einnahme.**
+  Grün = im Zeitfenster genommen, bernstein = zu spät, rot = gar nicht. Vorher
+  stand dort nur, was laut Kalender anstand — und zwar durchweg als
+  unbestätigt, was sich wie „nichts genommen“ las. Weiß das Gerät nichts über
+  den Tag (es war aus), steht „Nicht erfasst.“ darüber.
+- **Abgehakte Tabletten tragen einen echten Haken** (✔) statt `[x]`.
+- Lange Tablettennamen laufen im Tagesfenster nicht mehr in die Termine-Spalte,
+  sondern werden mit „…“ abgeschnitten.
+
 ## v0.10.0 — 18.08.2026
 
 - **Oberfläche auf Deutsch und Englisch umschaltbar**, Sprachknopf im

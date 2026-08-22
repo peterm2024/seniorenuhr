@@ -1,9 +1,19 @@
 Die Schriftdateien in diesem Verzeichnis (schrift_*.c) sind mit lv_font_conv
-erzeugte Ableitungen der Schrift "Montserrat" (Schnitt: Bold) und stehen als
-solche unter der SIL Open Font License 1.1. Der uebrige Quellcode des Projekts
-steht unter der GNU General Public License v3 (siehe LICENSE im Projektstamm).
+erzeugte Ableitungen ZWEIER Schriften und stehen als solche unter der SIL Open
+Font License 1.1. Der uebrige Quellcode des Projekts steht unter der GNU
+General Public License v3 (siehe LICENSE im Projektstamm).
 
-Quelle: https://github.com/JulietaUla/Montserrat
+  - "Montserrat" (Schnitt: Bold) - saemtliche Buchstaben, Ziffern und
+    Satzzeichen.
+    Quelle: https://github.com/JulietaUla/Montserrat
+
+  - "Noto Sans Symbols 2" (Schnitt: Regular) - ausschliesslich das
+    Hakenzeichen U+2714, mit dem abgehakte Tabletten markiert werden.
+    Montserrat enthaelt keine Symbolglyphen; lv_font_conv mischt beide
+    Quellen in eine Ausgabedatei (siehe tools/fonts/erzeuge_fonts.ps1).
+    Quelle: https://github.com/google/fonts/tree/main/ofl/notosanssymbols2
+
+Beide stehen unter derselben Lizenz, deren Text unten folgt.
 
 -----------------------------------------------------------------------------
 

@@ -621,6 +621,25 @@ Umweg über Testdaten war nicht mehr nötig.
   Geloest ueber ein zweites, oeffentliches Repo `peterm2024/seniorenuhr-firmware`, das
   ausschliesslich Binaries mit Platzhalter-Zugangsdaten enthaelt; der Release-Workflow laedt per
   fein granularem PAT (`FIRMWARE_REPO_TOKEN`) dorthin hoch. Kein Token in der Firmware.
+- ✅ Nachtrag 26 (22.08.2026) — Tipp auf einen vergangenen Wochentag zeigt jetzt, was
+  TATSAECHLICH genommen wurde, nicht was anstand. Bis hierher fuellte das Tagesfenster beide
+  Spalten aus dem Kalender; fuer gestern hiess das, dass jede Tablette als unbestaetigt erschien,
+  weil die Bestaetigungen der Kalenderschicht nur fuer heute gelten. Das las sich wie "nichts
+  genommen" — eine Falschaussage ueber Menschen. Die Wahrheit liegt seit dem Tageswechsel im
+  Langzeitprotokoll (Nachtrag zuvor), also speist sich die Tabletten-Spalte fuer vergangene Tage
+  jetzt von dort: gruen im Fenster genommen, bernstein zu spaet, rot gar nicht. Kennt das
+  Protokoll den Tag nicht (Geraet war aus), bleibt die Kalender-Darstellung, aber mit der Zeile
+  "Nicht erfasst." darueber. **Struktur:** Die Einstufung genommen/zu spaet/vergessen lag bisher
+  nur in der Bilanz des Rueckblicks und wurde als `tabletten_protokoll_zustand()` herausgehoben —
+  zwei Kopien duerften nie auseinanderlaufen, sonst zeigt der Rueckblick "zu spaet", wo das
+  Fenster gruen meldet. Die Umsetzung Protokoll -> Anzeige steckt in der neuen, LVGL-freien Datei
+  `main/protokoll_ansicht.c` und ist damit auf dem PC pruefbar (27 neue Faelle, Host-Tests jetzt
+  120). **Zwei Funde am Geraet, beide erst im Screenshot sichtbar:** lange Namen liefen in die
+  Nachbarspalte (FALLSTRICKE #44 — `LV_LABEL_LONG_DOT` braucht Breite UND Hoehe, sonst bricht es
+  um statt abzuschneiden), und der Haken abgehakter Tabletten ist kein `[x]` mehr, sondern ein
+  echter U+2714: `lv_font_conv` kann mehrere Schriften in eine Ausgabe mischen, die fehlende
+  Glyphe kommt aus Noto Sans Symbols 2 (FALLSTRICKE #45 — der alte Schluss "geht nicht" galt der
+  Schrift, nicht dem Werkzeug). Beides gilt auch fuer die Hauptuebersicht.
 - ⬜ Sauberer Kaltstart-Test nach echtem Stromausfall
 - ⬜ Beobachtet, aber noch nicht behoben (unkritischer Rest nach Nachtrag 11): gelegentliche
   einzelne Kalender-Downloads scheitern weiterhin bei schwachem WLAN-Signal

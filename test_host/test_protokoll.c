@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "tabletten_protokoll.h"
+#include "protokoll_ansicht.h"
 
 static int fehler = 0;
 static int geprueft = 0;
@@ -242,6 +243,133 @@ static void test_kuerzen_an_tagesgrenze(void)
     PRUEFE(b.gesamt == b.tage * 6, "jeder erhaltene Tag hat alle 6 Tabletten");
 }
 
+/* ---- Einstufung (tabletten_protokoll_zustand) ------------------------
+ *
+ * Die Regel steckte frueher nur in der Bilanz. Seit sie auch das Tagesfenster
+ * eines vergangenen Tages faerbt, muss sie einzeln geprueft sein - faellt sie
+ * auseinander, zeigt der Rueckblick "zu spaet", wo das Fenster gruen meldet. */
+static void test_zustand_einstufung(void)
+{
+    printf("\nEinstufung eines Eintrags\n");
+
+    tabletten_protokoll_eintrag_t e = { 0 };
+    e.tag_schluessel = 20260818;
+    e.soll_minute = 9 * 60;    /* 09:00 */
+    e.ende_minute = 10 * 60;   /* Fenster bis 10:00 */
+
+    e.ist_minute = -1;
+    PRUEFE(tabletten_protokoll_zustand(&e) == TABLETTEN_ZUSTAND_VERGESSEN,
+           "gar nicht bestaetigt -> vergessen");
+
+    e.ist_minute = 9 * 60 + 30;
+    PRUEFE(tabletten_protokoll_zustand(&e) == TABLETTEN_ZUSTAND_GENOMMEN,
+           "innerhalb des Fensters -> genommen");
+
+    /* Grenzfall, der die Richtung der Ungleichung festnagelt: genau auf der
+     * Fenstergrenze gilt als zu spaet. Ohne diesen Fall wuerde ein Wechsel
+     * von ">=" auf ">" unbemerkt durchgehen. */
+    e.ist_minute = 10 * 60;
+    PRUEFE(tabletten_protokoll_zustand(&e) == TABLETTEN_ZUSTAND_ZU_SPAET,
+           "genau auf der Fenstergrenze -> zu spaet");
+
+    e.ist_minute = 10 * 60 - 1;
+    PRUEFE(tabletten_protokoll_zustand(&e) == TABLETTEN_ZUSTAND_GENOMMEN,
+           "eine Minute vor der Grenze -> genommen");
+
+    e.ist_minute = 23 * 60;
+    PRUEFE(tabletten_protokoll_zustand(&e) == TABLETTEN_ZUSTAND_ZU_SPAET,
+           "lange nach dem Fenster -> zu spaet");
+
+    /* Ohne Fenster (aeltere Aufzeichnung) darf nichts als "zu spaet" gelten -
+     * sonst wuerde eine fehlende Angabe zu einem Vorwurf. */
+    e.ende_minute = -1;
+    e.ist_minute = 23 * 60;
+    PRUEFE(tabletten_protokoll_zustand(&e) == TABLETTEN_ZUSTAND_GENOMMEN,
+           "ohne Fenstergrenze -> genommen, nicht zu spaet");
+
+    PRUEFE(tabletten_protokoll_zustand(NULL) == TABLETTEN_ZUSTAND_VERGESSEN,
+           "NULL-Zeiger stuerzt nicht ab");
+}
+
+/* ---- Aufbereitung fuer die Tagesansicht ------------------------------ */
+static void test_ansicht_aufbereiten(void)
+{
+    printf("\nAufbereitung fuer das Tagesfenster\n");
+
+    tabletten_protokoll_eintrag_t quelle[3] = { 0 };
+    quelle[0].tag_schluessel = 20260818;
+    quelle[0].soll_minute = 9 * 60;        /* 09:00 */
+    quelle[0].ende_minute = 10 * 60;
+    quelle[0].ist_minute = 9 * 60 + 5;     /* puenktlich */
+    snprintf(quelle[0].titel, ICS_TITEL_MAX, "Paracetamol");
+
+    quelle[1].tag_schluessel = 20260818;
+    quelle[1].soll_minute = 19 * 60 + 30;  /* 19:30 */
+    quelle[1].ende_minute = 20 * 60;
+    quelle[1].ist_minute = 21 * 60;        /* zu spaet */
+    snprintf(quelle[1].titel, ICS_TITEL_MAX, "Pantoprazol");
+
+    quelle[2].tag_schluessel = 20260818;
+    quelle[2].soll_minute = -1;            /* ganztaegig */
+    quelle[2].ende_minute = -1;
+    quelle[2].ist_minute = -1;             /* vergessen */
+    snprintf(quelle[2].titel, ICS_TITEL_MAX, "Vitamin D");
+
+    kalender_tag_eintrag_t ziel[3];
+    tabletten_zustand_t zustaende[3];
+    int n = protokoll_ansicht_aufbereiten(quelle, 3, ziel, zustaende, 3);
+
+    PRUEFE(n == 3, "alle drei Eintraege uebernommen");
+    PRUEFE(ziel[0].stunde == 9 && ziel[0].minute == 0, "09:00 richtig zerlegt");
+    PRUEFE(ziel[1].stunde == 19 && ziel[1].minute == 30, "19:30 richtig zerlegt");
+    PRUEFE(!ziel[0].ganztags && !ziel[1].ganztags, "Eintraege mit Uhrzeit sind nicht ganztaegig");
+    PRUEFE(ziel[2].ganztags, "negative Soll-Minute wird als ganztaegig gelesen");
+    PRUEFE(strcmp(ziel[0].titel, "Paracetamol") == 0, "Titel uebernommen");
+    PRUEFE(ziel[0].ist_tablette && ziel[1].ist_tablette && ziel[2].ist_tablette,
+           "alle Eintraege sind als Tablette markiert");
+    PRUEFE(ziel[0].bestaetigt && ziel[1].bestaetigt, "genommene Eintraege sind bestaetigt");
+    PRUEFE(!ziel[2].bestaetigt, "nicht genommener Eintrag ist unbestaetigt");
+    PRUEFE(ziel[0].bestaetigt_minute == 9 * 60 + 5, "Bestaetigungszeit uebernommen");
+
+    /* Der eigentliche Zweck: die Bewertung muss zum Eintrag passen - und
+     * zwar Platz fuer Platz, denn die Anzeige greift parallel zu. */
+    PRUEFE(zustaende[0] == TABLETTEN_ZUSTAND_GENOMMEN, "Platz 0 als genommen bewertet");
+    PRUEFE(zustaende[1] == TABLETTEN_ZUSTAND_ZU_SPAET, "Platz 1 als zu spaet bewertet");
+    PRUEFE(zustaende[2] == TABLETTEN_ZUSTAND_VERGESSEN, "Platz 2 als vergessen bewertet");
+}
+
+/* Randfaelle, die auf dem Geraet einen Ueberlauf bedeuten wuerden. */
+static void test_ansicht_grenzen(void)
+{
+    printf("\nAufbereitung: Grenzfaelle\n");
+
+    tabletten_protokoll_eintrag_t quelle[3] = { 0 };
+    for (int i = 0; i < 3; i++) {
+        quelle[i].soll_minute = (8 + i) * 60;
+        quelle[i].ende_minute = (9 + i) * 60;
+        quelle[i].ist_minute = -1;
+        snprintf(quelle[i].titel, ICS_TITEL_MAX, "T%d", i);
+    }
+
+    kalender_tag_eintrag_t ziel[2];
+    tabletten_zustand_t zustaende[2];
+
+    int n = protokoll_ansicht_aufbereiten(quelle, 3, ziel, zustaende, 2);
+    PRUEFE(n == 2, "mehr Eintraege als Platz: es wird bei max abgeschnitten");
+    PRUEFE(strcmp(ziel[1].titel, "T1") == 0, "die ersten Eintraege werden behalten");
+
+    PRUEFE(protokoll_ansicht_aufbereiten(NULL, 3, ziel, zustaende, 2) == 0,
+           "ohne Quelle: 0 Eintraege");
+    PRUEFE(protokoll_ansicht_aufbereiten(quelle, 3, NULL, zustaende, 2) == 0,
+           "ohne Ziel: 0 Eintraege");
+    PRUEFE(protokoll_ansicht_aufbereiten(quelle, 3, ziel, NULL, 2) == 0,
+           "ohne Zustandsfeld: 0 Eintraege");
+    PRUEFE(protokoll_ansicht_aufbereiten(quelle, 0, ziel, zustaende, 2) == 0,
+           "leere Quelle: 0 Eintraege");
+    PRUEFE(protokoll_ansicht_aufbereiten(quelle, 3, ziel, zustaende, 0) == 0,
+           "kein Platz: 0 Eintraege");
+}
+
 int main(void)
 {
     printf("Tabletten-Protokoll\n");
@@ -254,6 +382,9 @@ int main(void)
     test_leeres_protokoll();
     test_beschaedigte_zeile();
     test_kuerzen_an_tagesgrenze();
+    test_zustand_einstufung();
+    test_ansicht_aufbereiten();
+    test_ansicht_grenzen();
 
     protokoll_leeren();
 
