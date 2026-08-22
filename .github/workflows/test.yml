@@ -9,12 +9,14 @@ on:
     paths:
       - "components/kalender/**"
       - "main/tabletten_protokoll.*"
+      - "main/protokoll_ansicht.*"
       - "main/version_vergleich.*"
       - "test_host/**"
   pull_request:
     paths:
       - "components/kalender/**"
       - "main/tabletten_protokoll.*"
+      - "main/protokoll_ansicht.*"
       - "main/version_vergleich.*"
       - "test_host/**"
 
@@ -44,6 +46,7 @@ jobs:
             -Icomponents/kalender/include -Imain -Itest_host/stubs \
             -include test_host/stubs/testpfade.h \
             main/tabletten_protokoll.c \
+            main/protokoll_ansicht.c \
             test_host/test_protokoll.c \
             -o test_host/test_protokoll
 
