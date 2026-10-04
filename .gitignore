@@ -41,3 +41,7 @@ screenshots_lokal/
 # Claude-Code-Session-Einstellungen (lokale Pfade, Freigaben) - keine
 # Projektkonvention, gehoert nicht in ein oeffentliches Repo
 .claude/settings.json
+
+# Persoenliche Anweisungen fuer Claude Code (Boards, Arbeitsweise) -
+# liest Claude Code automatisch, gehoert nicht ins oeffentliche Repo
+CLAUDE.local.md

@@ -1,6 +1,9 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Persönliches (Boards, Ports, Arbeitsweise des Maintainers) steht in einer
+gitignoreten `CLAUDE.local.md`, die Claude Code zusätzlich liest, falls
+vorhanden.
 
 Kalender-Uhr für hochbetagte Menschen auf dem Waveshare ESP32-S3-Touch-LCD-7.
 ESP-IDF 5.5 + LVGL 9. **Kommunikation, Dokumentation und Code-Kommentare auf
@@ -45,7 +48,7 @@ $env:PRODUKTIONS_BUILD = "1"; idf.py -B build_prod -p COM5 flash
 ```
 
 Absturzprotokoll nach einem Crash (ELF muss zur geflashten Firmware passen,
-für das Eltern-Board also `-B build_prod` mitgeben):
+für das Produktions-Board also `-B build_prod` mitgeben):
 
 ```powershell
 idf.py -p COM5 coredump-info
@@ -56,15 +59,13 @@ Release: `git tag vX.Y.Z && git push --tags` löst
 Zugangsdaten und veröffentlicht die Binary in einem **separaten** Repo
 (`peterm2024/seniorenuhr-firmware`), aus dem das Gerät per OTA lädt.
 
-## Zwei Boards, nicht verwechseln
+## Ein produktiv laufendes Gerät
 
-- **COM3** = Board 1, Entwicklungsboard.
-- **COM5** = Board 2, läuft produktiv bei den Eltern (weit entfernt).
-
-Auf Board 2 **niemals `erase_flash`** — das löscht WLAN-Zugangsdaten,
-Kalender-Adresse und die Tabletten-Bestätigungen. Normales `idf.py flash`
-lässt NVS und die `speicher`-Partition unangetastet. Bei zwei gleichzeitig
-angeschlossenen Boards ist die Verwechslungsgefahr real (siehe Fallstrick 39).
+Auf einem Gerät im Einsatz **niemals `erase_flash`** — das löscht
+WLAN-Zugangsdaten, Kalender-Adresse und die Tabletten-Bestätigungen.
+Normales `idf.py flash` lässt NVS und die `speicher`-Partition
+unangetastet. Bei zwei gleichzeitig angeschlossenen Boards ist die
+Verwechslungsgefahr real (siehe Fallstrick 39).
 
 Serielle Ports finden: `Get-PnpDevice -Class Ports` oder
 `[System.IO.Ports.SerialPort]::GetPortNames()`. **`Win32_SerialPort` sieht die
@@ -112,7 +113,7 @@ Kommentare und die Webkonfig-HTML. Die Tabletten-Präfixe im Kalender
 (`TABLETTE:`, `PILL:`, …) sind **sprachunabhängig** — ein Sprachwechsel darf
 bestehende Kalendereinträge nie entwerten.
 
-**Zugangskonzept:** Die Eltern sollen nie versehentlich in die Einstellungen
+**Zugangskonzept:** Die Nutzer sollen nie versehentlich in die Einstellungen
 geraten. Das Menü ist nur über 5 Sekunden Halten plus Bestätigungsdialog
 erreichbar (`menue_halten_cb` in `app_main.c`, hängt am Update-Symbol und an
 der Status-Tippfläche).
@@ -130,7 +131,7 @@ der Status-Tippfläche).
   Warnungen entschärft). Code, der für das Gerät baut, kann im Host-Test an
   `-Wunused-but-set-variable` scheitern.
 - **Zwei Flash-Varianten im Umlauf**: Board 1 (Entwicklung) ist ein N8R8 mit
-  8 MB, Board 2 (Eltern) ein N16R8 mit 16 MB — letzteres entspricht der
+  8 MB, Board 2 (Produktion) ein N16R8 mit 16 MB — letzteres entspricht der
   Produktseite. Konfiguriert ist **8 MB**, der kleinste gemeinsame Nenner,
   damit dieselbe Binary auf beiden läuft. Ist die Flash-Größe größer
   konfiguriert als der verbaute Chip, bootet das Board in einer
@@ -149,14 +150,15 @@ Doku soll, wird von Hand nach `docs/screenshots/` kopiert.
 
 ## Arbeitsweise in diesem Projekt
 
-- **Peters Beobachtungen ernst nehmen und verifizieren.** Mehrfach lag eine
-  bequeme Erklärung daneben und seine Beobachtung war präzise richtig (siehe
-  die Lehren in Fallstrick 19, 28, 41, 42, 43). Messen statt vermuten.
+- **Beobachtungen am Gerät ernst nehmen und verifizieren.** Mehrfach lag
+  eine bequeme Erklärung daneben und die Beobachtung war präzise richtig
+  (siehe die Lehren in Fallstrick 19, 28, 41, 42, 43). Messen statt
+  vermuten.
 - **Temporäre Instrumentierung ist das Mittel der Wahl**, wenn sich etwas
   nicht anders beweisen lässt — vor dem Commit wieder entfernen und das
   Ergebnis im Commit oder in `FALLSTRICKE_UND_WORKAROUNDS.md` festhalten.
 - **Ein Test muss den Fehlerfall erzeugen, nicht den Normalfall.** Eine
   Prüfung, die auch ohne den Fix grün wäre, beweist nichts.
-- Touch-Bedienung kann nur Peter testen. Screenshots holt
-  `tools/screenshot_flash_abholen.py COM3` aus der Flash-Partition (der Auslöser
-  ist ein Knopf auf dem Gerät, seriell nicht auslösbar).
+- Screenshots holt `tools/screenshot_flash_abholen.py <PORT>` aus der
+  Flash-Partition (der Auslöser ist ein Knopf auf dem Gerät, seriell nicht
+  auslösbar).
